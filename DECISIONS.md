@@ -83,3 +83,24 @@ to DaVinci Resolve / Premiere / VS Code dark) rather than pure `#000`/`#fff`, si
 that's the standard convention for video-editor-style dark UIs and easiest on the eyes
 for long sessions. Exact hex values recorded inline in the theme file itself, not
 duplicated here.
+
+## TypeScript strict mode
+
+The current `create-vite` react-ts template (Vite 8 / TS ~6.0 era, npm dist-tag
+`latest` as of 2026-07-12) ships `tsconfig.app.json`/`tsconfig.node.json` **without**
+`"strict": true` — confirmed via `tsc --showConfig`, which showed no strict-family
+flags enabled at all. That's a change from older Vite templates, which always
+defaulted to strict. Since a project with a nontrivial domain model (project JSON,
+keyframes, transforms per CONTEXT.md §1) benefits a lot from strict null-checking,
+and strict-by-default remains the overwhelming community convention for new TS
+projects, added `"strict": true` explicitly to both tsconfig files rather than
+inheriting the template's laxer default.
+
+Also swapped the template's default linter from `oxlint` (the new create-vite
+default) to ESLint + Prettier, since the task brief explicitly named "ESLint +
+Prettier" as the tooling to use. Used the pre-oxlint conventional ESLint flat-config
+setup (`@eslint/js` + `typescript-eslint` + `eslint-plugin-react-hooks` +
+`eslint-plugin-react-refresh`, `eslint-config-prettier` to defer style rules to
+Prettier) — this is what `create-vite`'s react-ts template shipped before switching
+its default to oxlint, so it's a well-worn, conventional combination rather than a
+novel one.
