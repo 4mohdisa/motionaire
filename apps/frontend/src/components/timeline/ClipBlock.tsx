@@ -135,6 +135,18 @@ function ClipBlock({ clip, trackId }: Props) {
     >
       {clip.kind === 'audio' && <canvas ref={waveRef} className="clip__wave" />}
       <span className="clip__label">{name}</span>
+      {[...new Set(clip.keyframes.map((k) => k.t))].map((t) => (
+        <div
+          key={t}
+          className="clip__kf"
+          style={{ left: t * pxPerSec }}
+          title="Keyframe — click to seek"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            useStore.getState().setPlayhead(clip.start + t)
+          }}
+        />
+      ))}
       <div className="clip__edge clip__edge--l" />
       <div className="clip__edge clip__edge--r" />
     </div>

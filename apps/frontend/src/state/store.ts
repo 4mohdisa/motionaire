@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { current } from 'immer'
-import type { Clip, MediaAsset, Project } from '../types/project'
+import type { Clip, Ease, MediaAsset, Project } from '../types/project'
 import { createProject, defaultTransform, uid } from '../types/project'
 import {
   clampStartToGaps,
@@ -11,6 +11,7 @@ import {
   findClip,
   snapToFrame,
 } from '../engine/time'
+import { resolveProp } from '../engine/keyframes'
 
 const HISTORY_LIMIT = 100
 
@@ -47,6 +48,15 @@ export interface StoreState {
   rippleDeleteClips: (ids: string[]) => void
   duplicateClip: (clipId: string) => void
   detachAudio: (clipId: string) => void
+
+  // --- properties & keyframes ---
+  // Static set; if the prop already has keyframes, upserts a keyframe at the
+  // playhead instead (NLE stopwatch semantics).
+  setClipProperty: (clipId: string, prop: string, value: unknown) => void
+  // Stopwatch/diamond click: arm with first keyframe, or add/remove at playhead.
+  toggleKeyframe: (clipId: string, prop: string) => void
+  clearKeyframes: (clipId: string, prop: string) => void
+  setKeyframeEase: (clipId: string, prop: string, t: number, ease: Ease) => void
 
   // --- transport / ui ---
   setPlayhead: (t: number) => void
@@ -358,6 +368,87 @@ export const useStore = create<StoreState>()(
           clip.linkId = linkId
           clip.volume = 0
           clip.keyframes = clip.keyframes.filter((k) => k.prop !== 'volume')
+        }),
+
+      setClipProperty: (clipId, prop, value) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const { track, clip } = found
+          const fps = p.canvas.fps
+
+          if (prop === 'speed' && typeof value === 'number') {
+            const speed = Math.min(16, Math.max(0.0625, value))
+            clip.speed = speed
+            // Speed changes duration; shrink `out` if we'd overlap the next clip.
+            const nextStart = track.clips
+              .filter((c) => c.id !== clipId && c.start >= clip.start + 1e-6)
+              .reduce((m, c) => Math.min(m, c.start), Infinity)
+            if (clipEnd(clip) > nextStart)
+              clip.out = clip.in + (nextStart - clip.start) * clip.speed
+            return
+          }
+
+          const playheadRel = useStore.getState().playhead - clip.start
+          const isNumeric = typeof value === 'number'
+          const hasKfs = clip.keyframes.some((k) => k.prop === prop)
+
+          if (isNumeric && hasKfs) {
+            // Armed: writing the value creates/updates a keyframe at the playhead.
+            const t = snapToFrame(Math.min(Math.max(0, playheadRel), clipDuration(clip)), fps)
+            const existing = clip.keyframes.find(
+              (k) => k.prop === prop && Math.abs(k.t - t) < 1 / fps / 2,
+            )
+            if (existing) existing.v = value
+            else clip.keyframes.push({ prop, t, v: value, ease: 'easeInOut' })
+            return
+          }
+
+          if (prop === 'volume' && isNumeric) clip.volume = value
+          else if (prop.startsWith('transform.')) {
+            const key = prop.slice('transform.'.length)
+            ;(clip.transform as unknown as Record<string, unknown>)[key] = value
+          }
+        }),
+
+      toggleKeyframe: (clipId, prop) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const { clip } = found
+          const fps = p.canvas.fps
+          const rel = snapToFrame(
+            Math.min(Math.max(0, useStore.getState().playhead - clip.start), clipDuration(clip)),
+            fps,
+          )
+          const idx = clip.keyframes.findIndex(
+            (k) => k.prop === prop && Math.abs(k.t - rel) < 1 / fps / 2,
+          )
+          if (idx >= 0) clip.keyframes.splice(idx, 1)
+          else
+            clip.keyframes.push({
+              prop,
+              t: rel,
+              v: resolveProp(current(clip) as Clip, prop, rel),
+              ease: 'easeInOut',
+            })
+        }),
+
+      clearKeyframes: (clipId, prop) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          found.clip.keyframes = found.clip.keyframes.filter((k) => k.prop !== prop)
+        }),
+
+      setKeyframeEase: (clipId, prop, t, ease) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const kf = found.clip.keyframes.find(
+            (k) => k.prop === prop && Math.abs(k.t - t) < 1 / p.canvas.fps / 2,
+          )
+          if (kf) kf.ease = ease
         }),
 
       setPlayhead: (t) =>
