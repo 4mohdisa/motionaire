@@ -96,6 +96,26 @@ async function dispatch(action: string, path?: string) {
     case 'dev:reload':
       window.location.reload()
       break
+    case 'dev:grade_demo': {
+      // Keyframed grade on the fullscreen cam layer: exposure 0→2 and
+      // saturation 0→-1 across 0..6s — Phase 3 animation verification.
+      await loadPipDemo()
+      const st = useStore.getState()
+      const cam = st.project.tracks
+        .filter((t) => t.kind === 'video')
+        .sort((a, b) => b.z - a.z)[0]?.clips[0]
+      if (!cam) break
+      for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
+        st.clearKeyframes(cam.id, prop)
+      st.setPlayhead(0)
+      st.toggleKeyframe(cam.id, 'grade.exposure')
+      st.toggleKeyframe(cam.id, 'grade.saturation')
+      st.setPlayhead(6)
+      st.setClipProperty(cam.id, 'grade.exposure', 2)
+      st.setClipProperty(cam.id, 'grade.saturation', -1)
+      st.setPlayhead(0.5)
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

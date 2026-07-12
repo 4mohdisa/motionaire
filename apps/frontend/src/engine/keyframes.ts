@@ -34,6 +34,10 @@ export function staticValue(clip: Clip, prop: string): number {
     const v = clip.transform[key]
     return typeof v === 'number' ? v : 0
   }
+  if (prop.startsWith('grade.')) {
+    const g = clip.grade as Record<string, number> | undefined
+    return g?.[prop.slice('grade.'.length)] ?? 0
+  }
   return 0
 }
 

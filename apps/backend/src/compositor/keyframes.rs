@@ -61,6 +61,16 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
         // Crop and shadow are static (non-scalar) properties — no keyframes.
         crop: tr.crop,
         shadow: tr.shadow.clone(),
+        grade: {
+            let g = layer.grade.unwrap_or_default();
+            [
+                resolve(kf, "grade.exposure", g.exposure, t_rel) as f32,
+                resolve(kf, "grade.contrast", g.contrast, t_rel) as f32,
+                resolve(kf, "grade.saturation", g.saturation, t_rel) as f32,
+                resolve(kf, "grade.temperature", g.temperature, t_rel) as f32,
+                resolve(kf, "grade.tint", g.tint, t_rel) as f32,
+            ]
+        },
     }
 }
 

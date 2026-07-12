@@ -24,6 +24,8 @@ struct LayerU {
   uv_rect: vec4<f32>, // u0, v0, u1, v1 — crop window in texture space
   shcolor: vec4<f32>, // shadow rgba (straight alpha); unused for content pass
   canvas:  vec4<f32>, // canvas_w, canvas_h, mode (0 content / 1 shadow), blur px
+  grade1:  vec4<f32>, // exposure(stops), contrast, saturation, temperature
+  grade2:  vec4<f32>, // tint, _, _, _
 };
 
 @group(0) @binding(0) var<uniform> u: LayerU;
@@ -80,7 +82,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   }
   let aa = 1.0 - smoothstep(-0.75, 0.75, sd);
   let c = textureSample(tex, samp, in.uv);
-  return vec4(c.rgb, c.a * aa * u.half_ro.w);
+  // Color grade (identity when all params are zero): exposure in stops,
+  // contrast about mid-gray, saturation via Rec.709 luma, temp/tint as
+  // channel offsets. Applied pre-blend, per layer.
+  var rgb = c.rgb * exp2(u.grade1.x);
+  rgb = (rgb - vec3(0.5, 0.5, 0.5)) * (1.0 + u.grade1.y) + vec3(0.5, 0.5, 0.5);
+  let luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  rgb = mix(vec3(luma, luma, luma), rgb, 1.0 + u.grade1.z);
+  rgb = rgb + vec3(u.grade1.w * 0.1, u.grade2.x * 0.1, -u.grade1.w * 0.1);
+  rgb = clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));
+  return vec4(rgb, c.a * aa * u.half_ro.w);
 }
 "#;
 
@@ -92,6 +103,8 @@ struct LayerUniform {
     uv_rect: [f32; 4],
     shcolor: [f32; 4],
     canvas: [f32; 4],
+    grade1: [f32; 4],
+    grade2: [f32; 4],
 }
 
 struct LayerSlot {
@@ -452,6 +465,8 @@ impl GpuCompositor {
                 uv_rect: [cl, ct2, 1.0 - cr2, 1.0 - cb],
                 shcolor: [0.0; 4],
                 canvas: [cw, ch, 0.0, 0.0],
+                grade1: [r.grade[0], r.grade[1], r.grade[2], r.grade[3]],
+                grade2: [r.grade[4], 0.0, 0.0, 0.0],
             };
             self.queue.write_buffer(&slot.uniform, 0, bytemuck::bytes_of(&content));
 
@@ -474,6 +489,8 @@ impl GpuCompositor {
                         uv_rect: [0.0, 0.0, 1.0, 1.0],
                         shcolor: color,
                         canvas: [cw, ch, 1.0, (sh.blur as f32).max(0.0)],
+                        grade1: [0.0; 4],
+                        grade2: [0.0; 4],
                     };
                     self.queue.write_buffer(&slot.uniform_shadow, 0, bytemuck::bytes_of(&shadow_u));
                 }

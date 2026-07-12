@@ -34,6 +34,18 @@ pub struct Layer {
     pub keyframes: Vec<Kf>,
     #[serde(default)]
     pub transitions: TransitionsCfg,
+    #[serde(default)]
+    pub grade: Option<GradeCfg>,
+}
+
+// Color grade (session 8, Phase 3). All zero = identity.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+pub struct GradeCfg {
+    pub exposure: f64,
+    pub contrast: f64,
+    pub saturation: f64,
+    pub temperature: f64,
+    pub tint: f64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -169,4 +181,6 @@ pub struct ResolvedLayer {
     pub corner_radius: f32,
     pub crop: CropCfg,
     pub shadow: Option<ShadowCfg>,
+    // exposure, contrast, saturation, temperature, tint — all-zero = identity.
+    pub grade: [f32; 5],
 }

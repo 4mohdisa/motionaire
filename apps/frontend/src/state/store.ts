@@ -10,7 +10,7 @@ import type {
   TextStyle,
   Transition,
 } from '../types/project'
-import { createProject, defaultTransform, uid } from '../types/project'
+import { createProject, defaultGrade, defaultTransform, uid } from '../types/project'
 import {
   clampStartToGaps,
   clipDuration,
@@ -495,6 +495,9 @@ export const useStore = create<StoreState>()(
           else if (prop.startsWith('transform.')) {
             const key = prop.slice('transform.'.length)
             ;(clip.transform as unknown as Record<string, unknown>)[key] = value
+          } else if (prop.startsWith('grade.') && isNumeric) {
+            if (!clip.grade) clip.grade = defaultGrade()
+            ;(clip.grade as unknown as Record<string, number>)[prop.slice('grade.'.length)] = value
           }
         }),
 

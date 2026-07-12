@@ -65,6 +65,27 @@ fn main() {
         println!("dumped {}", p.display());
     }
 
+    // Color grade extremes (session 8, Phase 3): fully desaturated and
+    // blown-out exposure must look like exactly that — plus a subtle warm mix.
+    {
+        use motionaire_lib::compositor::types::GradeCfg;
+        let mut gp = demo::demo_project(&screen.path, &cam.path);
+        gp.layers[1].keyframes.clear(); // fullscreen cam covers frame — grade it
+        gp.layers[1].grade = Some(GradeCfg { saturation: -1.0, ..Default::default() });
+        let p = dir.join("check-grade-desat-t2.png");
+        gpu.dump_png(&gp, 2.0, &p).expect("desat dump");
+        println!("dumped {}", p.display());
+        gp.layers[1].grade = Some(GradeCfg { exposure: 2.0, ..Default::default() });
+        let p = dir.join("check-grade-blown-t2.png");
+        gpu.dump_png(&gp, 2.0, &p).expect("blown dump");
+        println!("dumped {}", p.display());
+        gp.layers[1].grade =
+            Some(GradeCfg { temperature: 0.5, contrast: 0.2, ..Default::default() });
+        let p = dir.join("check-grade-warm-t2.png");
+        gpu.dump_png(&gp, 2.0, &p).expect("warm dump");
+        println!("dumped {}", p.display());
+    }
+
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
     // this fast (few respawns), correctness checked by timing + no panics.
     let rev_start = Instant::now();

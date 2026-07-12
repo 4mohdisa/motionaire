@@ -46,6 +46,7 @@ function flatten(project: Project) {
         },
         keyframes: clip.keyframes,
         transitions: clip.transitions,
+        grade: clip.grade ?? null,
       })
     }
   }

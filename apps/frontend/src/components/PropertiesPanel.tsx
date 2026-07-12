@@ -77,6 +77,16 @@ function ClipProperties({ clip }: { clip: Clip }) {
         <ShadowEditor clip={clip} />
       </Section>
 
+      {clip.kind === 'video' && (
+        <Section label="Color">
+          <NumberRow clip={clip} prop="grade.exposure" label="Exposure" step={0.05} min={-2} max={2} />
+          <NumberRow clip={clip} prop="grade.contrast" label="Contrast" step={0.05} min={-1} max={1} />
+          <NumberRow clip={clip} prop="grade.saturation" label="Saturation" step={0.05} min={-1} max={1} />
+          <NumberRow clip={clip} prop="grade.temperature" label="Temp" step={0.05} min={-1} max={1} />
+          <NumberRow clip={clip} prop="grade.tint" label="Tint" step={0.05} min={-1} max={1} />
+        </Section>
+      )}
+
       {clip.mediaId && (
         <Section label="Playback">
           <SpeedRow clip={clip} />
@@ -513,6 +523,10 @@ function staticDisplay(clip: Clip, prop: string): number | undefined {
   if (prop.startsWith('transform.')) {
     const v = (clip.transform as unknown as Record<string, unknown>)[prop.slice(10)]
     return typeof v === 'number' ? v : undefined
+  }
+  if (prop.startsWith('grade.')) {
+    const g = clip.grade as unknown as Record<string, number> | undefined
+    return g?.[prop.slice(6)] ?? 0
   }
   return undefined
 }

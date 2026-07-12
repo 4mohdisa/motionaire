@@ -883,3 +883,18 @@ clips with any effect (keyframes, crop, shadow, grade) show the reference's
 tiny italic "fx" badge. TopBar was already slim post-session-6 — unchanged.
 Verified: native capture of consolidated toolbar + fx badge; pane capture of
 the open zoom dropdown.
+
+## Phase 3 — color grading
+
+Five keyframeable props (`grade.exposure/contrast/saturation/temperature/tint`)
+as a new optional `grade` object on Clip (undefined = identity, no schema
+migration needed; serde default on the Rust side keeps old payloads valid).
+Shader stage extends the existing per-layer fragment math (exactly the crop/
+shadow pattern): exposure in stops (exp2), contrast about mid-gray, saturation
+via Rec.709 luma mix (-1 = grayscale), temperature/tint as ±R/B and ±G channel
+offsets (0.1 gain), clamped; identity when all zero so no branch needed. Ranges
+exposed in the panel: ±2 stops, others ±1. Verified: PNG extremes (true
+grayscale at sat -1, clipped whites at +2 stops, warm shift), and keyframed
+exposure+saturation animating in the real preview via native captures at t=0.5
+vs t=5.5. Static grade values on the clip serve as the keyframe base exactly
+like transform statics.
