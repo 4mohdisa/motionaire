@@ -558,7 +558,7 @@
 }
 
 .tl__headers {
-  flex: 0 0 96px;
+  flex: 0 0 128px;
   border-right: 1px solid var(--border-seam);
   /* Scrolled programmatically in lockstep with .tl__scroll (no own scrollbar). */
   overflow: hidden;
@@ -572,7 +572,9 @@
 .tl__header {
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 6px 0 10px;
   font-size: 11px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-seam);
@@ -1529,4 +1531,60 @@
 .bin__info {
   font-size: 10.5px;
   color: var(--text-secondary);
+}
+
+
+/* Track header controls (session 9, Phase 3) */
+
+.th__name {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.th__rename {
+  width: 100%;
+  min-width: 0;
+  height: 20px;
+  font: inherit;
+  font-size: 11px;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.th__btns {
+  display: flex;
+  gap: 1px;
+  flex: none;
+}
+
+.th__btn {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-disabled);
+  cursor: pointer;
+  padding: 0;
+}
+
+.th__btn:hover {
+  background: var(--bg-control);
+  color: var(--text-primary);
+}
+
+.th__btn--on {
+  color: var(--warning);
+}
+
+.th__btn--solo {
+  color: var(--accent);
 }

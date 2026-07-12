@@ -21,7 +21,7 @@ interface SpikeMedia {
 function flatten(project: Project) {
   const layers = []
   for (const track of project.tracks) {
-    if (track.kind !== 'video') continue
+    if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
       if (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust)) continue
       const asset = clip.adjust ? null : project.media.find((m) => m.id === clip.mediaId)

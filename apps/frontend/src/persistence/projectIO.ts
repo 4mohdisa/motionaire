@@ -176,6 +176,35 @@ export async function freezeFrame(clipId: string): Promise<void> {
   }
 }
 
+// Add an image as a still clip at the playhead (session 9, Phase 3 Add menu).
+export async function importImageNative(): Promise<void> {
+  const picked = await open({
+    title: 'Add image',
+    multiple: false,
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
+  })
+  if (typeof picked !== 'string') return
+  try {
+    const info = await invoke<ProbeResult>('probe_media', { path: picked })
+    const s = useStore.getState()
+    const asset: MediaAsset = {
+      id: uid('m'),
+      path: picked,
+      playbackUrl: convertFileSrc(picked),
+      name: picked.split('/').pop() ?? picked,
+      kind: 'video',
+      duration: 3600, // still convention (see freeze frame)
+      width: info.width || undefined,
+      height: info.height || undefined,
+      hasAudio: false,
+    }
+    s.addMedia(asset)
+    s.insertClipAt(asset.id, null, s.playhead)
+  } catch (e) {
+    await message(`Couldn't add image:\n${e}`, { title: 'Add image failed', kind: 'error' })
+  }
+}
+
 // Native media import: real file paths that survive reloads, probed by ffprobe.
 export async function importMediaNative(): Promise<void> {
   const picked = await open({

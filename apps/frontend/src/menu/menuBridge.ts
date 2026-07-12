@@ -493,6 +493,62 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p3_tracks_test': {
+      // Phase 3 (session 9): add/rename/lock/reorder/hide tracks. The hide
+      // check finishes visually: a follow-up native capture must show no PiP.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p3-tracks', pass, detail }).catch(() => {})
+      const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = () => useStore.getState()
+        st().pause()
+        st().addTrack('video')
+        const vids = () => st().project.tracks.filter((t) => t.kind === 'video')
+        const v3 = vids().find((t) => t.name === 'V3')
+        const added = vids().length === 3 && !!v3 && v3.z === 2
+        st().renameTrack(v3!.id, 'Overlay')
+        await tick()
+        const renamedDom = Array.from(document.querySelectorAll('.th__name')).some(
+          (el) => el.textContent === 'Overlay',
+        )
+        // Lock: every edit against the cam clip must bounce.
+        const cam = vids()
+          .filter((t) => t.clips.length > 0)
+          .sort((a, b) => b.z - a.z)[0]
+        const camClip = cam.clips[0]
+        const startBefore = camClip.start
+        const scaleBefore = camClip.transform.scale
+        st().setTrackFlag(cam.id, 'locked', true)
+        st().moveClip(camClip.id, 5)
+        st().deleteClips([camClip.id])
+        st().setClipProperty(camClip.id, 'transform.scale', 0.33)
+        const after = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === camClip.id)
+        const lockHeld =
+          !!after && after.start === startBefore && after.transform.scale === scaleBefore
+        st().setTrackFlag(cam.id, 'locked', false)
+        // Reorder: swap display order with the neighbor and back.
+        const zBefore = cam.z
+        st().reorderTrack(cam.id, 1)
+        const zAfter = st().project.tracks.find((t) => t.id === cam.id)!.z
+        st().reorderTrack(cam.id, -1)
+        const zBack = st().project.tracks.find((t) => t.id === cam.id)!.z
+        const reordered = zAfter !== zBefore && zBack === zBefore
+        // Hide the cam track and park at t=3 — capture must show no PiP.
+        st().setTrackFlag(cam.id, 'hidden', true)
+        st().setPlayhead(3)
+        void report(
+          added && renamedDom && lockHeld && reordered,
+          `added=${added} renamedDom=${renamedDom} lockHeld=${lockHeld} reorder=${zBefore}→${zAfter}→${zBack} camHidden=true`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

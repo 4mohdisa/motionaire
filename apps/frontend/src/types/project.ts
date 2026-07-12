@@ -122,6 +122,12 @@ export interface Track {
   z: number // compositing order, higher = on top
   name: string
   clips: Clip[]
+  // Session 9, Phase 3 — standard NLE track controls. All optional so old
+  // project.json files load unchanged.
+  muted?: boolean // audio tracks
+  solo?: boolean // audio tracks
+  locked?: boolean // blocks all edits to the track's clips
+  hidden?: boolean // video tracks: excluded from compositing (audio keeps playing, Premiere semantics)
 }
 
 export interface CanvasSettings {

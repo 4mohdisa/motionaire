@@ -163,7 +163,12 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
     }
 
     // Keyframe times are clip-relative in TIMELINE seconds (t - clip.start).
-    const vol = resolveProp(clip, 'volume', t - clip.start)
+    // Track mute/solo (session 9, Phase 3): solo is scoped per kind; a muted
+    // or un-solo'd track zeroes its clips' audio. Hidden stays audio-neutral
+    // (Premiere eye semantics: video only).
+    const anySolo = p.tracks.some((tr) => tr.kind === found.track.kind && tr.solo)
+    const trackGain = found.track.muted || (anySolo && !found.track.solo) ? 0 : 1
+    const vol = resolveProp(clip, 'volume', t - clip.start) * trackGain
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
     el.playbackRate = Math.min(

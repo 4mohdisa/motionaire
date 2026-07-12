@@ -1,7 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Ellipsis, Scissors, SlidersHorizontal, Trash2, ZoomIn } from 'lucide-react'
+import {
+  Ellipsis,
+  Eye,
+  EyeOff,
+  Headphones,
+  Lock,
+  LockOpen,
+  Plus,
+  Scissors,
+  SlidersHorizontal,
+  Trash2,
+  Volume2,
+  VolumeX,
+  ZoomIn,
+} from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
+import type { Track } from '../../types/project'
 import { findClip } from '../../engine/time'
 import { isTauri } from '../../compositor/bridge'
 import { TimelineContext, type LaneRect, type TimelineCtx } from './timelineContext'
@@ -198,6 +213,27 @@ function Timeline() {
   return (
     <footer className="tl">
       <div className="tl__toolbar">
+        <Dropdown icon={Plus} label="Add">
+          <DropdownItem
+            label="Video track"
+            onClick={() => useStore.getState().addTrack('video')}
+          />
+          <DropdownItem
+            label="Audio track"
+            onClick={() => useStore.getState().addTrack('audio')}
+          />
+          <DropdownItem label="Text at playhead" onClick={() => useStore.getState().addTextClip()} />
+          <DropdownItem
+            label="Image…"
+            onClick={() => {
+              void import('../../persistence/projectIO').then((m) => m.importImageNative())
+            }}
+          />
+          <DropdownItem
+            label="Adjustment layer at playhead"
+            onClick={() => useStore.getState().addAdjustmentLayer()}
+          />
+        </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
         <IconBtn
           icon={Trash2}
@@ -269,13 +305,7 @@ function Timeline() {
         <div className="tl__headers" ref={headersRef}>
           <div className="tl__headers-ruler" />
           {ordered.map((t) => (
-            <div
-              key={t.id}
-              className={`tl__header${t.kind === 'audio' ? ' tl__header--audio' : ''}`}
-              style={{ height: LANE_HEIGHT[t.kind] }}
-            >
-              {t.name}
-            </div>
+            <TrackHeader key={t.id} track={t} height={LANE_HEIGHT[t.kind]} />
           ))}
         </div>
         <div
@@ -339,6 +369,98 @@ function Timeline() {
         />
       )}
     </footer>
+  )
+}
+
+// Track header (session 9, Phase 3): rename, per-kind toggles, drag reorder.
+function TrackHeader({ track, height }: { track: Track; height: number }) {
+  const [editing, setEditing] = useState(false)
+
+  // Drag to reorder: crossing ~70% of a lane height swaps with the neighbor.
+  const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button, input')) return
+    let lastY = e.clientY
+    const move = (ev: PointerEvent) => {
+      const dy = ev.clientY - lastY
+      if (Math.abs(dy) > height * 0.7) {
+        useStore.getState().reorderTrack(track.id, dy > 0 ? 1 : -1)
+        lastY = ev.clientY
+      }
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const flag = (f: 'muted' | 'solo' | 'locked' | 'hidden') =>
+    useStore.getState().setTrackFlag(track.id, f, !track[f])
+
+  return (
+    <div
+      className={`tl__header${track.kind === 'audio' ? ' tl__header--audio' : ''}`}
+      style={{ height }}
+      onPointerDown={onPointerDown}
+      title="Drag to reorder"
+    >
+      {editing ? (
+        <input
+          className="th__rename selectable"
+          defaultValue={track.name}
+          autoFocus
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
+          }}
+          onBlur={(e) => {
+            useStore.getState().renameTrack(track.id, e.target.value)
+            setEditing(false)
+          }}
+        />
+      ) : (
+        <span className="th__name" onDoubleClick={() => setEditing(true)}>
+          {track.name}
+        </span>
+      )}
+      <span className="th__btns">
+        {track.kind === 'video' && (
+          <button
+            className={`th__btn${track.hidden ? ' th__btn--on' : ''}`}
+            title={track.hidden ? 'Show track' : 'Hide track'}
+            onClick={() => flag('hidden')}
+          >
+            {track.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
+        )}
+        {track.kind === 'audio' && (
+          <>
+            <button
+              className={`th__btn${track.muted ? ' th__btn--on' : ''}`}
+              title={track.muted ? 'Unmute' : 'Mute'}
+              onClick={() => flag('muted')}
+            >
+              {track.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+            </button>
+            <button
+              className={`th__btn${track.solo ? ' th__btn--solo' : ''}`}
+              title="Solo"
+              onClick={() => flag('solo')}
+            >
+              <Headphones size={12} />
+            </button>
+          </>
+        )}
+        <button
+          className={`th__btn${track.locked ? ' th__btn--on' : ''}`}
+          title={track.locked ? 'Unlock track' : 'Lock track'}
+          onClick={() => flag('locked')}
+        >
+          {track.locked ? <Lock size={12} /> : <LockOpen size={12} />}
+        </button>
+      </span>
+    </div>
   )
 }
 

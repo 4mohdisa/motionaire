@@ -1035,3 +1035,25 @@ listing: loadPipDemo accumulated duplicate media assets on repeat loads —
 invisible for eight sessions because nothing ever showed the media array.
 Verified: p2-bin PASS (real DnD DragEvents land a clip at exactly 12s;
 removeMedia sweeps) + native capture of the populated bin.
+
+## Phase 3 — add-layer UX, track controls, reordering
+
+- **Add menu** ("+" dropdown, first slot in the timeline toolbar): video
+  track, audio track, text at playhead, image (probe → still asset →
+  insertClipAt), adjustment layer. "Add Shape" deliberately omitted until
+  Phase 7 actually lands shapes — no dead menu items (per plan).
+- **Track flags** as optional Track fields (muted/solo/locked/hidden) so old
+  bundles load untouched. Video tracks expose eye+lock, audio expose
+  mute+solo+lock (Premiere convention). Hidden excludes the track from
+  flatten() (compositor) but leaves audio alone — the Premiere eye is
+  video-only, logged. Solo is kind-scoped in the playback engine's gain
+  math. Locked is enforced centrally in the STORE actions (move/trim/split/
+  delete/ripple/duplicate/insert/property/keyframe) — one guard per mutation
+  beats scattering checks through UI handlers; every input path (pointer,
+  menu, shortcuts, future AI tools) inherits it for free.
+- **Reordering:** drag a header vertically; crossing ~70% of a lane height
+  swaps z with the display neighbor (kind-scoped). Each swap is one undo
+  step — a 3-slot drag is 3 undos; acceptable, logged.
+- Verified: p3-tracks PASS (add/rename-in-DOM/lock-bounces-all-edits/
+  reorder round-trip) + native capture: V2 hidden via the eye → the cam PiP
+  is absent from the composited frame while V2's clip stays on the timeline.

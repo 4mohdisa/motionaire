@@ -131,6 +131,13 @@ export interface StoreState {
   frameStep: (frames: number) => void
   select: (ids: string[], mode?: 'set' | 'add' | 'toggle') => void
 
+  // --- tracks (session 9, Phase 3) ---
+  addTrack: (kind: 'video' | 'audio') => void
+  renameTrack: (trackId: string, name: string) => void
+  setTrackFlag: (trackId: string, flag: 'muted' | 'solo' | 'locked' | 'hidden', v: boolean) => void
+  // Move a track one slot up/down in DISPLAY order (swaps z with the neighbor).
+  reorderTrack: (trackId: string, dir: 1 | -1) => void
+
   // --- markers ---
   addMarkerAtPlayhead: () => void
   renameMarker: (id: string, label: string) => void
@@ -288,8 +295,8 @@ export const useStore = create<StoreState>()(
           if (!asset) return
           // Wrong-kind lane (or no lane): fall back to the first matching track.
           let track = trackId ? p.tracks.find((t) => t.id === trackId) : undefined
-          if (!track || track.kind !== asset.kind)
-            track = p.tracks.find((t) => t.kind === asset.kind)
+          if (!track || track.kind !== asset.kind || track.locked)
+            track = p.tracks.find((t) => t.kind === asset.kind && !t.locked)
           if (!track) return
           const still = /\.(png|jpe?g)$/i.test(asset.path)
           const dur = still ? 3 : asset.duration
@@ -359,7 +366,7 @@ export const useStore = create<StoreState>()(
         mutateProject(
           (p) => {
             const found = findClip(p, clipId)
-            if (!found) return
+            if (!found || found.track.locked) return
             const { track, clip, index } = found
             const target = trackId ? p.tracks.find((t) => t.id === trackId) : track
             if (!target || target.kind !== track.kind) return
@@ -386,7 +393,7 @@ export const useStore = create<StoreState>()(
             const newStart = new Map<string, number>()
             for (const e of entries) {
               const found = findClip(p, e.id)
-              if (!found) return
+              if (!found || found.track.locked) return
               const s = snapToFrame(Math.max(0, e.start), p.canvas.fps)
               moves.push({ clip: found.clip, track: found.track, start: s })
               newStart.set(e.id, s)
@@ -410,7 +417,7 @@ export const useStore = create<StoreState>()(
         mutateProject(
           (p) => {
             const found = findClip(p, clipId)
-            if (!found) return
+            if (!found || found.track.locked) return
             const { track, clip } = found
             const fps = p.canvas.fps
             const minDur = 1 / fps
@@ -465,7 +472,7 @@ export const useStore = create<StoreState>()(
       splitClip: (clipId, at) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
-          if (!found) return
+          if (!found || found.track.locked) return
           const { track, clip, index } = found
           const fps = p.canvas.fps
           const t = snapToFrame(at, fps)
@@ -504,12 +511,16 @@ export const useStore = create<StoreState>()(
 
       deleteClips: (ids) =>
         mutateProject((p) => {
-          for (const tr of p.tracks) tr.clips = tr.clips.filter((c) => !ids.includes(c.id))
+          for (const tr of p.tracks) {
+            if (tr.locked) continue
+            tr.clips = tr.clips.filter((c) => !ids.includes(c.id))
+          }
         }),
 
       rippleDeleteClips: (ids) =>
         mutateProject((p) => {
           for (const tr of p.tracks) {
+            if (tr.locked) continue
             const removed = tr.clips
               .filter((c) => ids.includes(c.id))
               .map((c) => ({ start: c.start, span: clipDuration(c) }))
@@ -528,7 +539,7 @@ export const useStore = create<StoreState>()(
       duplicateClip: (clipId) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
-          if (!found) return
+          if (!found || found.track.locked) return
           const { track, clip } = found
           const copy: Clip = structuredClone(current(clip)) as Clip
           copy.id = uid('c')
@@ -598,7 +609,7 @@ export const useStore = create<StoreState>()(
       setClipProperty: (clipId, prop, value) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
-          if (!found) return
+          if (!found || found.track.locked) return
           const { track, clip } = found
           const fps = p.canvas.fps
 
@@ -642,7 +653,7 @@ export const useStore = create<StoreState>()(
       toggleKeyframe: (clipId, prop) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
-          if (!found) return
+          if (!found || found.track.locked) return
           const { clip } = found
           const fps = p.canvas.fps
           const rel = snapToFrame(
@@ -843,6 +854,49 @@ export const useStore = create<StoreState>()(
               if (i >= 0) s.selection.splice(i, 1)
               else s.selection.push(id)
             }
+        }),
+
+      addTrack: (kind) =>
+        mutateProject((p) => {
+          const same = p.tracks.filter((t) => t.kind === kind)
+          const z = same.length ? Math.max(...same.map((t) => t.z)) + 1 : 0
+          const tr: Track = {
+            id: uid('t'),
+            kind,
+            z,
+            name: `${kind === 'video' ? 'V' : 'A'}${same.length + 1}`,
+            clips: [],
+          }
+          if (kind === 'video') p.tracks.unshift(tr)
+          else p.tracks.push(tr)
+        }),
+
+      renameTrack: (trackId, name) =>
+        mutateProject((p) => {
+          const t = p.tracks.find((x) => x.id === trackId)
+          if (t && name.trim()) t.name = name.trim()
+        }),
+
+      setTrackFlag: (trackId, flag, v) =>
+        mutateProject((p) => {
+          const t = p.tracks.find((x) => x.id === trackId)
+          if (t) t[flag] = v
+        }),
+
+      reorderTrack: (trackId, dir) =>
+        mutateProject((p) => {
+          const track = p.tracks.find((t) => t.id === trackId)
+          if (!track) return
+          const group = p.tracks
+            .filter((t) => t.kind === track.kind)
+            .sort((a, b) => (track.kind === 'video' ? b.z - a.z : a.z - b.z))
+          const i = group.indexOf(track)
+          const j = i + dir
+          if (j < 0 || j >= group.length) return
+          const other = group[j]
+          const tmp = track.z
+          track.z = other.z
+          other.z = tmp
         }),
 
       addMarkerAtPlayhead: () =>
