@@ -337,6 +337,7 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
   if (!clipId) {
     return [
       { label: 'Add text at playhead', onClick: () => s.addTextClip() },
+      { label: 'Add adjustment layer at playhead', onClick: () => s.addAdjustmentLayer() },
       { label: 'Paste is coming later', onClick: () => {}, disabled: true },
     ]
   }

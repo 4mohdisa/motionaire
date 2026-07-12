@@ -380,9 +380,22 @@ impl GpuCompositor {
                 .then(a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal))
         });
 
+        // Adjustment layers: resolve each one's (possibly keyframed) grade at t
+        // and add it onto every lower-z layer below. ponytail: component-wise
+        // sum — exact when the target has no grade of its own; stacked grades
+        // approximate (sequential shader passes don't commute into one tuple).
+        let adjusts: Vec<(i32, [f32; 5])> = active
+            .iter()
+            .filter(|l| l.adjust && l.active_at(t))
+            .map(|l| (l.z, resolve_layer(l, t).grade))
+            .collect();
+
         // Upload decoded frames + uniforms before encoding the pass.
         let mut draws: Vec<(String, bool)> = Vec::new(); // (path, has_shadow)
         for layer in &active {
+            if layer.adjust {
+                continue; // no pixels of its own
+            }
             if self.slot_for(&layer.media_path).is_err() {
                 continue; // unreadable media: skip layer, keep compositing the rest
             }
@@ -410,6 +423,13 @@ impl GpuCompositor {
             }
 
             let mut r = resolve_layer(layer, t);
+            for (az, ag) in &adjusts {
+                if *az > layer.z {
+                    for i in 0..5 {
+                        r.grade[i] += ag[i];
+                    }
+                }
+            }
 
             // --- Transitions (session 7, Part 3) ---
             // In-edge window [start, start+d): dissolve/fade modulate alpha,

@@ -105,6 +105,7 @@ export interface StoreState {
   // --- transitions & text ---
   setTransition: (clipId: string, edge: 'in' | 'out', transition: Transition | null) => void
   addTextClip: (content?: string) => void
+  addAdjustmentLayer: () => void
   updateTextClip: (
     clipId: string,
     patch: { content?: string; style?: Partial<TextStyle>; animation?: Partial<TextAnimation> },
@@ -656,6 +657,46 @@ export const useStore = create<StoreState>()(
           }
           expandTextAnimation(clip)
           track.clips.push(clip)
+        }),
+
+      addAdjustmentLayer: () =>
+        mutateProject((p) => {
+          // Topmost video track so the grade reaches every video track below;
+          // if the playhead spot is taken there, grow a new track on top
+          // (Premiere semantics — adjustment layers ride above the stack).
+          const vids = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)
+          if (!vids.length) return
+          const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
+          const duration = 4
+          let track = vids[0]
+          const fits = !track.clips.some(
+            (c) => start < clipEnd(c) && start + duration > c.start,
+          )
+          if (!fits) {
+            track = {
+              id: uid('t'),
+              kind: 'video',
+              z: vids[0].z + 1,
+              name: `V${vids.length + 1}`,
+              clips: [],
+            }
+            p.tracks.unshift(track)
+          }
+          track.clips.push({
+            id: uid('c'),
+            kind: 'video',
+            adjust: true,
+            start,
+            in: 0,
+            out: duration,
+            speed: 1,
+            volume: 0,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+            grade: defaultGrade(),
+          })
         }),
 
       updateTextClip: (clipId, patch) =>

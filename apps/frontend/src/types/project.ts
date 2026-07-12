@@ -98,6 +98,7 @@ export interface Clip {
   text?: TextStyle
   animation?: TextAnimation
   grade?: Grade // color grade; undefined = no grade pass
+  adjust?: boolean // adjustment layer: no source; grade applies to all lower z
 }
 
 export interface MediaAsset {

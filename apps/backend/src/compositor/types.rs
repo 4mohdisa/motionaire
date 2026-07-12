@@ -36,6 +36,10 @@ pub struct Layer {
     pub transitions: TransitionsCfg,
     #[serde(default)]
     pub grade: Option<GradeCfg>,
+    // Adjustment layer (session 8, Phase 5): no source; its grade is folded
+    // onto every lower-z layer for its span.
+    #[serde(default)]
+    pub adjust: bool,
 }
 
 // Color grade (session 8, Phase 3). All zero = identity.

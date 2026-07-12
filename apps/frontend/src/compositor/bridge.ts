@@ -23,13 +23,14 @@ function flatten(project: Project) {
   for (const track of project.tracks) {
     if (track.kind !== 'video') continue
     for (const clip of track.clips) {
-      if (clip.kind !== 'video' || !clip.mediaId) continue
-      const asset = project.media.find((m) => m.id === clip.mediaId)
-      if (!asset || !asset.path.startsWith('/')) continue
+      if (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust)) continue
+      const asset = clip.adjust ? null : project.media.find((m) => m.id === clip.mediaId)
+      if (!clip.adjust && (!asset || !asset.path.startsWith('/'))) continue
       layers.push({
         id: clip.id,
         z: track.z,
-        mediaPath: asset.path,
+        mediaPath: asset?.path ?? '',
+        adjust: clip.adjust ?? false,
         start: clip.start,
         in: clip.in,
         out: clip.out,

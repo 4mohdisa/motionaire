@@ -270,6 +270,39 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_adjust_demo': {
+      // Phase 5 item 4 scene: adjustment layer (sat -1, exposure +0.6) over
+      // the PiP demo from t=2..6 — capture inside vs outside the span.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-adjust', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPlayhead(2)
+        const before = st().project.tracks.filter((t) => t.kind === 'video').length
+        st().addAdjustmentLayer()
+        const adj = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.adjust)
+        if (!adj) {
+          void report(false, 'no adjustment clip created')
+          break
+        }
+        st().setClipProperty(adj.id, 'grade.saturation', -1)
+        st().setClipProperty(adj.id, 'grade.exposure', 0.6)
+        st().setPlayhead(3)
+        const after = st().project.tracks.filter((t) => t.kind === 'video').length
+        void report(
+          after === before + 1 && adj.start === 2,
+          `newTrack=${after > before} start=${adj.start} span=[2,6)`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

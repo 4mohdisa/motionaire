@@ -112,6 +112,7 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                 keyframes: vec![],
                 transitions: Default::default(),
                 grade: None,
+                adjust: false,
             },
             Layer {
                 id: "spike_cam".into(),
@@ -142,6 +143,7 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                 ],
                 transitions: Default::default(),
                 grade: None,
+                adjust: false,
             },
         ],
     }

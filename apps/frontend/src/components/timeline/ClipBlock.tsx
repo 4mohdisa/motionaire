@@ -153,14 +153,15 @@ function ClipBlock({ clip, trackId }: Props) {
     clip.transform.shadow != null ||
     c.l + c.t + c.r + c.b > 0 ||
     clip.grade != null
-  const name =
-    clip.kind === 'text'
+  const name = clip.adjust
+    ? 'Adjustment'
+    : clip.kind === 'text'
       ? (clip.text?.content ?? 'Text')
       : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
 
   return (
     <div
-      className={`clip clip--${clip.kind}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
+      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
       style={{ left: clip.start * pxPerSec, width: widthPx }}
       data-clip-id={clip.id}
       data-track-id={trackId}

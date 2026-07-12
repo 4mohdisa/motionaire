@@ -734,6 +734,10 @@
   background: #7d6033;
 }
 
+.clip--adjust {
+  background: repeating-linear-gradient(-45deg, #5d3d7d, #5d3d7d 10px, #52356e 10px, #52356e 20px);
+}
+
 .clip--selected {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);

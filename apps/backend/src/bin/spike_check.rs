@@ -86,6 +86,31 @@ fn main() {
         println!("dumped {}", p.display());
     }
 
+    // Adjustment layer (session 8, Phase 5): a source-less adjust layer above
+    // BOTH demo layers desaturates the whole stack inside its span only.
+    {
+        use motionaire_lib::compositor::types::GradeCfg;
+        let mut ap = demo::demo_project(&screen.path, &cam.path);
+        let mut adj = ap.layers[0].clone();
+        adj.id = "adjust".into();
+        adj.z = 99;
+        adj.media_path = String::new();
+        adj.adjust = true;
+        adj.start = 1.0;
+        adj.in_ = 0.0;
+        adj.out = 3.0; // active span [1,4)
+        adj.keyframes.clear();
+        adj.transitions = Default::default();
+        adj.grade = Some(GradeCfg { saturation: -1.0, ..Default::default() });
+        ap.layers.push(adj);
+        let p = dir.join("check-adjust-inside-t2.png");
+        gpu.dump_png(&ap, 2.0, &p).expect("adjust inside dump");
+        println!("dumped {}", p.display());
+        let p = dir.join("check-adjust-outside-t5.png");
+        gpu.dump_png(&ap, 5.0, &p).expect("adjust outside dump");
+        println!("dumped {}", p.display());
+    }
+
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
     // this fast (few respawns), correctness checked by timing + no panics.
     let rev_start = Instant::now();
