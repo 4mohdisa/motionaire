@@ -43,6 +43,28 @@ pub struct TransformCfg {
     pub rotation: f64,
     pub opacity: f64,
     pub corner_radius: f64,
+    #[serde(default)]
+    pub crop: CropCfg,
+    #[serde(default)]
+    pub shadow: Option<ShadowCfg>,
+}
+
+// Crop as fractions of the source frame (0..1 per edge), CONTEXT.md §1.2 shape.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+pub struct CropCfg {
+    pub l: f64,
+    pub t: f64,
+    pub r: f64,
+    pub b: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ShadowCfg {
+    pub blur: f64,
+    pub spread: f64,
+    pub color: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -66,7 +88,7 @@ impl Layer {
 }
 
 // Resolved per-layer draw parameters at one instant, all in canvas pixels.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ResolvedLayer {
     pub x: f32,
     pub y: f32,
@@ -74,4 +96,6 @@ pub struct ResolvedLayer {
     pub rotation_deg: f32,
     pub opacity: f32,
     pub corner_radius: f32,
+    pub crop: CropCfg,
+    pub shadow: Option<ShadowCfg>,
 }

@@ -86,6 +86,8 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
         rotation: 0.0,
         opacity: 1.0,
         corner_radius: 0.0,
+        crop: Default::default(),
+        shadow: None,
     };
     // 1920x1080 canvas; PiP target: 10% scale, bottom-right, 32px margin, r=12.
     let px = 0.45 * 1920.0 - 32.0; // 832

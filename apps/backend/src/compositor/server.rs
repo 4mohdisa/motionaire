@@ -9,8 +9,14 @@ use tokio::sync::watch;
 //
 // Header (little-endian): u32 magic "MOTN", u16 w, u16 h, f32 timeline_t, f32 render_fps
 
-pub const PORT: u16 = 43117;
 pub const MAGIC: u32 = 0x4D4F544E;
+
+pub fn port() -> u16 {
+    std::env::var("MOTIONAIRE_WS_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(43117)
+}
 
 pub fn frame_message(w: u16, h: u16, t: f32, fps: f32, rgba: &[u8]) -> Bytes {
     let mut buf = Vec::with_capacity(16 + rgba.len());
@@ -24,14 +30,15 @@ pub fn frame_message(w: u16, h: u16, t: f32, fps: f32, rgba: &[u8]) -> Bytes {
 }
 
 pub async fn run(rx: watch::Receiver<Bytes>, client_count: std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    let listener = match TcpListener::bind(("127.0.0.1", PORT)).await {
+    let port = port();
+    let listener = match TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => l,
         Err(e) => {
-            log::error!("compositor ws: bind failed on {PORT}: {e}");
+            log::error!("compositor ws: bind failed on {port}: {e}");
             return;
         }
     };
-    log::info!("compositor ws: listening on ws://127.0.0.1:{PORT}");
+    log::info!("compositor ws: listening on ws://127.0.0.1:{port}");
     loop {
         let Ok((stream, peer)) = listener.accept().await else { continue };
         let mut rx = rx.clone();

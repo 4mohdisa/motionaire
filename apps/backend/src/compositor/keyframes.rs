@@ -58,6 +58,9 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
         rotation_deg: resolve(kf, "transform.rotation", tr.rotation, t_rel) as f32,
         opacity: resolve(kf, "transform.opacity", tr.opacity, t_rel) as f32,
         corner_radius: resolve(kf, "transform.cornerRadius", tr.corner_radius, t_rel) as f32,
+        // Crop and shadow are static (non-scalar) properties — no keyframes.
+        crop: tr.crop,
+        shadow: tr.shadow.clone(),
     }
 }
 

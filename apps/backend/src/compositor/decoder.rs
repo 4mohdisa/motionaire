@@ -1,10 +1,16 @@
+use std::collections::VecDeque;
 use std::io::Read;
 use std::process::{Child, ChildStdout, Command, Stdio};
 
-// FFmpeg as a subprocess piping rawvideo RGBA — CONTEXT.md §3.4's blessed pattern
-// ("FFmpeg CLI, run as a subprocess"). No libav linking, no version hell.
-// ponytail: no hardware-decode surface sharing this way; the C-API + VideoToolbox
-// zero-copy path is the upgrade when decode becomes the measured bottleneck.
+// FFmpeg as a subprocess piping rawvideo RGBA — CONTEXT.md §3.4's blessed pattern.
+//
+// Forward playback reads sequentially, paced by pipe backpressure. Every decoded
+// frame also lands in a byte-capped trailing ring, which makes reverse playback
+// real: backward targets serve from the ring at full rate; a ring miss refills a
+// whole chunk with ONE seek-respawn instead of one per frame (what the browser
+// had to do in session 2).
+// ponytail: ring is plain copies, ~a hundred MB cap; zero-copy hw-decode surfaces
+// are the upgrade when 4K sources arrive.
 
 pub fn ffmpeg_bin() -> String {
     if let Ok(p) = std::env::var("MOTIONAIRE_FFMPEG") {
@@ -35,12 +41,26 @@ pub struct MediaInfo {
     pub duration: f64,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FullMediaInfo {
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+    pub duration: f64,
+    pub has_audio: bool,
+}
+
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
+    let f = probe_full(path)?;
+    Ok(MediaInfo { width: f.width, height: f.height, fps: f.fps, duration: f.duration })
+}
+
+pub fn probe_full(path: &str) -> Result<FullMediaInfo, String> {
     let out = Command::new(ffprobe_bin())
         .args([
             "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,duration",
+            "-show_entries", "stream=codec_type,width,height,avg_frame_rate,duration:format=duration",
             "-of", "json",
             path,
         ])
@@ -51,9 +71,18 @@ pub fn probe(path: &str) -> Result<MediaInfo, String> {
     }
     let v: serde_json::Value =
         serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
-    let s = v["streams"]
-        .get(0)
-        .ok_or_else(|| format!("no video stream in {path}"))?;
+    let streams = v["streams"].as_array().cloned().unwrap_or_default();
+    let video = streams.iter().find(|s| s["codec_type"] == "video");
+    let has_audio = streams.iter().any(|s| s["codec_type"] == "audio");
+    let format_duration: f64 = v["format"]["duration"]
+        .as_str()
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0.0);
+
+    let Some(s) = video else {
+        // Audio-only media is legitimate (detached audio, music beds).
+        return Ok(FullMediaInfo { width: 0, height: 0, fps: 0.0, duration: format_duration, has_audio });
+    };
     let rate = s["avg_frame_rate"].as_str().unwrap_or("30/1");
     let fps = {
         let mut it = rate.split('/');
@@ -61,46 +90,89 @@ pub fn probe(path: &str) -> Result<MediaInfo, String> {
         let d: f64 = it.next().unwrap_or("1").parse().unwrap_or(1.0);
         if d > 0.0 && n > 0.0 { n / d } else { 30.0 }
     };
-    Ok(MediaInfo {
+    let duration = s["duration"]
+        .as_str()
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(format_duration);
+    Ok(FullMediaInfo {
         width: s["width"].as_u64().unwrap_or(0) as u32,
         height: s["height"].as_u64().unwrap_or(0) as u32,
         fps,
-        duration: s["duration"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0.0),
+        duration,
+        has_audio,
     })
 }
 
-// Sequential rawvideo reader with reseek-on-jump. Forward playback reads ahead
-// frame by frame; a backward jump or a large forward jump respawns ffmpeg with -ss.
+fn ring_budget_bytes() -> usize {
+    std::env::var("MOTIONAIRE_RING_MB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(96)
+        * 1024
+        * 1024
+}
+
 pub struct Decoder {
     pub path: String,
     pub info: MediaInfo,
+    short_name: String,
     child: Option<Child>,
     stdout: Option<ChildStdout>,
     cur_idx: i64, // frame index currently held in `frame`, -1 = none
     frame: Vec<u8>,
     frame_bytes: usize,
+    // Trailing ring of decoded frames (idx ascending), byte-capped.
+    ring: VecDeque<(i64, Box<[u8]>)>,
+    ring_bytes: usize,
+    ring_cap_bytes: usize,
+    pub respawns: u64,
+    pub child_deaths: u64,
 }
 
 impl Decoder {
     pub fn new(path: &str) -> Result<Self, String> {
         let info = probe(path)?;
         if info.width == 0 || info.height == 0 {
-            return Err(format!("bad dimensions for {path}"));
+            return Err(format!("no video stream in {path}"));
         }
         let frame_bytes = (info.width * info.height * 4) as usize;
+        let short_name = std::path::Path::new(path)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
         Ok(Self {
             path: path.to_string(),
             info,
+            short_name,
             child: None,
             stdout: None,
             cur_idx: -1,
             frame: vec![0u8; frame_bytes],
             frame_bytes,
+            ring: VecDeque::new(),
+            ring_bytes: 0,
+            ring_cap_bytes: ring_budget_bytes(),
+            respawns: 0,
+            child_deaths: 0,
         })
     }
 
-    fn respawn(&mut self, at_idx: i64) -> Result<(), String> {
-        self.kill();
+    pub fn ring_capacity_frames(&self) -> i64 {
+        (self.ring_cap_bytes / self.frame_bytes).max(4) as i64
+    }
+
+    fn respawn(&mut self, at_idx: i64, reason: &str) -> Result<(), String> {
+        self.kill_child();
+        // The ring requires contiguous indices; any seek invalidates it.
+        self.ring.clear();
+        self.ring_bytes = 0;
+        self.respawns += 1;
+        log::info!(
+            "decoder[{}]: respawn #{} at frame {} ({reason})",
+            self.short_name,
+            self.respawns,
+            at_idx
+        );
         let seek_t = at_idx.max(0) as f64 / self.info.fps;
         let mut child = Command::new(ffmpeg_bin())
             .args([
@@ -118,7 +190,7 @@ impl Decoder {
             .map_err(|e| format!("ffmpeg spawn: {e}"))?;
         self.stdout = child.stdout.take();
         self.child = Some(child);
-        self.cur_idx = at_idx - 1; // next read produces at_idx
+        self.cur_idx = at_idx - 1;
         Ok(())
     }
 
@@ -127,28 +199,92 @@ impl Decoder {
         match out.read_exact(&mut self.frame) {
             Ok(()) => {
                 self.cur_idx += 1;
+                self.push_ring(self.cur_idx);
                 true
             }
-            Err(_) => false, // EOF — hold last frame
+            Err(_) => false, // EOF or dead child; classified by caller
         }
     }
 
-    // Frame covering source time `src_t`, or None before any frame was decoded.
-    pub fn frame_at(&mut self, src_t: f64) -> Option<&[u8]> {
-        let last_idx = ((self.info.duration * self.info.fps).ceil() as i64 - 1).max(0);
-        let target = ((src_t * self.info.fps).floor() as i64).clamp(0, last_idx);
+    fn push_ring(&mut self, idx: i64) {
+        self.ring.push_back((idx, self.frame.clone().into_boxed_slice()));
+        self.ring_bytes += self.frame_bytes;
+        while self.ring_bytes > self.ring_cap_bytes {
+            if let Some((_, f)) = self.ring.pop_front() {
+                self.ring_bytes -= f.len();
+            } else {
+                break;
+            }
+        }
+    }
 
-        let need_respawn = self.child.is_none()
-            || target < self.cur_idx
-            || target > self.cur_idx + (self.info.fps as i64) * 2;
-        if need_respawn {
-            if self.respawn(target).is_err() {
+    fn ring_get(&self, idx: i64) -> Option<&[u8]> {
+        // Ring indices are contiguous ascending; direct offset lookup.
+        let first = self.ring.front()?.0;
+        let offset = idx - first;
+        if offset < 0 {
+            return None;
+        }
+        self.ring.get(offset as usize).map(|(i, f)| {
+            debug_assert_eq!(*i, idx);
+            &f[..]
+        })
+    }
+
+    fn last_frame_idx(&self) -> i64 {
+        ((self.info.duration * self.info.fps).ceil() as i64 - 1).max(0)
+    }
+
+    // Frame covering source time `src_t`, or None before anything decoded.
+    pub fn frame_at(&mut self, src_t: f64) -> Option<&[u8]> {
+        let target = ((src_t * self.info.fps).floor() as i64).clamp(0, self.last_frame_idx());
+
+        // Ring hit covers reverse playback and short back-scrubs at full rate.
+        if target != self.cur_idx && self.ring_get(target).is_some() {
+            return self.ring_get(target);
+        }
+
+        if target < self.cur_idx {
+            // Backward miss: refill a whole chunk ending at `target` with one seek.
+            let chunk = self.ring_capacity_frames().min(target + 1);
+            let start = (target - chunk + 1).max(0);
+            if self.respawn(start, "reverse chunk refill").is_err() {
+                return None;
+            }
+        } else if self.child.is_none() {
+            if self.respawn(target, "no active child").is_err() {
+                return None;
+            }
+        } else if target > self.cur_idx + (self.info.fps as i64) * 2 {
+            if self.respawn(target, "forward jump").is_err() {
                 return None;
             }
         }
+
         while self.cur_idx < target {
             if !self.read_next() {
-                break;
+                // Premature EOF = dead/killed ffmpeg (real EOF only at file end).
+                if self.cur_idx < self.last_frame_idx() - 1 {
+                    self.child_deaths += 1;
+                    log::warn!(
+                        "decoder[{}]: ffmpeg pipe ended early at frame {} (death #{}) — respawning",
+                        self.short_name,
+                        self.cur_idx,
+                        self.child_deaths
+                    );
+                    let resume = (self.cur_idx + 1).max(0).min(target);
+                    if self.respawn(resume, "child died").is_err() {
+                        break;
+                    }
+                    // One recovery attempt per frame_at call; if the pipe dies
+                    // again immediately, serve what we have and let the next
+                    // frame retry (avoids a spin of respawns on a broken file).
+                    if !self.read_next() {
+                        break;
+                    }
+                } else {
+                    break; // legitimate end of file — hold last frame
+                }
             }
         }
         if self.cur_idx >= 0 {
@@ -158,22 +294,17 @@ impl Decoder {
         }
     }
 
-    pub fn frame_bytes(&self) -> usize {
-        self.frame_bytes
-    }
-
-    fn kill(&mut self) {
+    fn kill_child(&mut self) {
         if let Some(mut c) = self.child.take() {
             let _ = c.kill();
             let _ = c.wait();
         }
         self.stdout = None;
-        self.cur_idx = -1;
     }
 }
 
 impl Drop for Decoder {
     fn drop(&mut self) {
-        self.kill();
+        self.kill_child();
     }
 }

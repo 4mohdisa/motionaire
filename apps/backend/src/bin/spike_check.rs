@@ -24,6 +24,31 @@ fn main() {
         println!("dumped {}", p.display());
     }
 
+    // Crop + shadow variant (Part 5): PiP with 8% crop all around and a soft
+    // offset shadow, held at the PiP position.
+    let mut styled = project.clone();
+    styled.layers[1].transform.crop =
+        motionaire_lib::compositor::types::CropCfg { l: 0.08, t: 0.08, r: 0.08, b: 0.08 };
+    styled.layers[1].transform.shadow = Some(motionaire_lib::compositor::types::ShadowCfg {
+        blur: 28.0,
+        spread: 4.0,
+        color: "#000000CC".into(),
+        x: 10.0,
+        y: 14.0,
+    });
+    let p = dir.join("check-crop-shadow-t3.5.png");
+    gpu.dump_png(&styled, 3.5, &p).expect("png dump");
+    println!("dumped {}", p.display());
+
+    // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
+    // this fast (few respawns), correctness checked by timing + no panics.
+    let rev_start = Instant::now();
+    for i in 0..120 {
+        let t = 5.0 - i as f64 / 60.0;
+        gpu.render_at(&styled, t).expect("reverse render");
+    }
+    println!("reverse: 120 frames (2s of timeline) in {:.2}s", rev_start.elapsed().as_secs_f64());
+
     // Sustained playback simulation: 8 seconds of timeline at 60Hz stepping,
     // sequential decode — the same access pattern as live playback.
     let steps = 480;

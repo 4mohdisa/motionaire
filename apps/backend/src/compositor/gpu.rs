@@ -2,7 +2,16 @@ use std::collections::HashMap;
 
 use super::decoder::Decoder;
 use super::keyframes::resolve_layer;
-use super::types::SyncProject;
+use super::types::{CropCfg, SyncProject};
+
+// Clamp crop fractions to something drawable (each edge <45%, pairs <90%).
+fn sane_crop(c: &CropCfg) -> (f32, f32, f32, f32) {
+    let cl = (c.l as f32).clamp(0.0, 0.45);
+    let ct = (c.t as f32).clamp(0.0, 0.45);
+    let cr = (c.r as f32).clamp(0.0, 0.45);
+    let cb = (c.b as f32).clamp(0.0, 0.45);
+    (cl, ct, cr, cb)
+}
 
 // Headless wgpu compositor: decoded RGBA frames → per-layer textures → one render
 // pass drawing quads back-to-front by z with transform + rounded-rect SDF + opacity
@@ -12,7 +21,9 @@ const SHADER: &str = r#"
 struct LayerU {
   rot_t:   vec4<f32>, // cos, sin, tx, ty            (canvas px, center origin, y-down)
   half_ro: vec4<f32>, // half_w_scaled, half_h_scaled, corner_radius, opacity
-  canvas:  vec4<f32>, // canvas_w, canvas_h, _, _
+  uv_rect: vec4<f32>, // u0, v0, u1, v1 — crop window in texture space
+  shcolor: vec4<f32>, // shadow rgba (straight alpha); unused for content pass
+  canvas:  vec4<f32>, // canvas_w, canvas_h, mode (0 content / 1 shadow), blur px
 };
 
 @group(0) @binding(0) var<uniform> u: LayerU;
@@ -31,8 +42,11 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
     vec2(-1.0, 1.0),  vec2(1.0, -1.0), vec2(1.0, 1.0),
   );
+  // Shadow pass expands the quad so the blur falloff has room to render.
+  let expand = select(0.0, u.canvas.w + 1.0, u.canvas.z > 0.5);
   let unit = units[vi];
-  let p = unit * u.half_ro.xy;
+  let half = u.half_ro.xy + vec2(expand, expand);
+  let p = unit * half;
   let rp = vec2(
     p.x * u.rot_t.x - p.y * u.rot_t.y,
     p.x * u.rot_t.y + p.y * u.rot_t.x,
@@ -40,17 +54,30 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
   let cpos = rp + u.rot_t.zw;
   var o: VOut;
   o.pos = vec4(cpos.x * 2.0 / u.canvas.x, -cpos.y * 2.0 / u.canvas.y, 0.0, 1.0);
-  o.uv = unit * 0.5 + vec2(0.5, 0.5);
+  let tuv = unit * 0.5 + vec2(0.5, 0.5);
+  o.uv = mix(u.uv_rect.xy, u.uv_rect.zw, tuv);
   o.local = p;
   return o;
+}
+
+fn rounded_sd(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
+  let q = abs(p) - half + vec2(r, r);
+  return length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let half = u.half_ro.xy;
   let r = clamp(u.half_ro.z, 0.0, min(half.x, half.y));
-  let q = abs(in.local) - half + vec2(r, r);
-  let sd = length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+  let sd = rounded_sd(in.local, half, r);
+  if (u.canvas.z > 0.5) {
+    // Shadow: soft falloff across the blur width around the (spread-grown) rect.
+    // Analytic SDF approximation of a gaussian shadow — not a true blur of
+    // content, which a solid video rect doesn't need.
+    let blur = max(u.canvas.w, 0.5);
+    let a = (1.0 - smoothstep(-blur * 0.5, blur * 0.5 + 0.75, sd)) * u.shcolor.a;
+    return vec4(u.shcolor.rgb, a * u.half_ro.w);
+  }
   let aa = 1.0 - smoothstep(-0.75, 0.75, sd);
   let c = textureSample(tex, samp, in.uv);
   return vec4(c.rgb, c.a * aa * u.half_ro.w);
@@ -62,6 +89,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 struct LayerUniform {
     rot_t: [f32; 4],
     half_ro: [f32; 4],
+    uv_rect: [f32; 4],
+    shcolor: [f32; 4],
     canvas: [f32; 4],
 }
 
@@ -70,6 +99,9 @@ struct LayerSlot {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     uniform: wgpu::Buffer,
+    // Second uniform+bind group for the shadow pre-pass.
+    bind_group_shadow: wgpu::BindGroup,
+    uniform_shadow: wgpu::Buffer,
 }
 
 pub struct GpuCompositor {
@@ -252,24 +284,49 @@ impl GpuCompositor {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("layer-uniform"),
-            size: std::mem::size_of::<LayerUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let mk_uniform = |label: &str| {
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: std::mem::size_of::<LayerUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let uniform = mk_uniform("layer-uniform");
+        let uniform_shadow = mk_uniform("layer-uniform-shadow");
         let view = texture.create_view(&Default::default());
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-            ],
-        });
-        self.slots.insert(path.to_string(), LayerSlot { decoder, texture, bind_group, uniform });
+        let mk_bg = |buf: &wgpu::Buffer| {
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bgl,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            })
+        };
+        let bind_group = mk_bg(&uniform);
+        let bind_group_shadow = mk_bg(&uniform_shadow);
+        self.slots.insert(
+            path.to_string(),
+            LayerSlot { decoder, texture, bind_group, uniform, bind_group_shadow, uniform_shadow },
+        );
         Ok(())
+    }
+
+    // "#RRGGBB" or "#RRGGBBAA" → linear-ish rgba floats (target is non-srgb).
+    fn parse_rgba(hex: &str, default_alpha: f32) -> [f32; 4] {
+        let h = hex.trim_start_matches('#');
+        let p = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("00"), 16).unwrap_or(0);
+        let a = if h.len() >= 8 { p(6) as f32 / 255.0 } else { default_alpha };
+        [p(0) as f32 / 255.0, p(2) as f32 / 255.0, p(4) as f32 / 255.0, a]
     }
 
     fn parse_bg(hex: &str) -> wgpu::Color {
@@ -301,7 +358,7 @@ impl GpuCompositor {
         active.sort_by_key(|l| l.z);
 
         // Upload decoded frames + uniforms before encoding the pass.
-        let mut draws: Vec<String> = Vec::new();
+        let mut draws: Vec<(String, bool)> = Vec::new(); // (path, has_shadow)
         for layer in &active {
             if self.slot_for(&layer.media_path).is_err() {
                 continue; // unreadable media: skip layer, keep compositing the rest
@@ -332,16 +389,53 @@ impl GpuCompositor {
             let r = resolve_layer(layer, t);
             // object-fit: contain into the canvas, then keyframed transform.
             let fit = (cw / mw as f32).min(ch / mh as f32);
-            let half_w = mw as f32 * fit * 0.5 * r.scale;
-            let half_h = mh as f32 * fit * 0.5 * r.scale;
+            let (dw, dh) = (mw as f32 * fit * r.scale, mh as f32 * fit * r.scale);
+
+            // Crop cuts pixels away from the fitted rect (Premiere semantics):
+            // the visible sub-rect keeps its on-canvas position; its center
+            // shifts by the crop asymmetry, rotating with the layer.
+            let (cl, ct2, cr2, cb) = sane_crop(&r.crop);
+            let half_w = dw * (1.0 - cl - cr2) * 0.5;
+            let half_h = dh * (1.0 - ct2 - cb) * 0.5;
+            let off = ((cl - cr2) * 0.5 * dw, (ct2 - cb) * 0.5 * dh);
             let theta = r.rotation_deg.to_radians();
-            let u = LayerUniform {
-                rot_t: [theta.cos(), theta.sin(), r.x, r.y],
+            let (cos, sin) = (theta.cos(), theta.sin());
+            let tx = r.x + off.0 * cos - off.1 * sin;
+            let ty = r.y + off.0 * sin + off.1 * cos;
+
+            let content = LayerUniform {
+                rot_t: [cos, sin, tx, ty],
                 half_ro: [half_w, half_h, r.corner_radius, r.opacity.clamp(0.0, 1.0)],
+                uv_rect: [cl, ct2, 1.0 - cr2, 1.0 - cb],
+                shcolor: [0.0; 4],
                 canvas: [cw, ch, 0.0, 0.0],
             };
-            self.queue.write_buffer(&slot.uniform, 0, bytemuck::bytes_of(&u));
-            draws.push(layer.media_path.clone());
+            self.queue.write_buffer(&slot.uniform, 0, bytemuck::bytes_of(&content));
+
+            let mut has_shadow = false;
+            if let Some(sh) = &r.shadow {
+                // 6-digit colors get a conventional 0.5 alpha; #RRGGBBAA overrides.
+                let color = Self::parse_rgba(&sh.color, 0.5);
+                if color[3] > 0.0 && r.opacity > 0.0 {
+                    has_shadow = true;
+                    let spread = sh.spread as f32;
+                    let shadow_u = LayerUniform {
+                        // Offset in canvas space (fixed light source, doesn't rotate).
+                        rot_t: [cos, sin, tx + sh.x as f32, ty + sh.y as f32],
+                        half_ro: [
+                            half_w + spread,
+                            half_h + spread,
+                            (r.corner_radius + spread).max(0.0),
+                            r.opacity.clamp(0.0, 1.0),
+                        ],
+                        uv_rect: [0.0, 0.0, 1.0, 1.0],
+                        shcolor: color,
+                        canvas: [cw, ch, 1.0, (sh.blur as f32).max(0.0)],
+                    };
+                    self.queue.write_buffer(&slot.uniform_shadow, 0, bytemuck::bytes_of(&shadow_u));
+                }
+            }
+            draws.push((layer.media_path.clone(), has_shadow));
         }
 
         let view = self.target.create_view(&Default::default());
@@ -362,8 +456,12 @@ impl GpuCompositor {
                 occlusion_query_set: None,
             });
             pass.set_pipeline(&self.pipeline);
-            for path in &draws {
+            for (path, has_shadow) in &draws {
                 let slot = &self.slots[path];
+                if *has_shadow {
+                    pass.set_bind_group(0, &slot.bind_group_shadow, &[]);
+                    pass.draw(0..6, 0..1);
+                }
                 pass.set_bind_group(0, &slot.bind_group, &[]);
                 pass.draw(0..6, 0..1);
             }
