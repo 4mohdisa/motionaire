@@ -79,6 +79,12 @@ impl CompositorState {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
+    // Export snapshots the raster set so the export thread renders text
+    // identically to the preview (same compositor, same rasters).
+    pub fn clone_text_rasters(&self) -> std::collections::HashMap<String, types::TextRaster> {
+        self.text_rasters.lock().unwrap().clone()
+    }
+
     pub fn set_preview_full(&self, full: bool) {
         self.preview_full.store(full, Ordering::Relaxed);
         self.dirty.store(true, Ordering::Relaxed);

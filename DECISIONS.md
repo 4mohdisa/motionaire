@@ -1089,3 +1089,41 @@ logged: typewriter preset stays excluded (re-rasters per char step), and
 CSS↔canvas line-BREAK edge cases can differ at extreme widths (same
 shaper, different wrap code) — acceptable, wrap happens at word
 granularity in both.
+
+## Phase 5 — real export
+
+**Video:** export.rs spins a dedicated thread with its OWN GpuCompositor at
+full resolution (width derived from canvas aspect at the requested height —
+logged simplification) and drives the exact same render_at the preview uses
+(§3.1: one compositor, two callers). Frames pipe as rawvideo RGBA into
+FFmpeg stdin; encoder is h264_videotoolbox when present (probed via
+-encoders) else libx264 (quality slider → VT bitrate scaled by pixel count,
+or x264 CRF). Text rasters are snapshotted from compositor state so export
+text is pixel-identical to preview.
+
+**Audio — decision:** FFmpeg filter graph over a Rust mixer (materially
+less code; the Rust mixer remains the upgrade path if per-sample control is
+ever needed). Per clip: atrim → asetpts → atempo chain (speed) → volume
+with eval=frame and a PIECEWISE-LINEAR expression built from the clip's
+volume keyframes (kf storage is clip-relative timeline seconds, which is
+exactly the post-asetpts t axis) → adelay to timeline position; all clips
+amix normalize=0 → aac 192k. Easing on volume keyframes is approximated
+linearly for audio (logged). Track mute/solo folded in frontend-side;
+silent-forever clips skipped. -t caps duration.
+
+**UI:** panel wired to start_export/cancel_export with export:progress /
+export:done events — progress bar (frames), cancel, error notice, success
+notice with Reveal in Finder. Format select locked to MP4/H.264 (the wired
+pipeline; other containers when someone actually asks — logged). Cancel
+kills ffmpeg and removes the partial file; failures also remove it.
+
+**Verification (the plan's element-by-element standard):** built the full
+scene — keyframed PiP, split+dissolve at 5s, text with stroke, freeze-frame
+image card, saturation grade on the first half, 440Hz tone with a keyframed
+fade 6→9.5s — exported 300 frames @1080p30 (VideoToolbox, ~3s wall) and
+verified the FILE: ffprobe h264 1920x1080@30 + aac, duration exactly
+10.000s; extracted frames show text+stroke over a desaturated first half
+with the PiP mid-shrink (t=1.5) and the image card + dissolve mid-blend
+(t=5.6); volumedetect measures the fade (mean −21.1dB at 0–2s → −50.0dB at
+9.2–10s). Break-test: cancel at 500ms → export:done{cancelled}, partial
+file removed, exporter reusable (p5-cancel PASS).

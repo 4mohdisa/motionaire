@@ -18,7 +18,7 @@ interface SpikeMedia {
 
 // Only file-backed video clips reach the compositor; blob-URL media (browser
 // file-input imports) stays DOM-only until native import fully replaces it.
-function flatten(project: Project) {
+export function flatten(project: Project) {
   const layers = []
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue

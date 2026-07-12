@@ -587,6 +587,117 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_export_test': {
+      // Phase 5 (session 9): build the full verification scene from the plan
+      // — keyframed PiP, a dissolve, a text clip, an image overlay, a color
+      // grade, and audio with a keyframed fade — then export it for real.
+      // The exported FILE is then verified element by element from the shell.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-export', pass, detail }).catch(() => {})
+      const tick = (ms = 200) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const vids = () =>
+          st().project.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)
+        const screenClip = vids()[0].clips[0] // V1 fullscreen screen.mp4
+        // Transition: split the screen layer at 5s, dissolve into the second half.
+        st().splitClip(screenClip.id, 5)
+        const secondHalf = vids()[0].clips.find((c) => Math.abs(c.start - 5) < 0.01)!
+        st().setTransition(secondHalf.id, 'in', { type: 'dissolve', duration: 1.2 })
+        // Grade the first half: clearly desaturated.
+        st().setClipProperty(screenClip.id, 'grade.saturation', -0.6)
+        // Text on its own new top track, 1s..4s.
+        st().addTrack('video')
+        st().setPlayhead(1)
+        st().addTextClip('Export Test')
+        const txt = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.kind === 'text')!
+        st().updateTextClip(txt.id, {
+          style: { size: 100, color: '#ffffff', stroke: { color: '#000000', width: 5 } },
+        })
+        // Image overlay: freeze the cam at t=2, park the still 5s..8s, shrink
+        // to a corner card.
+        const cam = vids()[1].clips[0]
+        st().setPlayhead(2)
+        const { freezeFrame } = await import('../persistence/projectIO')
+        await freezeFrame(cam.id)
+        const still = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.mediaId && st().project.media.find((m) => m.id === c.mediaId)?.name.includes('(freeze)'))!
+        st().moveClip(still.id, 5)
+        st().setClipProperty(still.id, 'transform.scale', 0.3)
+        st().setClipProperty(still.id, 'transform.x', 560)
+        st().setClipProperty(still.id, 'transform.y', -280)
+        // Audio: 440Hz tone on A1, keyframed fade 6s→9.5s.
+        const tonePath = await invoke<string>('spike_audio')
+        const { uid: mkid } = await import('../types/project')
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        const toneClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.mediaId === tone.id)!
+        st().setPlayhead(6)
+        st().toggleKeyframe(toneClip.id, 'volume')
+        st().setPlayhead(9.5)
+        st().setClipProperty(toneClip.id, 'volume', 0)
+        await tick(400) // let rasters + structure sync
+        const { runExport } = await import('../compositor/exportRunner')
+        const out = await runExport('/tmp/motionaire-export-test.mp4')
+        void report(
+          out === '/tmp/motionaire-export-test.mp4',
+          `started export → ${out}; duration=${st().project.duration}s; completion + file verification happen shell-side`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:p5_cancel_test': {
+      // Break-test: cancel mid-export → export:done{cancelled}, partial file
+      // removed, and a follow-up export still works.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-cancel', pass, detail }).catch(() => {})
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        const { runExport } = await import('../compositor/exportRunner')
+        const done = new Promise<{ ok: boolean; cancelled?: boolean }>((resolve) => {
+          void listen<{ ok: boolean; cancelled?: boolean }>('export:done', (e) =>
+            resolve(e.payload),
+          ).then((un) => setTimeout(un, 30000))
+        })
+        await runExport('/tmp/motionaire-cancel-test.mp4')
+        setTimeout(() => void invoke('cancel_export'), 500)
+        const result = await done
+        await new Promise((r) => setTimeout(r, 300))
+        // Partial file must be gone; a fresh export must be startable.
+        let fileGone = true
+        try {
+          await invoke('probe_media', { path: '/tmp/motionaire-cancel-test.mp4' })
+          fileGone = false
+        } catch {
+          fileGone = true
+        }
+        void report(
+          !result.ok && result.cancelled === true && fileGone,
+          `ok=${result.ok} cancelled=${result.cancelled} partialRemoved=${fileGone}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

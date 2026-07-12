@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod compositor;
+pub mod export;
 pub mod license;
 pub mod menu;
 pub mod persistence;
@@ -87,6 +88,31 @@ fn set_text_rasters(
 #[tauri::command]
 fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::SpikeMedia), String> {
     compositor::demo::spike_media_info()
+}
+
+// Verification helper: a deterministic 440Hz tone in the spike dir, so export
+// tests have real audio to mix (the demo videos are silent by design).
+#[tauri::command]
+fn spike_audio() -> Result<String, String> {
+    let dir = compositor::demo::spike_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let out = dir.join("tone.wav");
+    if !out.exists() {
+        let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+            .args([
+                "-v", "error", "-y",
+                "-f", "lavfi",
+                "-i", "sine=frequency=440:duration=10",
+                "-ar", "48000",
+                out.to_str().ok_or("bad path")?,
+            ])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("tone generation failed".into());
+        }
+    }
+    Ok(out.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -232,6 +258,38 @@ fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<Froze
     }
     let info = compositor::decoder::probe(&out_str)?;
     Ok(FrozenFrame { path: out_str, width: info.width, height: info.height })
+}
+
+#[tauri::command]
+fn start_export(
+    app: tauri::AppHandle,
+    comp: State<Compositor>,
+    exporter: State<export::Exporter>,
+    project: SyncProject,
+    audio: Vec<export::AudioClipSpec>,
+    settings: export::ExportSettings,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    if exporter.running.swap(true, Ordering::SeqCst) {
+        return Err("An export is already running.".into());
+    }
+    exporter.cancel.store(false, Ordering::SeqCst);
+    let texts = comp.clone_text_rasters();
+    let mgr = exporter.inner().clone();
+    let app2 = app.clone();
+    std::thread::Builder::new()
+        .name("export".into())
+        .spawn(move || export::run_export(app2, mgr, project, texts, audio, settings))
+        .map_err(|e| {
+            exporter.running.store(false, Ordering::SeqCst);
+            e.to_string()
+        })?;
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_export(exporter: State<export::Exporter>) {
+    exporter.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -431,6 +489,7 @@ pub fn run() {
             // session 3 only ever saw adapter logs from LATE re-inits.
             use tauri::Manager as _;
             app.manage(compositor::start());
+            app.manage::<export::Exporter>(std::sync::Arc::new(export::ExportManager::default()));
             // Enforce the window minimum in code as well as config: the layout
             // self-test found programmatic setSize sailing below the configured
             // minWidth/minHeight (AppKit min constrains user drags, not code).
@@ -472,6 +531,7 @@ pub fn run() {
             set_preview_quality,
             set_text_rasters,
             spike_setup,
+            spike_audio,
             autorun_demo,
             env_flag,
             report_test,
@@ -485,6 +545,8 @@ pub fn run() {
             set_setting,
             remove_recent_project,
             reveal_in_finder,
+            start_export,
+            cancel_export,
             import_font,
             save_fonts,
             save_project,

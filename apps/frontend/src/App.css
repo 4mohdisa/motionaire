@@ -1588,3 +1588,42 @@
 .th__btn--solo {
   color: var(--accent);
 }
+
+/* ---------- Export progress (session 9, Phase 5) ---------- */
+
+.export__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.export__bar {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+
+.export__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.export__label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: none;
+}
+
+.modal__notice--error {
+  background: color-mix(in srgb, var(--bg-app) 75%, var(--danger));
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.modal__notice--ok {
+  background: color-mix(in srgb, var(--bg-app) 80%, var(--success));
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
