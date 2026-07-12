@@ -21,6 +21,26 @@ export interface RecentProject {
   path: string
   name: string
   lastOpenedAt: number
+  thumbnail: string | null
+  missing: boolean
+}
+
+// Launcher thumbnail: downscale the composite canvas (it holds the last
+// rendered frame even while paused) to a small JPEG.
+function grabThumb(): string | null {
+  const src = document.querySelector<HTMLCanvasElement>('.preview__composite')
+  if (!src || src.width === 0 || src.height === 0) return null
+  try {
+    const w = 320
+    const h = Math.max(1, Math.round((src.height / src.width) * w))
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    c.getContext('2d')!.drawImage(src, 0, 0, w, h)
+    return c.toDataURL('image/jpeg', 0.72).split(',')[1] ?? null
+  } catch {
+    return null
+  }
 }
 
 function bundleName(path: string): string {
@@ -58,6 +78,7 @@ export async function saveProject(saveAs = false): Promise<boolean> {
       bundlePath: path,
       projectJson: serializeProject(s.project),
       name: bundleName(path),
+      thumbJpegBase64: grabThumb(),
     })
     await persistFonts(path)
     useStore.getState().setProjectPath(path)
@@ -97,6 +118,7 @@ export async function openProjectPath(path: string): Promise<void> {
       }
     }
     useStore.getState().replaceProject(project, path)
+    useStore.getState().setAppView('editor')
     if (missing.size > 0) {
       // Non-blocking: the warning must not stall the editor (or self-tests).
       void message(

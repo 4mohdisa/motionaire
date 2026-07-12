@@ -486,6 +486,7 @@ async function runPersistenceSelfTest() {
 
 export async function loadPipDemo() {
   const [screen, cam] = await invoke<[SpikeMedia, SpikeMedia]>('spike_setup')
+  useStore.getState().setAppView('editor') // demo always lands in the editor
   useStore
     .getState()
     .loadPipDemo(

@@ -58,6 +58,11 @@ export interface StoreState {
   safeZones: boolean
   exportOpen: boolean
   exportSettings: ExportSettings
+  // App shell view (session 9, Phase 1). The launcher/editor are full-window
+  // views that replace each other — one window, no multi-window state sync.
+  appView: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor'
+  setAppView: (v: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor') => void
+
   timelineHeight: number
   propsWidth: number
   compositorActive: boolean
@@ -189,6 +194,12 @@ export const useStore = create<StoreState>()(
       safeZones: false,
       exportOpen: false,
       exportSettings: { width: 1920, height: 1080, fps: 30, format: 'mp4', quality: 80 },
+      appView: 'boot',
+      setAppView: (v) =>
+        set((s) => {
+          s.appView = v
+        }),
+
       timelineHeight: 220,
       propsWidth: 264,
       compositorActive: false,

@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod compositor;
+pub mod license;
 pub mod menu;
 pub mod persistence;
 
@@ -180,14 +181,60 @@ fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<Froze
 }
 
 #[tauri::command]
+fn license_status() -> bool {
+    license::is_activated()
+}
+
+#[tauri::command]
+fn activate_license(key: String) -> Result<(), String> {
+    license::activate(&key)
+}
+
+#[tauri::command]
+fn deactivate_license() -> Result<(), String> {
+    license::deactivate()
+}
+
+#[tauri::command]
+fn get_setting(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
+    persistence::get_setting(&db_path(&app)?, &key)
+}
+
+#[tauri::command]
+fn set_setting(app: tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+    persistence::set_setting(&db_path(&app)?, &key, &value)
+}
+
+#[tauri::command]
+fn remove_recent_project(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    persistence::remove_recent(&db_path(&app)?, &path)?;
+    let _ = menu::build_and_set(&app);
+    Ok(())
+}
+
+#[tauri::command]
 fn save_project(
     app: tauri::AppHandle,
     bundle_path: String,
     project_json: String,
     name: String,
+    thumb_jpeg_base64: Option<String>,
 ) -> Result<(), String> {
-    persistence::save_bundle(std::path::Path::new(&bundle_path), &project_json)?;
-    persistence::touch_recent(&db_path(&app)?, &bundle_path, &name)?;
+    use base64::Engine as _;
+    let bundle = std::path::Path::new(&bundle_path);
+    persistence::save_bundle(bundle, &project_json)?;
+    // Launcher thumbnail: regenerable cache, plain write is fine.
+    let mut thumb_path: Option<String> = None;
+    if let Some(b64) = thumb_jpeg_base64 {
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+            let p = bundle.join("cache").join("thumb.jpg");
+            let _ = std::fs::create_dir_all(bundle.join("cache"));
+            if std::fs::write(&p, bytes).is_ok() {
+                thumb_path = Some(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    persistence::touch_recent_thumb(&db_path(&app)?, &bundle_path, &name, thumb_path.as_deref())?;
     let _ = menu::build_and_set(&app); // refresh Open Recent
     Ok(())
 }
@@ -367,6 +414,12 @@ pub fn run() {
             extract_frame,
             extract_filmstrip,
             probe_media,
+            license_status,
+            activate_license,
+            deactivate_license,
+            get_setting,
+            set_setting,
+            remove_recent_project,
             import_font,
             save_fonts,
             save_project,

@@ -3,6 +3,7 @@ import Preview from './components/Preview'
 import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import Timeline from './components/timeline/Timeline'
+import { Activation, Launcher, Onboarding, useBootFlow } from './components/Shell'
 import { useEffect } from 'react'
 import { useShortcuts } from './hooks/useShortcuts'
 import { useStore } from './state/store'
@@ -42,6 +43,8 @@ const NON_TIMELINE_MIN = 270
 
 function App() {
   useShortcuts()
+  useBootFlow()
+  const appView = useStore((s) => s.appView)
   useEffect(() => {
     startCompositorBridge()
     startMenuBridge()
@@ -63,6 +66,11 @@ function App() {
   const timelineHeight = useStore((s) => s.timelineHeight)
   const propsWidth = useStore((s) => s.propsWidth)
   const { setTimelineHeight, setPropsWidth } = useStore.getState()
+
+  if (appView === 'boot') return null
+  if (appView === 'activate') return <Activation />
+  if (appView === 'onboard') return <Onboarding />
+  if (appView === 'launcher') return <Launcher />
 
   return (
     <div

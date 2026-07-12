@@ -44,6 +44,12 @@ async function dispatch(action: string, path?: string) {
     case 'file:save_as':
       await saveProject(true)
       break
+    case 'file:close':
+      // Back to the launcher; the editor is a full-window view it replaces.
+      s.pause()
+      s.replaceProject(createProject(), null)
+      s.setAppView('launcher')
+      break
     case 'file:import':
       await importMediaNative()
       break
@@ -387,6 +393,46 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p1_shell_test': {
+      // Phase 1 (session 9): license lifecycle, settings, recents thumbnail.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p1-shell', pass, detail }).catch(() => {})
+      try {
+        await invoke('deactivate_license')
+        const off = !(await invoke<boolean>('license_status'))
+        let badKeyRejected = false
+        try {
+          await invoke('activate_license', { key: 'MOTIONAIRE-WRONG-1111-2222' })
+        } catch {
+          badKeyRejected = true
+        }
+        const stillOff = !(await invoke<boolean>('license_status'))
+        await invoke('activate_license', { key: 'MOTIONAIRE-TEST-0000-0000' })
+        const on = await invoke<boolean>('license_status')
+        await invoke('set_setting', { key: 'onboarding_completed', value: '1' })
+        const flag = await invoke<string | null>('get_setting', { key: 'onboarding_completed' })
+        // Recents thumbnail: save the demo project programmatically.
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 800)) // let a frame land for the thumb
+        const spike = useStore.getState().project.media[0]?.path ?? ''
+        const dir = spike.slice(0, spike.lastIndexOf('/'))
+        useStore.getState().setProjectPath(`${dir}/shell-e2e.motionaire`)
+        const { saveProject } = await import('../persistence/projectIO')
+        const saved = await saveProject()
+        const recents = await invoke<
+          { path: string; name: string; thumbnail: string | null; missing: boolean }[]
+        >('list_recent_projects')
+        const mine = recents.find((r) => r.path.endsWith('shell-e2e.motionaire'))
+        const thumbOk = !!mine && !mine.missing && !!mine.thumbnail
+        void report(
+          off && badKeyRejected && stillOff && on && flag === '1' && saved && thumbOk,
+          `off=${off} badKeyRejected=${badKeyRejected} stillOff=${stillOff} on=${on} flag=${flag} saved=${saved} thumb=${mine?.thumbnail ?? 'none'}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.
@@ -419,6 +465,11 @@ async function dispatch(action: string, path?: string) {
       useStore.getState().setPlayhead(4.5)
       break
     }
+  }
+  if (action.startsWith('dev:view:')) {
+    const v = action.slice('dev:view:'.length)
+    if (['activate', 'onboard', 'launcher', 'editor'].includes(v))
+      s.setAppView(v as 'activate' | 'onboard' | 'launcher' | 'editor')
   }
   if (action.startsWith('dev:seek:')) {
     const t = Number(action.slice('dev:seek:'.length))

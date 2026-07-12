@@ -155,7 +155,30 @@ fn db_open(db_path: &Path) -> Result<Connection, String> {
         );",
     )
     .map_err(|e| e.to_string())?;
+    // Migration (session 9): launcher thumbnails. Errors mean "column exists".
+    let _ = conn.execute("ALTER TABLE recent_projects ADD COLUMN thumbnail TEXT", ());
     Ok(conn)
+}
+
+pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> {
+    let conn = db_open(db_path)?;
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", (key,), |r| r.get(0))
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e => Err(e.to_string()),
+        })
+}
+
+pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String> {
+    let conn = db_open(db_path)?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        (key, value),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[derive(serde::Serialize)]
@@ -164,18 +187,32 @@ pub struct RecentProject {
     pub path: String,
     pub name: String,
     pub last_opened_at: i64,
+    pub thumbnail: Option<String>,
+    pub missing: bool,
 }
 
 pub fn touch_recent(db_path: &Path, project_path: &str, name: &str) -> Result<(), String> {
+    touch_recent_thumb(db_path, project_path, name, None)
+}
+
+// Thumbnail updates only when Some — opening a project must not clobber the
+// thumbnail its last save wrote.
+pub fn touch_recent_thumb(
+    db_path: &Path,
+    project_path: &str,
+    name: &str,
+    thumbnail: Option<&str>,
+) -> Result<(), String> {
     let conn = db_open(db_path)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     conn.execute(
-        "INSERT INTO recent_projects (path, name, last_opened_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(path) DO UPDATE SET name = ?2, last_opened_at = ?3",
-        (project_path, name, now),
+        "INSERT INTO recent_projects (path, name, last_opened_at, thumbnail) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET name = ?2, last_opened_at = ?3,
+           thumbnail = COALESCE(?4, thumbnail)",
+        (project_path, name, now, thumbnail),
     )
     .map_err(|e| e.to_string())?;
     // Keep the list bounded.
@@ -288,7 +325,7 @@ mod tests {
 pub fn list_recents(db_path: &Path) -> Result<Vec<RecentProject>, String> {
     let conn = db_open(db_path)?;
     let mut stmt = conn
-        .prepare("SELECT path, name, last_opened_at FROM recent_projects ORDER BY last_opened_at DESC")
+        .prepare("SELECT path, name, last_opened_at, thumbnail FROM recent_projects ORDER BY last_opened_at DESC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map((), |r| {
@@ -296,16 +333,25 @@ pub fn list_recents(db_path: &Path) -> Result<Vec<RecentProject>, String> {
                 path: r.get(0)?,
                 name: r.get(1)?,
                 last_opened_at: r.get(2)?,
+                thumbnail: r.get(3)?,
+                missing: false,
             })
         })
         .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in rows {
-        let rec = r.map_err(|e| e.to_string())?;
-        // Drop entries whose bundle vanished; keep the list truthful.
-        if PathBuf::from(&rec.path).join("project.json").exists() {
-            out.push(rec);
-        }
+        let mut rec = r.map_err(|e| e.to_string())?;
+        // Vanished bundles are flagged, not dropped (session 9: the launcher
+        // shows them grayed with a remove action instead of lying by omission).
+        rec.missing = !PathBuf::from(&rec.path).join("project.json").exists();
+        out.push(rec);
     }
     Ok(out)
+}
+
+pub fn remove_recent(db_path: &Path, project_path: &str) -> Result<(), String> {
+    let conn = db_open(db_path)?;
+    conn.execute("DELETE FROM recent_projects WHERE path = ?1", (project_path,))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

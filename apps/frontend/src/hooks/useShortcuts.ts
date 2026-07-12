@@ -19,6 +19,7 @@ export function useShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e)) return
       const s = useStore.getState()
+      if (s.appView !== 'editor') return // launcher/gate: no editing keys
       const mod = e.metaKey || e.ctrlKey
 
       if (mod && e.key.toLowerCase() === 'z') {

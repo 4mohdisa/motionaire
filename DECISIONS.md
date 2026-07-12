@@ -988,3 +988,32 @@ compositor client's black canvas fill; they are data rendered inside the
 video frame, where true black is the point. Contrast: secondary #9c9c9c on
 panel #232323 ≈ 5.9:1 (AA). Verified by native capture with the full demo
 scene (clip colors, fx badges, keyframes, adjustment stripes, playhead).
+
+## Phase 1 — app shell (activation, onboarding, launcher)
+
+- **LicenseValidator trait** in license.rs (TestValidator accepting
+  MOTIONAIRE-TEST-0000-0000; RemoteValidator stubbed) — the CONTEXT.md §7
+  seam pattern. Swap = one line in validator().
+- **Key storage:** keychain (keyring crate, apple-native) in RELEASE builds
+  per §8.2. Debug builds use a temp marker file instead — deliberate: an
+  ad-hoc-signed dev binary changes identity every rebuild, so keychain reads
+  throw blocking permission dialogs that would hang every unattended test
+  run overnight; the only key a debug build ever holds is the public test
+  key. Release path compiles (cargo check --release) and unit tests cover
+  the validate/activate/deactivate cycle.
+- **Views:** boot → activate → onboard (first run; flag in SQLite settings)
+  → launcher → editor, all full-window views replacing each other in ONE
+  window (per plan — no multi-window state sync). File ▸ Close Project
+  (Cmd+W) returns to the launcher. Editing shortcuts are gated to the
+  editor view. loadPipDemo forces the editor view so every dev-remote
+  self-test keeps working regardless of gate state.
+- **Launcher:** recents grid from SQLite with thumbnails; a small JPEG of
+  the composite canvas is written to bundle/cache/thumb.jpg on every save
+  (COALESCE keeps it when opening without saving). Vanished bundles are now
+  FLAGGED (missing badge, remove action) instead of silently dropped by
+  list_recents. New Project dialog = name + canvas preset + fps; the native
+  save dialog doubles as the location picker (more Mac-like than a separate
+  location field — logged simplification).
+- Verified: p1-shell PASS (deactivate → bad key rejected → activate →
+  status flips → onboarding flag persists → programmatic save produces a
+  real thumbnail in recents) + native captures of all three screens.
