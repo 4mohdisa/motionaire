@@ -8,6 +8,7 @@ import { TimelineContext, type LaneRect, type TimelineCtx } from './timelineCont
 import Ruler from './Ruler'
 import ClipBlock from './ClipBlock'
 import ContextMenu, { type MenuItem } from '../ContextMenu'
+import { freezeFrame } from '../../persistence/projectIO'
 import IconBtn from '../IconBtn'
 import { Dropdown, DropdownCheck, DropdownItem } from '../Dropdown'
 
@@ -352,9 +353,16 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
       )
     )
   const ids = s.selection.includes(clipId) ? s.selection : [clipId]
+  const freezable =
+    clip?.kind === 'video' &&
+    !!asset &&
+    !asset.missing &&
+    s.playhead >= clip.start &&
+    s.playhead <= clip.start + (clip.out - clip.in) / clip.speed
   return [
     { label: 'Split at playhead', onClick: () => s.splitAtPlayhead() },
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
+    { label: 'Freeze frame at playhead', onClick: () => void freezeFrame(clipId), disabled: !freezable },
     { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },
     { label: '', onClick: () => {}, separator: true },
     { label: 'Delete', onClick: () => s.deleteClips(ids), danger: true },

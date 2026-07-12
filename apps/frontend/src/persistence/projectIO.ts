@@ -118,6 +118,42 @@ export async function listRecents(): Promise<RecentProject[]> {
   }
 }
 
+// Freeze frame: extract a still at the playhead's source time and drop it on
+// the topmost video track as an image clip. The PNG lives in the app cache —
+// same absolute-path model as every other media file.
+export async function freezeFrame(clipId: string): Promise<void> {
+  const s = useStore.getState()
+  const clip = s.project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId)
+  const asset = clip?.mediaId ? s.project.media.find((m) => m.id === clip.mediaId) : null
+  if (!clip || !asset || asset.missing) return
+  const local = Math.max(0, Math.min(s.playhead - clip.start, (clip.out - clip.in) / clip.speed))
+  const srcT = clip.in + local * clip.speed
+  try {
+    const res = await invoke<{ path: string; width: number; height: number }>('extract_frame', {
+      path: asset.path,
+      time: srcT,
+    })
+    s.addStillClip(
+      {
+        id: uid('m'),
+        path: res.path,
+        playbackUrl: convertFileSrc(res.path),
+        name: `${asset.name} (freeze)`,
+        kind: 'video',
+        // ponytail: stills have no intrinsic length; a huge source duration
+        // makes trim limits a non-issue with zero special cases.
+        duration: 3600,
+        width: res.width,
+        height: res.height,
+        hasAudio: false,
+      },
+      s.playhead,
+    )
+  } catch (e) {
+    await message(`Couldn't extract frame:\n${e}`, { title: 'Freeze frame failed', kind: 'error' })
+  }
+}
+
 // Native media import: real file paths that survive reloads, probed by ffprobe.
 export async function importMediaNative(): Promise<void> {
   const picked = await open({

@@ -76,6 +76,9 @@ export interface StoreState {
   addMedia: (asset: MediaAsset) => void
   updateMedia: (id: string, patch: Partial<MediaAsset>) => void
   appendMediaClip: (mediaId: string) => void
+  // Freeze frame: add a still asset + a clip on the topmost video track at
+  // `at` (nearest gap; end of track if nothing fits).
+  addStillClip: (asset: MediaAsset, at: number) => void
 
   // --- clip editing ---
   moveClip: (clipId: string, start: number, trackId?: string, transient?: boolean) => void
@@ -247,6 +250,34 @@ export const useStore = create<StoreState>()(
             start: snapToFrame(end, p.canvas.fps),
             in: 0,
             out: asset.duration,
+            speed: 1,
+            volume: 1,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+        }),
+
+      addStillClip: (asset, at) =>
+        mutateProject((p) => {
+          p.media.push(asset)
+          const track = p.tracks
+            .filter((t) => t.kind === 'video')
+            .sort((a, b) => b.z - a.z)[0]
+          if (!track) return
+          const dur = 3
+          const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
+          const start =
+            clampStartToGaps(siblings, dur, snapToFrame(at, p.canvas.fps)) ??
+            track.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0)
+          track.clips.push({
+            id: uid('c'),
+            kind: 'video',
+            mediaId: asset.id,
+            start,
+            in: 0,
+            out: dur,
             speed: 1,
             volume: 1,
             transform: defaultTransform(),

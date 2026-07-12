@@ -231,6 +231,45 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_freeze_test': {
+      // Phase 5 item 3 check: freeze the top demo clip at t=2, park the still
+      // at t=12 (past the 10s sources) so a later native capture can only show
+      // content if the PNG is really decoding through the compositor.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-freeze', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPlayhead(2)
+        const topClip = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        const { freezeFrame } = await import('../persistence/projectIO')
+        await freezeFrame(topClip.id)
+        const still = st().project.media.find((m) => m.name.includes('(freeze)'))
+        const stillClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.mediaId === still?.id)
+        if (!still || !stillClip) {
+          void report(false, `asset=${!!still} clip=${!!stillClip}`)
+          break
+        }
+        st().moveClip(stillClip.id, 12)
+        st().setPlayhead(13)
+        const moved = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === stillClip.id)!
+        void report(
+          (still.width ?? 0) > 0 && moved.start === 12 && st().project.duration === 15,
+          `png=${still.path} ${still.width}x${still.height} clipAt=${moved.start} dur=${st().project.duration}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

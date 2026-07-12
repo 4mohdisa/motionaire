@@ -96,6 +96,38 @@ fn save_fonts(bundle_path: String, fonts: Vec<persistence::BundleFont>) -> Resul
     persistence::save_fonts(std::path::Path::new(&bundle_path), &fonts)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrozenFrame {
+    path: String,
+    width: u32,
+    height: u32,
+}
+
+// Freeze frame: extract one still from a source at `time` into the app cache.
+// The PNG is ordinary media afterwards — the decoder serves a single-frame
+// source natively (duration 0 → frame 0 forever), no special image pipeline.
+#[tauri::command]
+fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<FrozenFrame, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("freeze");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("frame");
+    let out = dir.join(format!("{stem}-{}ms.png", (time * 1000.0).round() as i64));
+    let out_str = out.to_str().ok_or("bad output path")?.to_string();
+    let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+        .args(["-v", "error", "-y", "-ss", &format!("{time:.6}"), "-i", &path, "-frames:v", "1", &out_str])
+        .status()
+        .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+    if !status.success() || !out.exists() {
+        return Err(format!("frame extraction failed for {path} at {time:.3}s"));
+    }
+    let info = compositor::decoder::probe(&out_str)?;
+    Ok(FrozenFrame { path: out_str, width: info.width, height: info.height })
+}
+
 #[tauri::command]
 fn save_project(
     app: tauri::AppHandle,
@@ -281,6 +313,7 @@ pub fn run() {
             autorun_demo,
             env_flag,
             report_test,
+            extract_frame,
             probe_media,
             import_font,
             save_fonts,
