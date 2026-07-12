@@ -457,3 +457,134 @@ text and transitions rendered by the compositor (still DOM overlays); >2 layer
 stress testing; VFR normalization on import (§6); hardware-decode zero-copy; audio
 in Rust. None of these carry spike-level risk — the risky unknown (real-time
 multi-clip keyframed compositing reaching the actual preview) is retired.
+
+---
+
+## 2026-07-12 — Session 4: hardening, unified clock, persistence, 60fps, crop/shadow
+
+## Part 1 — reconnect/robustness hardening
+
+**Session 3's "silent termination" mystery is explained.** Root cause of the
+missing traces: the compositor thread started via `.manage()` BEFORE
+tauri-plugin-log attached, so all startup logs (GPU init, WS bind) were dropped;
+only late re-inits ever appeared, which made normal-looking re-inits read as
+anomalies. Fixed by starting the compositor inside `setup()` after the logger.
+Additionally, every exit path now logs (`CloseRequested`/`Destroyed`/
+`ExitRequested`/`Exit`), so a repeat of the silent termination would leave a
+definitive trace. Retrospective judgment: the termination was almost certainly a
+window close/process kill that had no logging; treated as observability debt, now
+paid, rather than a compositor bug — the soak evidence below backs that.
+
+Hardening added, all structured-logged: GPU init with reason (startup / canvas
+change / post-error / post-panic), decoder respawn with reason (forward jump /
+reverse refill / child death / no child), premature-EOF detection (a SIGKILLed
+ffmpeg is detected and respawned, one recovery per frame call to avoid respawn
+spins on truly broken files), 3 consecutive render failures → GPU teardown and
+re-init, per-iteration `catch_unwind` (a panic logs, drops GPU state, continues),
+and a watchdog thread (2s cadence; alerts if the render loop is silent >2s while
+playing / >15s paused, with last-status + counters in the message).
+
+**Soak methodology honesty:** true machine sleep/wake and native window
+minimize/restore need a human present — sleeping the machine mid-session would
+kill the autonomous session running it. What the 35-minute chaos soak DOES drive,
+continuously and harder than a human would: scrub storms (both directions), rate
+flips (±1/±2), full project re-syncs (the webview-reload shape), canvas dimension
+flips (forced full GPU re-init cycles), WS client connect/drop every 10s, and
+SIGKILL of all ffmpeg children every 2 minutes. Results in the soak report below.
+
+## Part 2 — one clock
+
+With the compositor active, the frontend stops using a hidden `<video>` element as
+master clock: the frontend wall clock generates the (t, playing, rate) anchors,
+Rust free-runs between them (now honoring rate — reverse shuttle propagates), and
+every media element (audio duty only) drift-corrects against the same playhead via
+the unchanged session-2 rule. Text overlays already read store playhead. So all
+four surfaces — Rust video frames, audio elements, DOM text, timeline UI — hang
+off one number. Measured in-webview (clock-sync self-test): ≤16ms drift between
+store playhead and the Rust frame header during playback; exact (0.000s)
+convergence after a 30-seek scrub storm and after pausing mid-transition.
+
+**Sketch — rendering text INTO the composited frame (the export blocker):**
+rasterize on the frontend, composite in Rust. When a text clip's content/style
+changes (not per frame), the webview draws it to an OffscreenCanvas at canvas
+resolution ×2 for quality, encodes PNG, and ships it over IPC keyed by
+(clipId, contentHash). Rust caches it as an RGBA texture and treats it as one
+more layer quad — the existing transform/keyframe/SDF pipeline applies unchanged,
+so animation stays real-time (transforms are per-frame uniforms; the raster is
+static per revision). Why this over Rust-side text (cosmic-text/glyphon): pixel
+parity with the DOM editing overlay for free (same WebKit shaper renders both),
+zero font licensing/fallback work in Rust, and typewriter-style presets are the
+only thing it handles poorly (they'd re-raster per char step — acceptable, they're
+already excluded). Export uses the same cached rasters, so WYSIWYG holds across
+preview and FFmpeg export. Estimated as one focused session including cache
+invalidation and export-resolution re-raster.
+
+## Part 3 — persistence
+
+- Bundle exactly per CONTEXT.md §8.1 (`project.json` + `transcript.json`
+  placeholder + `history.jsonl` empty + `cache/`). Writes are temp-in-same-dir +
+  fsync + atomic rename; save VALIDATES the JSON before touching disk so a bad
+  serializer can never atomically install garbage.
+- `history.jsonl` stays empty rather than logging save events — §8.1 defines it
+  as the AI turn log; polluting it now would corrupt its later purpose.
+- Load rejects wrong `version`, corrupt/truncated JSON, and missing bundles with
+  clear errors (Rust tests cover each); missing source files come back as a list,
+  the UI flags those assets offline (striped clips, non-blocking native warning),
+  and the compositor already skips unprobeable layers gracefully.
+- Transient fields (`playbackUrl`, `missing`) are stripped on save, rebuilt on
+  load via the asset protocol. Asset scope widened to `$HOME/**` for arbitrary
+  user media — acceptable for a dev-phase desktop editor; revisit with Tauri's
+  dynamic-scope API before distribution.
+- SQLite per §8.2 at app-data/motionaire.db: `recent_projects` live (upsert,
+  prune to 20, vanished bundles filtered on read), `settings` +
+  `transcript_cache` schema-only stubs.
+- Native import replaces the file-input path in Tauri (dialog plugin + Rust
+  ffprobe for metadata — including authoritative `hasAudio`); the browser path
+  remains for non-Tauri dev.
+- **Save-mid-anything is safe by construction:** zustand+immer state snapshots
+  are immutable — a save serializes one consistent snapshot regardless of
+  playback or an in-flight drag; a drag-moment save just persists that
+  intermediate (valid) clip position. Kill-mid-save leaves either the old or the
+  new project.json (rename atomicity on APFS), never a hybrid — verified at the
+  unit level (tmp hygiene, replace-not-truncate) rather than by racing kill
+  timing, which proves nothing when it passes.
+- Verified end-to-end in the real webview, gated by env flags so it's repeatable:
+  byte-identical save→wreck→load round-trip (keyframes/transition/text included),
+  missing-media flow, and reopen ACROSS PROCESSES via the recents DB (bundle
+  saved by one app process, restored by a freshly launched one). A StrictMode
+  double-mount bug was found BY these tests — the bridge subscribed twice,
+  doubling every IPC message — and fixed with an idempotency guard.
+
+## Part 4 — pacing and reverse
+
+- Pacing: sleep-to-(deadline − 2.5ms) then spin to the absolute deadline.
+  Measured clean (release, steady 20s): 58.2fps average INCLUDING process
+  startup/GPU init and loop-wrap gaps — i.e. effectively 60Hz steady-state,
+  up from 52. Chaos-soak playing seconds peak at 60+.
+- Reverse playback is now real, not seek-stepping: every decoded frame lands in
+  a byte-capped trailing ring (default 96MB/decoder, `MOTIONAIRE_RING_MB`);
+  backward targets serve from the ring at full frame rate, and a ring miss
+  refills an entire chunk with ONE ffmpeg seek-respawn. Measured: 2s of timeline
+  played backward at 60Hz in 0.42s wall (spike_check). Honest ceiling: at 720p
+  the 96MB ring holds ~26 frames (~0.9s), so sustained reverse pays one ~100ms
+  refill hitch per chunk; at 4K this needs proxies (already on the roadmap) —
+  logged as the known ceiling, upgrade path unchanged.
+
+## Part 5 — crop and shadow in the compositor
+
+- Crop: fractions of the source frame per §1.2's `{l,t,r,b}` (UI edits percent),
+  implemented as a uv-window + geometry shrink + rotation-aware center offset —
+  Premiere semantics (crop cuts pixels; the box position holds). Sanitized to
+  ≤45% per edge in the shader path so degenerate crops can't produce
+  inside-out rects.
+- Shadow: second quad pre-pass per layer using the same rounded-rect SDF with a
+  smoothstep falloff across the blur width — an analytic approximation of a
+  gaussian shadow, correct-looking for solid video rects, cheap, and honest
+  (it is not a blur of content). Spread grows rect+radius; offset applied in
+  canvas space (fixed light source — does not rotate with the layer; CSS
+  box-shadow rotates, ours deliberately doesn't; logged as the chosen
+  convention). `#RRGGBBAA` supported; bare `#RRGGBB` gets a conventional 0.5
+  alpha. Crop/shadow are static (non-scalar) — not keyframeable; the PiP
+  keyframed transform animates AROUND them, verified visually.
+- Old sync payloads without crop/shadow deserialize via serde defaults — no
+  frontend/backend lockstep required.

@@ -127,7 +127,14 @@ pub struct Decoder {
     ring_cap_bytes: usize,
     pub respawns: u64,
     pub child_deaths: u64,
+    // Back-off after repeated immediate deaths (deleted/corrupt file): without
+    // this, a missing source means one ffmpeg spawn attempt per rendered frame.
+    consecutive_deaths: u32,
+    next_retry: Option<std::time::Instant>,
 }
+
+const DEATHS_BEFORE_BACKOFF: u32 = 3;
+const RETRY_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl Decoder {
     pub fn new(path: &str) -> Result<Self, String> {
@@ -154,6 +161,8 @@ impl Decoder {
             ring_cap_bytes: ring_budget_bytes(),
             respawns: 0,
             child_deaths: 0,
+            consecutive_deaths: 0,
+            next_retry: None,
         })
     }
 
@@ -237,6 +246,16 @@ impl Decoder {
 
     // Frame covering source time `src_t`, or None before anything decoded.
     pub fn frame_at(&mut self, src_t: f64) -> Option<&[u8]> {
+        // In back-off after repeated immediate deaths: serve nothing (or the
+        // stale frame) until the cooldown expires, instead of spawning ffmpeg
+        // per rendered frame against a gone/corrupt file.
+        if let Some(at) = self.next_retry {
+            if std::time::Instant::now() < at {
+                return if self.cur_idx >= 0 { Some(&self.frame) } else { None };
+            }
+            self.next_retry = None;
+        }
+
         let target = ((src_t * self.info.fps).floor() as i64).clamp(0, self.last_frame_idx());
 
         // Ring hit covers reverse playback and short back-scrubs at full rate.
@@ -261,31 +280,49 @@ impl Decoder {
             }
         }
 
+        let mut made_progress = false;
         while self.cur_idx < target {
-            if !self.read_next() {
-                // Premature EOF = dead/killed ffmpeg (real EOF only at file end).
-                if self.cur_idx < self.last_frame_idx() - 1 {
-                    self.child_deaths += 1;
-                    log::warn!(
-                        "decoder[{}]: ffmpeg pipe ended early at frame {} (death #{}) — respawning",
-                        self.short_name,
-                        self.cur_idx,
-                        self.child_deaths
-                    );
-                    let resume = (self.cur_idx + 1).max(0).min(target);
-                    if self.respawn(resume, "child died").is_err() {
-                        break;
-                    }
-                    // One recovery attempt per frame_at call; if the pipe dies
-                    // again immediately, serve what we have and let the next
-                    // frame retry (avoids a spin of respawns on a broken file).
-                    if !self.read_next() {
-                        break;
-                    }
-                } else {
-                    break; // legitimate end of file — hold last frame
-                }
+            if self.read_next() {
+                made_progress = true;
+                continue;
             }
+            // Premature EOF = dead/killed ffmpeg (real EOF only at file end).
+            if self.cur_idx < self.last_frame_idx() - 1 {
+                self.child_deaths += 1;
+                self.consecutive_deaths += 1;
+                log::warn!(
+                    "decoder[{}]: ffmpeg pipe ended early at frame {} (death #{}) — respawning",
+                    self.short_name,
+                    self.cur_idx,
+                    self.child_deaths
+                );
+                if self.consecutive_deaths >= DEATHS_BEFORE_BACKOFF {
+                    log::error!(
+                        "decoder[{}]: {} immediate deaths in a row — backing off {:?} (file deleted or corrupt?)",
+                        self.short_name,
+                        self.consecutive_deaths,
+                        RETRY_COOLDOWN
+                    );
+                    self.next_retry = Some(std::time::Instant::now() + RETRY_COOLDOWN);
+                    self.kill_child();
+                    break;
+                }
+                let resume = (self.cur_idx + 1).max(0).min(target);
+                if self.respawn(resume, "child died").is_err() {
+                    break;
+                }
+                // One recovery attempt per frame_at call; if the pipe dies
+                // again immediately, the next call (or back-off) handles it.
+                if !self.read_next() {
+                    break;
+                }
+                made_progress = true;
+            } else {
+                break; // legitimate end of file — hold last frame
+            }
+        }
+        if made_progress {
+            self.consecutive_deaths = 0;
         }
         if self.cur_idx >= 0 {
             Some(&self.frame)
@@ -306,5 +343,51 @@ impl Decoder {
 impl Drop for Decoder {
     fn drop(&mut self) {
         self.kill_child();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Deterministic proof of the deleted-file back-off: generate a real file,
+    // decode a frame, delete the file, then hammer frame_at — spawn attempts
+    // must stop after DEATHS_BEFORE_BACKOFF and resume only after the cooldown.
+    #[test]
+    fn backoff_engages_when_source_vanishes() {
+        let ffmpeg = ffmpeg_bin();
+        if Command::new(&ffmpeg).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
+            eprintln!("skipping: ffmpeg unavailable");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("motionaire-decoder-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("v.mp4");
+        assert!(Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-t", "2", "-pix_fmt", "yuv420p", file.to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+
+        let mut d = Decoder::new(file.to_str().unwrap()).unwrap();
+        assert!(d.frame_at(0.5).is_some(), "healthy decode first");
+
+        std::fs::remove_file(&file).unwrap();
+        // Force respawns against the missing file: jump far forward each call
+        // so the ring can't serve and a fresh spawn is required.
+        d.kill_child();
+        for i in 0..10 {
+            let _ = d.frame_at(1.0 + (i % 3) as f64 * 0.2);
+        }
+        assert!(d.next_retry.is_some(), "back-off must engage after repeated deaths");
+        let spawns_during_backoff = d.respawns;
+        // Cooldown active: further calls must not spawn anything.
+        for _ in 0..20 {
+            let _ = d.frame_at(1.5);
+        }
+        assert_eq!(d.respawns, spawns_during_backoff, "no spawns while backing off");
+        // Old frame is still served (stale better than black).
+        assert!(d.frame_at(1.5).is_some());
     }
 }

@@ -87,6 +87,39 @@ impl Layer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Wire-format guard: the frontend's flatten() JSON must deserialize with
+    // nonzero crop/shadow AND without them (older payload shape).
+    #[test]
+    fn transform_wire_format() {
+        let with: TransformCfg = serde_json::from_str(
+            r##"{"x":1,"y":2,"scale":0.5,"rotation":10,"opacity":0.9,"cornerRadius":12,
+                 "crop":{"l":0.05,"t":0.1,"r":0.05,"b":0.1},
+                 "shadow":{"blur":24,"spread":4,"color":"#000000CC","x":8,"y":12}}"##,
+        )
+        .unwrap();
+        assert_eq!(with.crop.t, 0.1);
+        assert_eq!(with.shadow.as_ref().unwrap().blur, 24.0);
+
+        let without: TransformCfg = serde_json::from_str(
+            r#"{"x":0,"y":0,"scale":1,"rotation":0,"opacity":1,"cornerRadius":0}"#,
+        )
+        .unwrap();
+        assert_eq!(without.crop.l, 0.0);
+        assert!(without.shadow.is_none());
+
+        // shadow: null (what JSON.stringify produces for transform.shadow=null)
+        let null_shadow: TransformCfg = serde_json::from_str(
+            r#"{"x":0,"y":0,"scale":1,"rotation":0,"opacity":1,"cornerRadius":0,"shadow":null}"#,
+        )
+        .unwrap();
+        assert!(null_shadow.shadow.is_none());
+    }
+}
+
 // Resolved per-layer draw parameters at one instant, all in canvas pixels.
 #[derive(Debug, Clone)]
 pub struct ResolvedLayer {

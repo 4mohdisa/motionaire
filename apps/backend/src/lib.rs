@@ -104,10 +104,14 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // Start the compositor AFTER the logger attaches — its startup GPU
+            // init / WS bind logs were being swallowed pre-attach, which is why
+            // session 3 only ever saw adapter logs from LATE re-inits.
+            use tauri::Manager as _;
+            app.manage(compositor::start());
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
-        .manage(compositor::start())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
                 log::info!("lifecycle: window '{}' close requested", window.label())
