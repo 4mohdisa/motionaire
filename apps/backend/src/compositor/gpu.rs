@@ -118,16 +118,13 @@ pub struct GpuCompositor {
     slots: HashMap<String, LayerSlot>, // keyed by media path
 }
 
-// Fixed 720p-class output for the spike: enough to judge quality and measure
-// honestly, cheap enough for readback + IPC. Width follows canvas aspect.
-const OUT_H: u32 = 720;
-
 fn align_up(v: u32, a: u32) -> u32 {
     v.div_ceil(a) * a
 }
 
 impl GpuCompositor {
-    pub fn new(canvas_w: u32, canvas_h: u32) -> Result<Self, String> {
+    // out_h: preview render height — 720 draft (default) or full canvas height.
+    pub fn new(canvas_w: u32, canvas_h: u32, out_h: u32) -> Result<Self, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -233,7 +230,7 @@ impl GpuCompositor {
             ..Default::default()
         });
 
-        let out_h = OUT_H;
+        let out_h = out_h.clamp(144, canvas_h.max(144));
         let out_w = (canvas_w as f64 * out_h as f64 / canvas_h as f64).round() as u32 & !1;
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("composite-target"),

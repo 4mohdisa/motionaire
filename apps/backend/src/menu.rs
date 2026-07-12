@@ -102,6 +102,14 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         &[
             &CheckMenuItem::with_id(app, "view:safe_zones", "Safe Zones", true, false, None::<&str>)?,
             &CheckMenuItem::with_id(app, "view:snap", "Snapping", true, true, None::<&str>)?,
+            &CheckMenuItem::with_id(
+                app,
+                "view:full_preview",
+                "Full Resolution Preview",
+                true,
+                false,
+                None::<&str>,
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "view:zoom_in", "Zoom In Timeline", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, "view:zoom_out", "Zoom Out Timeline", true, Some("CmdOrCtrl+-"))?,

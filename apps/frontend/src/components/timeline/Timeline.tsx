@@ -25,6 +25,7 @@ function Timeline() {
   const snap = useStore((s) => s.snap)
   const selection = useStore((s) => s.selection)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const headersRef = useRef<HTMLDivElement>(null)
 
   // Display order: video tracks top (highest z first), audio tracks below.
   const ordered = useMemo(() => {
@@ -168,7 +169,7 @@ function Timeline() {
         <IconBtn icon={Maximize} label="Fit timeline" onClick={fit} />
       </div>
       <div className="tl__body">
-        <div className="tl__headers">
+        <div className="tl__headers" ref={headersRef}>
           <div className="tl__headers-ruler" />
           {ordered.map((t) => (
             <div key={t.id} className="tl__header" style={{ height: LANE_HEIGHT[t.kind] }}>
@@ -176,7 +177,16 @@ function Timeline() {
             </div>
           ))}
         </div>
-        <div className="tl__scroll" ref={scrollRef}>
+        <div
+          className="tl__scroll"
+          ref={scrollRef}
+          onScroll={(e) => {
+            // Track headers scroll in lockstep with vertical lane scrolling;
+            // the ruler stays pinned via position: sticky inside this element.
+            if (headersRef.current)
+              headersRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop
+          }}
+        >
           <TimelineContext.Provider value={ctx}>
             <div className="tl__content" style={{ width: contentWidth }}>
               <Ruler />

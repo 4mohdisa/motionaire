@@ -13,7 +13,7 @@ fn main() {
     println!("media: screen={} cam={}", screen.path, cam.path);
     let project = demo::demo_project(&screen.path, &cam.path);
 
-    let mut gpu = GpuCompositor::new(project.canvas.width, project.canvas.height).expect("gpu init");
+    let mut gpu = GpuCompositor::new(project.canvas.width, project.canvas.height, 720).expect("gpu init");
     println!("render target: {}x{}", gpu.out_w, gpu.out_h);
 
     // Visual evidence at the demo's key moments.

@@ -27,7 +27,16 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
   let lastImage: ImageData | null = null
   let lastFresh = 0
 
-  const ctx = canvas.getContext('2d')!
+  // willReadFrequently opts OUT of WebKit's accelerated (IOSurface-pooled)
+  // canvas backing. That pool is where the scrub-time artifact lived: under
+  // memory pressure a recycled/purged surface could be DISPLAYED between our
+  // draws, showing content that was never ours (session 8 forensics: canvas
+  // pixel data always valid, display sometimes not). A CPU backing has no
+  // pool to recycle. Also enables cheap getImageData for diagnostics.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  // One reusable frame buffer — a fresh 3.7MB allocation per frame at 60fps
+  // was feeding the same memory pressure that triggers backing purges.
+  let frameBuf: ImageData | null = null
 
   const repaint = () => {
     if (!lastImage) return
@@ -87,9 +96,12 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
         ctx.fillStyle = '#000'
         ctx.fillRect(0, 0, w, h)
       }
-      const image = new ImageData(new Uint8ClampedArray(buf, 16), w, h)
-      ctx.putImageData(image, 0, 0)
-      lastImage = image
+      if (!frameBuf || frameBuf.width !== w || frameBuf.height !== h) {
+        frameBuf = new ImageData(w, h)
+      }
+      frameBuf.data.set(new Uint8ClampedArray(buf, 16))
+      ctx.putImageData(frameBuf, 0, 0)
+      lastImage = frameBuf
       lastFresh = performance.now()
       setActive(true, receivedFps())
       // No frames for a while (e.g. paused with no changes) still means active;

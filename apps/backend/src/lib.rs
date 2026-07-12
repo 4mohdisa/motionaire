@@ -25,6 +25,11 @@ fn set_playhead(state: State<Compositor>, t: f64, playing: bool, rate: Option<f6
 }
 
 #[tauri::command]
+fn set_preview_quality(state: State<Compositor>, full: bool) {
+    state.set_preview_full(full);
+}
+
+#[tauri::command]
 fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::SpikeMedia), String> {
     compositor::demo::spike_media_info()
 }
@@ -113,9 +118,13 @@ fn emit_menu_action(app: tauri::AppHandle, action: String) {
 
 // Keep View-menu checkboxes honest when the same toggles change from in-app UI.
 #[tauri::command]
-fn sync_view_menu(app: tauri::AppHandle, safe_zones: bool, snap: bool) {
+fn sync_view_menu(app: tauri::AppHandle, safe_zones: bool, snap: bool, full_preview: Option<bool>) {
     if let Some(m) = app.menu() {
-        for (id, val) in [("view:safe_zones", safe_zones), ("view:snap", snap)] {
+        for (id, val) in [
+            ("view:safe_zones", safe_zones),
+            ("view:snap", snap),
+            ("view:full_preview", full_preview.unwrap_or(false)),
+        ] {
             if let Some(item) = m.get(id) {
                 if let Some(check) = item.as_check_menuitem() {
                     let _ = check.set_checked(val);
@@ -242,6 +251,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sync_project,
             set_playhead,
+            set_preview_quality,
             spike_setup,
             autorun_demo,
             env_flag,

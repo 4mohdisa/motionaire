@@ -28,6 +28,22 @@
   box-sizing: border-box;
 }
 
+/* UI chrome is not selectable text (session 8, Phase 1). Named exceptions:
+   real editing surfaces only — inputs, textareas, contenteditable, and
+   anything explicitly opted in with .selectable. */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 html,
 body,
 #root {

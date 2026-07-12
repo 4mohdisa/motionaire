@@ -38,6 +38,8 @@ pub struct CompositorState {
     project: Mutex<Option<SyncProject>>,
     clock: Mutex<Clock>,
     dirty: AtomicBool,
+    // Draft (720p-class, default) vs full-canvas-resolution preview.
+    preview_full: AtomicBool,
     pub clients: Arc<AtomicUsize>,
     frame_tx: watch::Sender<Bytes>,
     // Watchdog heartbeat: epoch millis of the last render-loop iteration.
@@ -59,6 +61,12 @@ impl CompositorState {
     pub fn set_project(&self, p: SyncProject) {
         *self.project.lock().unwrap() = Some(p);
         self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_preview_full(&self, full: bool) {
+        self.preview_full.store(full, Ordering::Relaxed);
+        self.dirty.store(true, Ordering::Relaxed);
+        log::info!("preview quality: {}", if full { "full" } else { "draft" });
     }
 
     pub fn set_playhead(&self, t: f64, playing: bool, rate: f64) {
@@ -91,6 +99,7 @@ pub fn start() -> Compositor {
         project: Mutex::new(None),
         clock: Mutex::new(Clock { t: 0.0, playing: false, rate: 1.0, anchored: Instant::now() }),
         dirty: AtomicBool::new(true),
+        preview_full: AtomicBool::new(false),
         clients: Arc::new(AtomicUsize::new(0)),
         frame_tx,
         heartbeat_ms: AtomicI64::new(now_ms()),
@@ -160,7 +169,7 @@ fn render_loop(state: Compositor) {
     }
 
     let mut gpu: Option<gpu::GpuCompositor> = None;
-    let mut gpu_canvas = (0u32, 0u32);
+    let mut gpu_canvas = (0u32, 0u32, 0u32);
     let mut ema_ms = 16.6f64;
     let mut consecutive_errors = 0u32;
     let mut dumped = false;
@@ -205,7 +214,7 @@ fn render_loop(state: Compositor) {
 fn render_iteration(
     state: &Compositor,
     gpu: &mut Option<gpu::GpuCompositor>,
-    gpu_canvas: &mut (u32, u32),
+    gpu_canvas: &mut (u32, u32, u32),
     ema_ms: &mut f64,
     consecutive_errors: &mut u32,
     dumped: &mut bool,
@@ -247,18 +256,26 @@ fn render_iteration(
         return;
     }
 
-    let dims = (project.canvas.width, project.canvas.height);
+    let out_h = if state.preview_full.load(Ordering::Relaxed) { project.canvas.height } else { 720 };
+    let dims = (project.canvas.width, project.canvas.height, out_h);
     if gpu.is_none() || *gpu_canvas != dims {
-        let reason = if gpu.is_none() { "no device (startup, post-error, or post-panic)" } else { "canvas dims changed" };
+        let reason = if gpu.is_none() {
+            "no device (startup, post-error, or post-panic)"
+        } else if gpu_canvas.2 != dims.2 {
+            "preview quality changed"
+        } else {
+            "canvas dims changed"
+        };
         let n = state.stats.gpu_inits.fetch_add(1, Ordering::Relaxed) + 1;
         log::info!(
-            "compositor: GPU init #{n} ({reason}); canvas {}x{} → {}x{}",
+            "compositor: GPU init #{n} ({reason}); canvas {}x{} → {}x{} @out_h {}",
             gpu_canvas.0,
             gpu_canvas.1,
             dims.0,
-            dims.1
+            dims.1,
+            dims.2
         );
-        match gpu::GpuCompositor::new(dims.0, dims.1) {
+        match gpu::GpuCompositor::new(dims.0, dims.1, out_h) {
             Ok(g) => {
                 *gpu = Some(g);
                 *gpu_canvas = dims;

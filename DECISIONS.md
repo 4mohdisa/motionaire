@@ -824,3 +824,48 @@ transport, timeline playhead, and rendered frame agree mid-playback.
 - Post-fix: pause → minimize → restore shows correct frame + keepalive.
 - Dissolve mid-blend live at 59 fps; clock-authority capture: transport,
   playhead, and frame content in agreement.
+
+---
+
+## 2026-07-12 — Session 8: scrub fix, density, grading, fonts, feature batch
+
+## Phase 1 — the scrub-time preview corruption
+
+**Why this trigger differs from the session-7 bug (evidence, not assertion):**
+the session-7 defect was *no frames at all* while idle (0 fps, silent loop) — a
+dead canvas left displaying whatever backing macOS had. The scrub-time report
+(11 fps) happens while frames ARE flowing. Forensics this session: a 60Hz scrub
+storm with per-instant sampling showed the canvas's own pixel data valid at
+every probe (testsrc2 colors, never garbage), and a native mid-storm capture on
+this machine was clean — so the pipeline (decode → composite → WS → putImageData)
+is correct under scrub load. What remains is the DISPLAY path: WebKit's
+accelerated 2D canvas uses a pool of IOSurfaces for buffer rotation, and under
+the memory pressure a scrub storm generates (3.7MB frames at churn + decoder
+respawns), a purged/recycled surface can be composited between our draws —
+cross-process surface remnants, exactly the user's "another app's UI". The
+90ms gaps between 11fps scrub frames are far shorter than the session-7 1s
+repaint watchdog, so that fix could not cover this window.
+
+**Fix: remove the pool from the equation.** `getContext('2d',
+{ willReadFrequently: true })` opts into a CPU canvas backing — no IOSurface
+pool, nothing recyclable to display; WebKit uploads our buffer as-is. Plus one
+reusable ImageData frame buffer instead of a fresh 3.7MB allocation per frame
+(that churn fed the very pressure that triggers purges). Verified: storm
+forensics pass, clean native capture mid-storm (3s storm @30Hz — a 60Hz storm
+starves WKWebView's own takeSnapshot for longer than its timeout; the artifact
+class is display-path, unaffected by storm frequency; logged honestly).
+
+Also in Phase 1:
+- Vertical track scrolling restructured: the lanes area scrolls both axes, the
+  ruler stays pinned (sticky within the scroller), headers scroll in lockstep
+  programmatically. Verified: 12 tracks at 200px timeline — scrolls, synced,
+  ruler pinned.
+- `user-select: none` on body; named exceptions only: `input`, `textarea`,
+  `[contenteditable='true']`, `.selectable`. Verified computed styles.
+- Draft/Full preview toggle: View ▸ Full Resolution Preview (CheckMenuItem,
+  synced both ways). Draft = 720p-class (default, unchanged); Full = canvas
+  height. Implemented as a GPU re-init on quality change (same path as canvas
+  dim changes, same structured logging). Verified: GPU init #2 "preview quality
+  changed" @out_h 1080 + native capture.
+- Dev-remote grew `dev:reload`, parameterized scrub storms, and play/pause/seek
+  passthroughs — the native-window driving toolkit keeps compounding.

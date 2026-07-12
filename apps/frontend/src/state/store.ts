@@ -61,6 +61,7 @@ export interface StoreState {
   compositorActive: boolean
   compositorFps: number
   projectPath: string | null
+  previewFull: boolean
 
   // --- history ---
   undo: () => void
@@ -122,6 +123,7 @@ export interface StoreState {
   setTimelineHeight: (h: number) => void
   setPropsWidth: (w: number) => void
   setCompositorStatus: (active: boolean, fps: number) => void
+  setPreviewFull: (v: boolean) => void
   setProjectPath: (path: string | null) => void
   // Load a project bundle (or New Project): wholesale replacement, fresh history.
   replaceProject: (project: Project, path: string | null) => void
@@ -177,6 +179,7 @@ export const useStore = create<StoreState>()(
       compositorActive: false,
       compositorFps: 0,
       projectPath: null,
+      previewFull: false,
 
       undo: () =>
         set((s) => {
@@ -722,6 +725,11 @@ export const useStore = create<StoreState>()(
         set((s) => {
           s.compositorActive = active
           s.compositorFps = fps
+        }),
+
+      setPreviewFull: (v) =>
+        set((s) => {
+          s.previewFull = v
         }),
 
       setProjectPath: (path) =>
