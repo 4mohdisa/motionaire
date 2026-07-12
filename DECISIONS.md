@@ -726,3 +726,101 @@ whoever scopes that later session.
   native-event → emit → dispatch chain. The one thing this cannot prove is
   the OS rendering the bar itself — that's Tauri's contract; menu build
   errors would appear in the log (none do).
+
+---
+
+## 2026-07-12 — Session 7: verification gap closed, dead-canvas regression, compositor transitions
+
+## Part 1 — real native pixels, finally
+
+**The chosen mechanism is self-capture, not a permission grant.**
+`WKWebView.takeSnapshotWithConfiguration` captures the app's own rendered
+content — including the GPU-accelerated compositor canvas — with NO Screen
+Recording permission, because macOS lets an app capture itself. Implemented as
+`capture.rs` + a `capture_preview` command, plus a debug-only dev-remote
+(trigger file → capture / minimize / restore / any menu action) that finally
+lets the autonomous session DRIVE and SEE the native window. First real native
+screenshots in the project's history were taken this session.
+
+Honesty notes: (1) this captures the webview's content, not the window chrome —
+exactly the surface where all rendering lives, so it's the right evidence for
+compositor claims; (2) capturing the app from OUTSIDE (or capturing other
+windows) still requires a one-time human grant of Screen Recording to the
+capturing tool — steps documented in the README; there is no automatic path
+and this log does not pretend otherwise; (3) the brief's suggested approach
+(bundle the app so IT can be granted screen recording) rested on a mismatch —
+the permission gates the CAPTURING process, not the captured one; the bundled
+.app build (`tauri build --debug --bundles app`) was still produced and
+documented since it's needed for the user-side grant flow and future
+distribution.
+
+## Part 2 — the regression: what was actually broken
+
+Reproduced natively, exact chain:
+1. Playback reaches timeline end → auto-pause. At t == duration no clip is
+   active, so the LAST frame the compositor ever sent is empty background.
+2. The paused-idle render loop (session 4 design) sent NOTHING further — the
+   stale-timer in the client kept the canvas visible with an eternal
+   "Compositor 0 fps" badge.
+3. Any canvas-backing purge (macOS reclaims GPU backings of occluded windows)
+   then displayed an UNINITIALIZED surface: black on the dev machine,
+   another application's leftover surface on the user's — the reported
+   "different app bled into the preview." The canvas was never repainted
+   because repaints only happened on new frames, which never came.
+
+Sessions 3–6 missed it because every check exercised the streaming path while
+playing (browser-pane mirror, logs, fps counters) — the idle-after-end state
+with a purged backing was invisible to all of them. That is precisely the gap
+Part 1 closed.
+
+Fixes (belt + suspenders):
+- Rust: paused-idle now re-sends the last frame ~1Hz (keepalive) — purged,
+  late, or reconnecting clients have valid pixels within a second.
+- Client: caches the last decoded frame; repaints it on visibilitychange /
+  focus / pageshow and via a 1s watchdog; black-fills any freshly reallocated
+  canvas so an uninitialized backing can never be displayed.
+- Badge tells the truth: "paused" instead of "0 fps".
+- Verified natively: pause mid-clip → 8s minimized → restore → capture shows
+  the correct frame (source burn-in timecode matches the playhead).
+
+**Bonus defect found BY the new eyes:** with the window occluded, the
+frontend's playhead crawled at ~0.4× (rAF starved; the 250ms fallback interval
+caps dt at 0.1s) while Rust free-ran correctly — visible as transport time
+disagreeing with rendered content by ~1s. Fix completes the session-4 clock
+unification: while the compositor is active, the store playhead follows the
+FRAME HEADER time (Rust is the clock authority); frontend wall-clock
+integration remains only as the no-compositor fallback. The anchor echo this
+creates (frontend re-sends Rust's own time back) re-anchors Rust to within IPC
+latency of where it already is — measured harmless. Verified natively:
+transport, timeline playhead, and rendered frame agree mid-playback.
+
+## Part 3 — transitions in the compositor
+
+- Wire: `Layer.transitions` {in, out} with serde defaults (old payloads fine);
+  frontend flatten now sends clip transitions.
+- Canon implemented as logged in sessions 3/5: cross types (dissolve/slide/
+  wipe) act on the INCOMING clip's in-edge window [start, start+d); the
+  outgoing same-track clip keeps drawing through its media handle for the
+  window (transition_tail), decoder clamping to last frame when the handle
+  runs out. Out-edge `fade` dims to background; a cross type placed on an
+  out-edge without a partner degrades to a fade (logged, matches the DOM-era
+  note).
+- Shader-side cost ≈ zero: dissolve/fade modulate the existing opacity
+  uniform; slide adds (1-p)·canvas_w to x; wipe reuses the CROP machinery
+  (reveal = animated right-crop within the user crop). p50 frame time
+  unchanged (2.75ms).
+- DOM cross-fade path is dormant while the compositor is active (hidden video
+  elements), so there is no double-rendering; it remains the no-compositor
+  browser fallback.
+- Verified: spike_check PNGs (dissolve = true 50/50 alpha blend with the
+  outgoing clip's handle still decoding — its burn-in timecode reads past its
+  out point; wipe = clean half-reveal) AND live native captures during real
+  playback at 55–59 fps delivered, including the timeline's transition wedge
+  UI on the cut.
+
+## Session-7 verification inventory (all native captures)
+- Playing composite w/ PiP animation: 57 fps delivered.
+- Reproduced dead state pre-fix: black canvas + "0 fps" at end-of-timeline.
+- Post-fix: pause → minimize → restore shows correct frame + keepalive.
+- Dissolve mid-blend live at 59 fps; clock-authority capture: transport,
+  playhead, and frame content in agreement.

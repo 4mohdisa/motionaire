@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../state/store'
+import { compositorClock } from '../compositor/client'
 import {
   activeAudioClips,
   activeVideoClips,
@@ -69,7 +70,15 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
           : null
 
         let ph: number
-        if (
+        const compClock =
+          s.compositorActive &&
+          Number.isFinite(compositorClock.t) &&
+          performance.now() - compositorClock.at < 600
+        if (compClock) {
+          // The compositor's frame header is the authoritative clock: immune
+          // to rAF starvation (occluded windows crawled at ~0.4x otherwise).
+          ph = compositorClock.t
+        } else if (
           s.shuttle > 0 &&
           master &&
           masterClip &&

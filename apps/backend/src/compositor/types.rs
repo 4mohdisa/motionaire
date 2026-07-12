@@ -32,6 +32,44 @@ pub struct Layer {
     pub speed: f64,
     pub transform: TransformCfg,
     pub keyframes: Vec<Kf>,
+    #[serde(default)]
+    pub transitions: TransitionsCfg,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct TransitionsCfg {
+    #[serde(rename = "in", default)]
+    pub in_: Option<TransitionCfg>,
+    #[serde(default)]
+    pub out: Option<TransitionCfg>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TransitionCfg {
+    #[serde(rename = "type")]
+    pub kind: String, // dissolve | fade | slide | wipe (cut = None)
+    pub duration: f64,
+}
+
+// Cross transitions (need the outgoing partner drawn underneath) vs fades
+// (self-contained against background). Canon per DECISIONS session 3/5:
+// cross types live canonically on the INCOMING clip's in-edge.
+pub fn is_cross(kind: &str) -> bool {
+    matches!(kind, "dissolve" | "slide" | "wipe")
+}
+
+// How long this layer must keep drawing PAST its end because the adjacent
+// next layer on the same track opens with a cross transition.
+pub fn transition_tail(layers: &[Layer], layer: &Layer, fps: f64) -> f64 {
+    let end = layer.end();
+    let half_frame = 1.0 / fps / 2.0;
+    layers
+        .iter()
+        .filter(|o| o.id != layer.id && o.z == layer.z && (o.start - end).abs() < half_frame)
+        .filter_map(|o| o.transitions.in_.as_ref())
+        .filter(|tr| is_cross(&tr.kind))
+        .map(|tr| tr.duration)
+        .fold(0.0, f64::max)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

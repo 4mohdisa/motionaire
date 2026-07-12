@@ -352,10 +352,23 @@ impl GpuCompositor {
         let ch = project.canvas.height as f32;
         // Canvas-space math throughout; the viewport scale falls out of NDC mapping.
 
-        // Back-to-front by z.
-        let mut active: Vec<&super::types::Layer> =
-            project.layers.iter().filter(|l| l.active_at(t)).collect();
-        active.sort_by_key(|l| l.z);
+        // Back-to-front by z; within a z (track), outgoing before incoming so
+        // cross transitions blend incoming over outgoing. A layer stays
+        // drawable through its trailing handle while the next clip's cross
+        // transition runs (canon: cross transitions on the incoming in-edge).
+        let fps = project.canvas.fps.max(1.0);
+        let mut active: Vec<&super::types::Layer> = project
+            .layers
+            .iter()
+            .filter(|l| {
+                let tail = super::types::transition_tail(&project.layers, l, fps);
+                l.start <= t && t < l.end() + tail
+            })
+            .collect();
+        active.sort_by(|a, b| {
+            a.z.cmp(&b.z)
+                .then(a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal))
+        });
 
         // Upload decoded frames + uniforms before encoding the pass.
         let mut draws: Vec<(String, bool)> = Vec::new(); // (path, has_shadow)
@@ -386,7 +399,36 @@ impl GpuCompositor {
                 continue;
             }
 
-            let r = resolve_layer(layer, t);
+            let mut r = resolve_layer(layer, t);
+
+            // --- Transitions (session 7, Part 3) ---
+            // In-edge window [start, start+d): dissolve/fade modulate alpha,
+            // slide enters from the right, wipe reveals left→right via the
+            // crop machinery. Out-edge: fade (and, degraded, any cross type
+            // without a partner) modulates alpha toward the end.
+            let mut wipe_reveal: f32 = 1.0;
+            if let Some(tr) = &layer.transitions.in_ {
+                let d = tr.duration.max(1e-6);
+                if t < layer.start + d {
+                    let p = (((t - layer.start) / d).clamp(0.0, 1.0)) as f32;
+                    match tr.kind.as_str() {
+                        "dissolve" | "fade" => r.opacity *= p,
+                        "slide" => r.x += (1.0 - p) * cw,
+                        "wipe" => wipe_reveal = p,
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(tr) = &layer.transitions.out {
+                let d = tr.duration.max(1e-6);
+                let end = layer.end();
+                if t > end - d {
+                    let q = (((end - t) / d).clamp(0.0, 1.0)) as f32;
+                    // Cross types on an out-edge degrade to a fade (logged canon).
+                    r.opacity *= q;
+                }
+            }
+
             // object-fit: contain into the canvas, then keyframed transform.
             let fit = (cw / mw as f32).min(ch / mh as f32);
             let (dw, dh) = (mw as f32 * fit * r.scale, mh as f32 * fit * r.scale);
@@ -394,7 +436,11 @@ impl GpuCompositor {
             // Crop cuts pixels away from the fitted rect (Premiere semantics):
             // the visible sub-rect keeps its on-canvas position; its center
             // shifts by the crop asymmetry, rotating with the layer.
-            let (cl, ct2, cr2, cb) = sane_crop(&r.crop);
+            let (cl, ct2, mut cr2, cb) = sane_crop(&r.crop);
+            if wipe_reveal < 1.0 {
+                // Reveal fraction of the (user-cropped) visible width.
+                cr2 = (cr2 + (1.0 - wipe_reveal) * (1.0 - cl - cr2)).min(0.999);
+            }
             let half_w = dw * (1.0 - cl - cr2) * 0.5;
             let half_h = dh * (1.0 - ct2 - cb) * 0.5;
             let off = ((cl - cr2) * 0.5 * dw, (ct2 - cb) * 0.5 * dh);

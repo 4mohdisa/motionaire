@@ -40,6 +40,31 @@ fn main() {
     gpu.dump_png(&styled, 3.5, &p).expect("png dump");
     println!("dumped {}", p.display());
 
+    // Compositor transitions (session 7): two adjacent clips on ONE track,
+    // dissolve and wipe on the incoming edge — PNGs at mid-transition.
+    {
+        use motionaire_lib::compositor::types::{TransitionCfg, TransitionsCfg};
+        let mut tp = demo::demo_project(&screen.path, &cam.path);
+        // Restructure: same z, adjacent at t=5: screen [0,5), cam [5,10).
+        tp.layers[0].out = 5.0;
+        tp.layers[1].z = 0;
+        tp.layers[1].start = 5.0;
+        tp.layers[1].in_ = 0.0;
+        tp.layers[1].out = 5.0;
+        tp.layers[1].keyframes.clear();
+        tp.layers[1].transitions = TransitionsCfg {
+            in_: Some(TransitionCfg { kind: "dissolve".into(), duration: 1.2 }),
+            out: None,
+        };
+        let p = dir.join("check-transition-dissolve-t5.6.png");
+        gpu.dump_png(&tp, 5.6, &p).expect("dissolve dump");
+        println!("dumped {}", p.display());
+        tp.layers[1].transitions.in_ = Some(TransitionCfg { kind: "wipe".into(), duration: 1.2 });
+        let p = dir.join("check-transition-wipe-t5.6.png");
+        gpu.dump_png(&tp, 5.6, &p).expect("wipe dump");
+        println!("dumped {}", p.display());
+    }
+
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
     // this fast (few respawns), correctness checked by timing + no panics.
     let rev_start = Instant::now();

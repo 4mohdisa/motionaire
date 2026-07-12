@@ -45,6 +45,7 @@ function flatten(project: Project) {
           shadow: clip.transform.shadow,
         },
         keyframes: clip.keyframes,
+        transitions: clip.transitions,
       })
     }
   }

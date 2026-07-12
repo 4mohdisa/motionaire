@@ -7,6 +7,11 @@ import { useStore } from '../state/store'
 const WS_URL = 'ws://127.0.0.1:43117'
 const MAGIC = 0x4d4f544e
 
+// Rust's timeline time from the latest frame header — the authoritative clock
+// while the compositor is active (session 7: the frontend wall-clock crawls at
+// ~0.4x when the window is occluded and rAF starves; Rust never does).
+export const compositorClock = { t: NaN, at: 0 }
+
 export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
   let ws: WebSocket | null = null
   let stopped = false
@@ -68,10 +73,12 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
       const w = dv.getUint16(4, true)
       const h = dv.getUint16(6, true)
       if (buf.byteLength !== 16 + w * h * 4) return
+      compositorClock.t = dv.getFloat32(8, true)
+      compositorClock.at = performance.now()
       if (import.meta.env.DEV) {
-        // Rust's timeline time for this frame — used by clock-sync self-tests.
+        // Also exposed for scripted self-tests.
         const wm = window as unknown as { __motionaire?: Record<string, unknown> }
-        wm.__motionaire = { ...wm.__motionaire, lastFrameT: dv.getFloat32(8, true) }
+        wm.__motionaire = { ...wm.__motionaire, lastFrameT: compositorClock.t }
       }
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w

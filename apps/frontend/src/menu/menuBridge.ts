@@ -87,6 +87,38 @@ async function dispatch(action: string, path?: string) {
     case 'dev:pause':
       s.pause()
       break
+    case 'dev:transition_demo': {
+      // Two adjacent clips on ONE track with a dissolve on the cut — the
+      // compositor-transition verification scene.
+      await loadPipDemo()
+      const st = useStore.getState()
+      const tracks = st.project.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)
+      const [v1, v2] = tracks
+      const a = v1?.clips[0]
+      const b = v2?.clips[0]
+      if (!a || !b) break
+      st.trimClip(a.id, 'out', 5)
+      st.moveClip(b.id, 5, v1!.id)
+      const moved = useStore
+        .getState()
+        .project.tracks.flatMap((t) => t.clips)
+        .find((c) => c.id === b.id)
+      if (moved) {
+        useStore.getState().trimClip(b.id, 'out', 10)
+        useStore.getState().setClipProperty(b.id, 'transform.scale', 1) // clear PiP keyframes? kfs remain; scale kf overrides — clear all:
+      }
+      // Strip the PiP keyframes so the incoming clip is fullscreen.
+      for (const prop of [
+        'transform.scale',
+        'transform.x',
+        'transform.y',
+        'transform.cornerRadius',
+      ])
+        useStore.getState().clearKeyframes(b.id, prop)
+      useStore.getState().setTransition(b.id, 'in', { type: 'dissolve', duration: 1.2 })
+      useStore.getState().setPlayhead(4.5)
+      break
+    }
   }
   if (action.startsWith('dev:seek:')) {
     const t = Number(action.slice('dev:seek:'.length))

@@ -110,6 +110,7 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                 speed: 1.0,
                 transform: base_transform.clone(),
                 keyframes: vec![],
+                transitions: Default::default(),
             },
             Layer {
                 id: "spike_cam".into(),
@@ -138,6 +139,7 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                     kf("transform.cornerRadius", 5.0, 12.0),
                     kf("transform.cornerRadius", 6.2, 0.0),
                 ],
+                transitions: Default::default(),
             },
         ],
     }
