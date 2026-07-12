@@ -147,6 +147,20 @@ function ClipBlock({ clip, trackId }: Props) {
           }}
         />
       ))}
+      {clip.transitions.in && (
+        <div
+          className="clip__transition clip__transition--in"
+          style={{ width: Math.min(clip.transitions.in.duration * pxPerSec, widthPx / 2) }}
+          title={`${clip.transitions.in.type} ${clip.transitions.in.duration}s`}
+        />
+      )}
+      {clip.transitions.out && (
+        <div
+          className="clip__transition clip__transition--out"
+          style={{ width: Math.min(clip.transitions.out.duration * pxPerSec, widthPx / 2) }}
+          title={`${clip.transitions.out.type} ${clip.transitions.out.duration}s`}
+        />
+      )}
       <div className="clip__edge clip__edge--l" />
       <div className="clip__edge clip__edge--r" />
     </div>

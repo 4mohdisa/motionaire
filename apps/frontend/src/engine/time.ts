@@ -64,6 +64,38 @@ export function activeTextClips(p: Project, t: number): { clip: Clip; z: number 
   return out.sort((a, b) => a.z - b.z) // render order: lowest first, highest on top
 }
 
+// Cross transitions (dissolve/slide/wipe) need the outgoing clip's element to
+// keep running past its end into the incoming clip's opening window.
+export function transitionTail(p: Project, clip: Clip): number {
+  const found = findClip(p, clip.id)
+  if (!found) return 0
+  const end = clipEnd(clip)
+  const next = found.track.clips.find(
+    (c) => c.id !== clip.id && Math.abs(c.start - end) < 1 / p.canvas.fps / 2,
+  )
+  const tr = next?.transitions.in
+  return tr && tr.type !== 'fade' ? tr.duration : 0
+}
+
+// The clip pair for a cross transition at the playhead: incoming B (topmost,
+// just started, has an in-transition) and outgoing A (same track, ends at B.start).
+export function crossTransitionAt(
+  p: Project,
+  t: number,
+): { a: Clip | null; b: Clip; progress: number; type: string } | null {
+  const b = activeVideoClips(p, t)[0]?.clip
+  const tr = b?.transitions.in
+  if (!b || !tr) return null
+  const d = tr.duration
+  if (t < b.start || t >= b.start + d) return null
+  const found = findClip(p, b.id)
+  const a =
+    found?.track.clips.find(
+      (c) => c.id !== b.id && Math.abs(clipEnd(c) - b.start) < 1 / p.canvas.fps / 2,
+    ) ?? null
+  return { a, b, progress: (t - b.start) / d, type: tr.type }
+}
+
 // Clamp a desired start so [start, start+duration) doesn't overlap siblings.
 // Returns null when the clip can't be placed near the desired position.
 export function clampStartToGaps(

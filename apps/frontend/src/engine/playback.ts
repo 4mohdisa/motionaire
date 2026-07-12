@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../state/store'
-import { activeAudioClips, activeVideoClips, clipEnd, findClip, sourceTime } from './time'
+import {
+  activeAudioClips,
+  activeVideoClips,
+  clipEnd,
+  findClip,
+  sourceTime,
+  transitionTail,
+} from './time'
 import { resolveProp } from './keyframes'
 import type { Clip, Project } from '../types/project'
 
@@ -14,14 +21,15 @@ const REVERSE_SEEK_INTERVAL = 0.1 // s between seeks when shuttling backwards
 
 export type ElementMap = Map<string, HTMLVideoElement>
 
-// Clips whose media elements should be mounted: active now or starting soon,
-// so upcoming clips are decoded before the playhead reaches them.
+// Clips whose media elements should be mounted: active now or starting soon
+// (pre-decode upcoming cuts), plus a trailing window so outgoing clips can keep
+// playing through cross transitions.
 export function clipsToMount(p: Project, t: number): Clip[] {
   const out: Clip[] = []
   for (const tr of p.tracks) {
     for (const c of tr.clips) {
       if (!c.mediaId) continue
-      if (c.start <= t + 1 && t - 0.25 < clipEnd(c)) out.push(c)
+      if (c.start <= t + 1 && t - 1.5 < clipEnd(c)) out.push(c)
     }
   }
   return out
@@ -123,8 +131,10 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
       continue
     }
     const clip = found.clip
-    const active = clip.start <= t && t < clipEnd(clip)
-    const target = sourceTime(clip, Math.max(clip.start, Math.min(t, clipEnd(clip))))
+    // Extend activity through the next clip's cross transition (media handle).
+    const activeEnd = clipEnd(clip) + transitionTail(p, clip)
+    const active = clip.start <= t && t < activeEnd
+    const target = sourceTime(clip, Math.max(clip.start, Math.min(t, activeEnd)))
 
     if (!active) {
       if (!el.paused) el.pause()

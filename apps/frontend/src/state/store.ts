@@ -1,7 +1,15 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { current } from 'immer'
-import type { Clip, Ease, MediaAsset, Project } from '../types/project'
+import type {
+  Clip,
+  Ease,
+  MediaAsset,
+  Project,
+  TextAnimation,
+  TextStyle,
+  Transition,
+} from '../types/project'
 import { createProject, defaultTransform, uid } from '../types/project'
 import {
   clampStartToGaps,
@@ -12,6 +20,7 @@ import {
   snapToFrame,
 } from '../engine/time'
 import { resolveProp } from '../engine/keyframes'
+import { expandTextAnimation } from '../engine/textPresets'
 
 const HISTORY_LIMIT = 100
 
@@ -57,6 +66,14 @@ export interface StoreState {
   toggleKeyframe: (clipId: string, prop: string) => void
   clearKeyframes: (clipId: string, prop: string) => void
   setKeyframeEase: (clipId: string, prop: string, t: number, ease: Ease) => void
+
+  // --- transitions & text ---
+  setTransition: (clipId: string, edge: 'in' | 'out', transition: Transition | null) => void
+  addTextClip: (content?: string) => void
+  updateTextClip: (
+    clipId: string,
+    patch: { content?: string; style?: Partial<TextStyle>; animation?: Partial<TextAnimation> },
+  ) => void
 
   // --- transport / ui ---
   setPlayhead: (t: number) => void
@@ -238,6 +255,8 @@ export const useStore = create<StoreState>()(
               const dur = clipDuration(clip)
               clip.keyframes = clip.keyframes.filter((k) => k.t <= dur)
             }
+            // Text animations anchor to the clip edges; re-derive after resize.
+            if (clip.kind === 'text') expandTextAnimation(clip)
           },
           { history: transient ? false : true },
         ),
@@ -449,6 +468,75 @@ export const useStore = create<StoreState>()(
             (k) => k.prop === prop && Math.abs(k.t - t) < 1 / p.canvas.fps / 2,
           )
           if (kf) kf.ease = ease
+        }),
+
+      setTransition: (clipId, edge, transition) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          // 'cut' is the absence of a transition.
+          found.clip.transitions[edge] =
+            transition && transition.type !== 'cut' ? transition : null
+        }),
+
+      addTextClip: (content = 'Title') =>
+        mutateProject((p) => {
+          // Text lives on the topmost video track (CONTEXT.md: text above video).
+          const track = p.tracks
+            .filter((t) => t.kind === 'video')
+            .sort((a, b) => b.z - a.z)[0]
+          if (!track) return
+          const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
+          const duration = 3
+          const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
+          const placed = clampStartToGaps(siblings, duration, start)
+          if (placed === null) return
+          const clip: Clip = {
+            id: uid('c'),
+            kind: 'text',
+            start: snapToFrame(placed, p.canvas.fps),
+            in: 0,
+            out: duration,
+            speed: 1,
+            volume: 0,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+            text: {
+              content,
+              font: 'Inter',
+              size: 64,
+              weight: 700,
+              color: '#FFFFFF',
+              align: 'center',
+              stroke: null,
+              background: null,
+              maxWidth: 1200,
+            },
+            animation: { in: 'fadeUp', out: 'fade', duration: 0.3 },
+          }
+          expandTextAnimation(clip)
+          track.clips.push(clip)
+        }),
+
+      updateTextClip: (clipId, patch) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.clip.kind !== 'text') return
+          const clip = found.clip
+          if (patch.content !== undefined && clip.text) clip.text.content = patch.content
+          if (patch.style && clip.text) Object.assign(clip.text, patch.style)
+          if (patch.animation) {
+            clip.animation = {
+              in: 'fadeUp',
+              out: 'fade',
+              duration: 0.3,
+              ...clip.animation,
+              ...patch.animation,
+            }
+            expandTextAnimation(clip)
+          }
         }),
 
       setPlayhead: (t) =>

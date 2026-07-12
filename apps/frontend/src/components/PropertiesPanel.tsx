@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { useStore } from '../state/store'
 import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
-import type { Clip, Ease } from '../types/project'
+import type { Clip, Ease, TextAnimationPreset, TransitionType } from '../types/project'
 
 const EASES: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'spring']
+const TRANSITION_TYPES: TransitionType[] = ['cut', 'dissolve', 'fade', 'slide', 'wipe']
+const TEXT_PRESETS: TextAnimationPreset[] = ['none', 'fade', 'fadeUp', 'popIn', 'slideLeft']
+const FONTS = ['Inter', 'system-ui', 'Helvetica Neue', 'Georgia', 'Courier New']
 
 function PropertiesPanel() {
   const selection = useStore((s) => s.selection)
@@ -33,6 +36,17 @@ function ClipProperties({ clip }: { clip: Clip }) {
     <div className="props__body">
       <div className="props__clipname">{clip.kind === 'text' ? 'Text' : (asset?.name ?? clip.kind)}</div>
 
+      {clip.kind === 'text' && (
+        <>
+          <Section label="Text">
+            <TextEditor clip={clip} />
+          </Section>
+          <Section label="Animation">
+            <AnimationEditor clip={clip} />
+          </Section>
+        </>
+      )}
+
       <Section label="Transform">
         <NumberRow clip={clip} prop="transform.x" label="X" step={1} />
         <NumberRow clip={clip} prop="transform.y" label="Y" step={1} />
@@ -54,7 +68,168 @@ function ClipProperties({ clip }: { clip: Clip }) {
           )}
         </Section>
       )}
+
+      {clip.kind !== 'audio' && (
+        <Section label="Transitions">
+          <TransitionRow clip={clip} edge="in" />
+          <TransitionRow clip={clip} edge="out" />
+        </Section>
+      )}
     </div>
+  )
+}
+
+function TransitionRow({ clip, edge }: { clip: Clip; edge: 'in' | 'out' }) {
+  const { setTransition } = useStore.getState()
+  const tr = clip.transitions[edge]
+  return (
+    <div className="prow">
+      <span className="prow__label">{edge === 'in' ? 'In' : 'Out'}</span>
+      <select
+        className="prow__ease prow__ease--wide"
+        value={tr?.type ?? 'cut'}
+        onChange={(e) => {
+          const type = e.target.value as TransitionType
+          setTransition(clip.id, edge, type === 'cut' ? null : { type, duration: tr?.duration ?? 0.5 })
+        }}
+      >
+        {TRANSITION_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+      {tr && (
+        <input
+          className="prow__input prow__input--narrow"
+          type="number"
+          step={0.1}
+          min={0.1}
+          max={3}
+          value={tr.duration}
+          onChange={(e) => {
+            const d = Number(e.target.value)
+            if (Number.isFinite(d) && d > 0) setTransition(clip.id, edge, { ...tr, duration: d })
+          }}
+          title="Duration (s)"
+        />
+      )}
+    </div>
+  )
+}
+
+function TextEditor({ clip }: { clip: Clip }) {
+  const { updateTextClip } = useStore.getState()
+  const st = clip.text
+  if (!st) return null
+  return (
+    <>
+      <textarea
+        className="props__textarea"
+        rows={2}
+        value={st.content}
+        onChange={(e) => updateTextClip(clip.id, { content: e.target.value })}
+      />
+      <div className="prow">
+        <span className="prow__label">Font</span>
+        <select
+          className="prow__ease prow__ease--wide"
+          value={st.font}
+          onChange={(e) => updateTextClip(clip.id, { style: { font: e.target.value } })}
+        >
+          {FONTS.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="prow">
+        <span className="prow__label">Size</span>
+        <input
+          className="prow__input"
+          type="number"
+          min={8}
+          max={400}
+          value={st.size}
+          onChange={(e) => updateTextClip(clip.id, { style: { size: Number(e.target.value) || 64 } })}
+        />
+        <select
+          className="prow__ease"
+          value={st.weight}
+          onChange={(e) => updateTextClip(clip.id, { style: { weight: Number(e.target.value) } })}
+          title="Weight"
+        >
+          {[400, 500, 600, 700, 800].map((w) => (
+            <option key={w} value={w}>
+              {w}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="prow">
+        <span className="prow__label">Color</span>
+        <input
+          className="prow__color"
+          type="color"
+          value={st.color}
+          onChange={(e) => updateTextClip(clip.id, { style: { color: e.target.value } })}
+        />
+        <div className="props__align">
+          {(['left', 'center', 'right'] as const).map((a) => (
+            <button
+              key={a}
+              className={`tl__btn${st.align === a ? ' tl__btn--on' : ''}`}
+              onClick={() => updateTextClip(clip.id, { style: { align: a } })}
+            >
+              {a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function AnimationEditor({ clip }: { clip: Clip }) {
+  const { updateTextClip } = useStore.getState()
+  const anim = clip.animation ?? { in: 'none', out: 'none', duration: 0.3 }
+  return (
+    <>
+      {(['in', 'out'] as const).map((edge) => (
+        <div className="prow" key={edge}>
+          <span className="prow__label">{edge === 'in' ? 'In' : 'Out'}</span>
+          <select
+            className="prow__ease prow__ease--wide"
+            value={anim[edge]}
+            onChange={(e) =>
+              updateTextClip(clip.id, { animation: { [edge]: e.target.value as TextAnimationPreset } })
+            }
+          >
+            {TEXT_PRESETS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+      <div className="prow">
+        <span className="prow__label">Duration</span>
+        <input
+          className="prow__input"
+          type="number"
+          step={0.1}
+          min={0.1}
+          max={2}
+          value={anim.duration}
+          onChange={(e) => {
+            const d = Number(e.target.value)
+            if (Number.isFinite(d) && d > 0) updateTextClip(clip.id, { animation: { duration: d } })
+          }}
+        />
+      </div>
+    </>
   )
 }
 
