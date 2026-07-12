@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../state/store'
+import { findClip } from '../../engine/time'
 import { TimelineContext, type LaneRect, type TimelineCtx } from './timelineContext'
 import Ruler from './Ruler'
 import ClipBlock from './ClipBlock'
+import ContextMenu, { type MenuItem } from '../ContextMenu'
 
 const LANE_HEIGHT: Record<'video' | 'audio', number> = { video: 56, audio: 44 }
 
@@ -46,10 +48,36 @@ function Timeline() {
     })
   }, [])
 
+  const [menu, setMenu] = useState<{ x: number; y: number; clipId: string | null } | null>(null)
+
+  const openClipMenu = useCallback((e: React.MouseEvent, clipId: string) => {
+    setMenu({ x: e.clientX, y: e.clientY, clipId })
+  }, [])
+
   const ctx = useMemo<TimelineCtx>(
-    () => ({ pxPerSec, xToTime, scrollEl: () => scrollRef.current, captureLanes }),
-    [pxPerSec, xToTime, captureLanes],
+    () => ({ pxPerSec, xToTime, scrollEl: () => scrollRef.current, captureLanes, openClipMenu }),
+    [pxPerSec, xToTime, captureLanes, openClipMenu],
   )
+
+  // Trackpad pinch arrives as ctrl+wheel in Chromium; zoom around the cursor.
+  // React's synthetic onWheel is passive — a real listener is needed for preventDefault.
+  useEffect(() => {
+    const scroll = scrollRef.current
+    if (!scroll) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return // plain wheel/two-finger pan scrolls natively
+      e.preventDefault()
+      const s = useStore.getState()
+      const rect = scroll.getBoundingClientRect()
+      const cursorX = e.clientX - rect.left
+      const timeAtCursor = (scroll.scrollLeft + cursorX) / s.pxPerSec
+      const next = Math.min(500, Math.max(4, s.pxPerSec * Math.exp(-e.deltaY * 0.01)))
+      s.setPxPerSec(next)
+      scroll.scrollLeft = timeAtCursor * next - cursorX
+    }
+    scroll.addEventListener('wheel', onWheel, { passive: false })
+    return () => scroll.removeEventListener('wheel', onWheel)
+  }, [])
 
   // Keep the playhead in view while playing (jump-scroll, NLE convention).
   useEffect(
@@ -152,11 +180,7 @@ function Timeline() {
         <div className="tl__headers">
           <div className="tl__headers-ruler" />
           {ordered.map((t) => (
-            <div
-              key={t.id}
-              className="tl__header"
-              style={{ height: LANE_HEIGHT[t.kind] }}
-            >
+            <div key={t.id} className="tl__header" style={{ height: LANE_HEIGHT[t.kind] }}>
               {t.name}
             </div>
           ))}
@@ -173,6 +197,10 @@ function Timeline() {
                   data-lane-track={t.id}
                   data-lane-kind={t.kind}
                   onPointerDown={() => select([])}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setMenu({ x: e.clientX, y: e.clientY, clipId: null })
+                  }}
                 >
                   {t.clips.map((c) => (
                     <ClipBlock key={c.id} clip={c} trackId={t.id} />
@@ -185,8 +213,47 @@ function Timeline() {
           </TimelineContext.Provider>
         </div>
       </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildMenuItems(menu.clipId)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </footer>
   )
+}
+
+function buildMenuItems(clipId: string | null): MenuItem[] {
+  const s = useStore.getState()
+  if (!clipId) {
+    return [
+      { label: 'Add text at playhead', onClick: () => s.addTextClip() },
+      { label: 'Paste is coming later', onClick: () => {}, disabled: true },
+    ]
+  }
+  const found = findClip(s.project, clipId)
+  const clip = found?.clip
+  const asset = clip?.mediaId ? s.project.media.find((m) => m.id === clip.mediaId) : null
+  const detachable =
+    clip?.kind === 'video' &&
+    !!asset?.hasAudio &&
+    !(
+      clip.linkId &&
+      s.project.tracks.some((t) =>
+        t.clips.some((c) => c.linkId === clip.linkId && c.kind === 'audio'),
+      )
+    )
+  const ids = s.selection.includes(clipId) ? s.selection : [clipId]
+  return [
+    { label: 'Split at playhead', onClick: () => s.splitAtPlayhead() },
+    { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
+    { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },
+    { label: '', onClick: () => {}, separator: true },
+    { label: 'Delete', onClick: () => s.deleteClips(ids), danger: true },
+    { label: 'Ripple delete', onClick: () => s.rippleDeleteClips(ids), danger: true },
+  ]
 }
 
 function Playhead() {
@@ -209,7 +276,11 @@ function Playhead() {
   }
 
   return (
-    <div className="tl__playhead" style={{ left: playhead * pxPerSec }} onPointerDown={onPointerDown}>
+    <div
+      className="tl__playhead"
+      style={{ left: playhead * pxPerSec }}
+      onPointerDown={onPointerDown}
+    >
       <div className="tl__playhead-cap" />
     </div>
   )

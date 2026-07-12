@@ -56,6 +56,8 @@ export interface StoreState {
   safeZones: boolean
   exportOpen: boolean
   exportSettings: ExportSettings
+  timelineHeight: number
+  propsWidth: number
 
   // --- history ---
   undo: () => void
@@ -114,6 +116,8 @@ export interface StoreState {
   setSafeZones: (v: boolean) => void
   setExportOpen: (v: boolean) => void
   setExportSettings: (patch: Partial<ExportSettings>) => void
+  setTimelineHeight: (h: number) => void
+  setPropsWidth: (w: number) => void
 }
 
 function clampPlayhead(t: number, p: Project): number {
@@ -148,6 +152,8 @@ export const useStore = create<StoreState>()(
       safeZones: false,
       exportOpen: false,
       exportSettings: { width: 1920, height: 1080, fps: 30, format: 'mp4', quality: 80 },
+      timelineHeight: 220,
+      propsWidth: 264,
 
       undo: () =>
         set((s) => {
@@ -379,7 +385,12 @@ export const useStore = create<StoreState>()(
           const asset = p.media.find((m) => m.id === clip.mediaId)
           if (!asset?.hasAudio) return
           // Already detached: the clip is silent and linked to an audio partner.
-          if (clip.linkId && p.tracks.some((t) => t.clips.some((c) => c.linkId === clip.linkId && c.kind === 'audio')))
+          if (
+            clip.linkId &&
+            p.tracks.some((t) =>
+              t.clips.some((c) => c.linkId === clip.linkId && c.kind === 'audio'),
+            )
+          )
             return
 
           const linkId = clip.linkId ?? uid('link')
@@ -506,16 +517,13 @@ export const useStore = create<StoreState>()(
           const found = findClip(p, clipId)
           if (!found) return
           // 'cut' is the absence of a transition.
-          found.clip.transitions[edge] =
-            transition && transition.type !== 'cut' ? transition : null
+          found.clip.transitions[edge] = transition && transition.type !== 'cut' ? transition : null
         }),
 
       addTextClip: (content = 'Title') =>
         mutateProject((p) => {
           // Text lives on the topmost video track (CONTEXT.md: text above video).
-          const track = p.tracks
-            .filter((t) => t.kind === 'video')
-            .sort((a, b) => b.z - a.z)[0]
+          const track = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)[0]
           if (!track) return
           const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
           const duration = 3
@@ -675,6 +683,16 @@ export const useStore = create<StoreState>()(
       setExportSettings: (patch) =>
         set((s) => {
           Object.assign(s.exportSettings, patch)
+        }),
+
+      setTimelineHeight: (h) =>
+        set((s) => {
+          s.timelineHeight = Math.min(480, Math.max(140, h))
+        }),
+
+      setPropsWidth: (w) =>
+        set((s) => {
+          s.propsWidth = Math.min(420, Math.max(220, w))
         }),
     }
   }),

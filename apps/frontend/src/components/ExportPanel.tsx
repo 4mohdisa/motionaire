@@ -12,9 +12,9 @@ function ExportPanel() {
 
   if (!open) return null
 
-  const activePreset = (Object.entries(CANVAS_PRESETS) as [CanvasPresetId, { width: number; height: number }][]).find(
-    ([, p]) => p.width === canvas.width && p.height === canvas.height,
-  )?.[0]
+  const activePreset = (
+    Object.entries(CANVAS_PRESETS) as [CanvasPresetId, { width: number; height: number }][]
+  ).find(([, p]) => p.width === canvas.width && p.height === canvas.height)?.[0]
 
   return (
     <div className="modal" onPointerDown={() => setExportOpen(false)}>
@@ -23,17 +23,20 @@ function ExportPanel() {
 
         <div className="modal__section">Canvas preset</div>
         <div className="modal__chips">
-          {(Object.entries(CANVAS_PRESETS) as [CanvasPresetId, (typeof CANVAS_PRESETS)[CanvasPresetId]][]).map(
-            ([id, p]) => (
-              <button
-                key={id}
-                className={`chip${activePreset === id ? ' chip--on' : ''}`}
-                onClick={() => setCanvasPreset(id)}
-              >
-                {p.label}
-              </button>
-            ),
-          )}
+          {(
+            Object.entries(CANVAS_PRESETS) as [
+              CanvasPresetId,
+              (typeof CANVAS_PRESETS)[CanvasPresetId],
+            ][]
+          ).map(([id, p]) => (
+            <button
+              key={id}
+              className={`chip${activePreset === id ? ' chip--on' : ''}`}
+              onClick={() => setCanvasPreset(id)}
+            >
+              {p.label}
+            </button>
+          ))}
           <button className={`chip${!activePreset ? ' chip--on' : ''}`} disabled>
             Custom
           </button>
@@ -47,7 +50,10 @@ function ExportPanel() {
               min={16}
               value={canvas.width}
               onChange={(e) =>
-                setCanvasPreset({ width: Number(e.target.value) || canvas.width, height: canvas.height })
+                setCanvasPreset({
+                  width: Number(e.target.value) || canvas.width,
+                  height: canvas.height,
+                })
               }
             />
           </label>
@@ -58,7 +64,10 @@ function ExportPanel() {
               min={16}
               value={canvas.height}
               onChange={(e) =>
-                setCanvasPreset({ width: canvas.width, height: Number(e.target.value) || canvas.height })
+                setCanvasPreset({
+                  width: canvas.width,
+                  height: Number(e.target.value) || canvas.height,
+                })
               }
             />
           </label>
@@ -76,7 +85,9 @@ function ExportPanel() {
             <span>Format</span>
             <select
               value={settings.format}
-              onChange={(e) => setExportSettings({ format: e.target.value as typeof settings.format })}
+              onChange={(e) =>
+                setExportSettings({ format: e.target.value as typeof settings.format })
+              }
             >
               <option value="mp4">MP4 (H.264)</option>
               <option value="webm">WebM (VP9)</option>

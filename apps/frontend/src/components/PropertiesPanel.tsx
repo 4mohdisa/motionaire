@@ -34,7 +34,9 @@ function ClipProperties({ clip }: { clip: Clip }) {
 
   return (
     <div className="props__body">
-      <div className="props__clipname">{clip.kind === 'text' ? 'Text' : (asset?.name ?? clip.kind)}</div>
+      <div className="props__clipname">
+        {clip.kind === 'text' ? 'Text' : (asset?.name ?? clip.kind)}
+      </div>
 
       {clip.kind === 'text' && (
         <>
@@ -52,7 +54,14 @@ function ClipProperties({ clip }: { clip: Clip }) {
         <NumberRow clip={clip} prop="transform.y" label="Y" step={1} />
         <NumberRow clip={clip} prop="transform.scale" label="Scale" step={0.01} min={0} />
         <NumberRow clip={clip} prop="transform.rotation" label="Rotation" step={1} />
-        <NumberRow clip={clip} prop="transform.opacity" label="Opacity" step={0.01} min={0} max={1} />
+        <NumberRow
+          clip={clip}
+          prop="transform.opacity"
+          label="Opacity"
+          step={0.01}
+          min={0}
+          max={1}
+        />
         <NumberRow clip={clip} prop="transform.cornerRadius" label="Radius" step={1} min={0} />
       </Section>
 
@@ -63,7 +72,9 @@ function ClipProperties({ clip }: { clip: Clip }) {
       {clip.mediaId && (
         <Section label="Playback">
           <SpeedRow clip={clip} />
-          {(clip.kind === 'audio' || (asset?.hasAudio && clip.volume > 0) || clip.kind === 'video') && (
+          {(clip.kind === 'audio' ||
+            (asset?.hasAudio && clip.volume > 0) ||
+            clip.kind === 'video') && (
             <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} />
           )}
         </Section>
@@ -90,7 +101,11 @@ function TransitionRow({ clip, edge }: { clip: Clip; edge: 'in' | 'out' }) {
         value={tr?.type ?? 'cut'}
         onChange={(e) => {
           const type = e.target.value as TransitionType
-          setTransition(clip.id, edge, type === 'cut' ? null : { type, duration: tr?.duration ?? 0.5 })
+          setTransition(
+            clip.id,
+            edge,
+            type === 'cut' ? null : { type, duration: tr?.duration ?? 0.5 },
+          )
         }}
       >
         {TRANSITION_TYPES.map((t) => (
@@ -152,7 +167,9 @@ function TextEditor({ clip }: { clip: Clip }) {
           min={8}
           max={400}
           value={st.size}
-          onChange={(e) => updateTextClip(clip.id, { style: { size: Number(e.target.value) || 64 } })}
+          onChange={(e) =>
+            updateTextClip(clip.id, { style: { size: Number(e.target.value) || 64 } })
+          }
         />
         <select
           className="prow__ease"
@@ -203,7 +220,9 @@ function AnimationEditor({ clip }: { clip: Clip }) {
             className="prow__ease prow__ease--wide"
             value={anim[edge]}
             onChange={(e) =>
-              updateTextClip(clip.id, { animation: { [edge]: e.target.value as TextAnimationPreset } })
+              updateTextClip(clip.id, {
+                animation: { [edge]: e.target.value as TextAnimationPreset },
+              })
             }
           >
             {TEXT_PRESETS.map((p) => (
@@ -289,7 +308,9 @@ function NumberRow({
 
   const jump = (dir: -1 | 1) => {
     const next =
-      dir === 1 ? kfs.find((k) => k.t > rel + 1e-6) : [...kfs].reverse().find((k) => k.t < rel - 1e-6)
+      dir === 1
+        ? kfs.find((k) => k.t > rel + 1e-6)
+        : [...kfs].reverse().find((k) => k.t < rel - 1e-6)
     if (next) setPlayhead(clip.start + next.t)
   }
 

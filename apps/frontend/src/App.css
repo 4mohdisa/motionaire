@@ -317,13 +317,80 @@
 /* ---------- Timeline ---------- */
 
 .tl {
-  flex: 0 0 var(--timeline-height);
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   background: var(--color-bg-panel);
   border-top: 1px solid var(--color-border);
   min-height: 0;
   user-select: none;
+}
+
+.resizer {
+  flex: 0 0 5px;
+  z-index: 10;
+}
+
+.resizer--row {
+  cursor: row-resize;
+  margin: -2px 0;
+}
+
+.resizer--col {
+  cursor: col-resize;
+  margin: 0 -2px;
+}
+
+.resizer:hover {
+  background: color-mix(in srgb, transparent 60%, var(--color-accent));
+}
+
+/* ---------- Context menu ---------- */
+
+.menu {
+  position: fixed;
+  min-width: 180px;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  z-index: 200;
+}
+
+.menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.menu__item:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.menu__item:disabled {
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.menu__item--danger:hover:not(:disabled) {
+  background: #b3423a;
+}
+
+.menu__sep {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 6px;
 }
 
 .tl__toolbar {

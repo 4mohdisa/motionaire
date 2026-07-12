@@ -14,6 +14,7 @@ export interface TimelineCtx {
   scrollEl: () => HTMLDivElement | null
   // Lane rects in client coordinates, captured on demand for drag targeting.
   captureLanes: () => LaneRect[]
+  openClipMenu: (e: React.MouseEvent, clipId: string) => void
 }
 
 export const TimelineContext = createContext<TimelineCtx | null>(null)

@@ -29,7 +29,9 @@ function TransportControls() {
           ▮▶︎
         </button>
       </div>
-      <span className="transport__time transport__time--total">{formatTimecode(duration, fps)}</span>
+      <span className="transport__time transport__time--total">
+        {formatTimecode(duration, fps)}
+      </span>
     </div>
   )
 }

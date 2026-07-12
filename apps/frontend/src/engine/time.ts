@@ -28,7 +28,10 @@ export function computeDuration(p: Project): number {
   return max
 }
 
-export function findClip(p: Project, clipId: string): { track: Track; clip: Clip; index: number } | null {
+export function findClip(
+  p: Project,
+  clipId: string,
+): { track: Track; clip: Clip; index: number } | null {
   for (const tr of p.tracks) {
     const i = tr.clips.findIndex((c) => c.id === clipId)
     if (i >= 0) return { track: tr, clip: tr.clips[i], index: i }
@@ -41,7 +44,8 @@ export function activeVideoClips(p: Project, t: number): { clip: Clip; z: number
   const out: { clip: Clip; z: number }[] = []
   for (const tr of p.tracks) {
     if (tr.kind !== 'video') continue
-    for (const c of tr.clips) if (c.kind === 'video' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
+    for (const c of tr.clips)
+      if (c.kind === 'video' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
   }
   return out.sort((a, b) => b.z - a.z)
 }
@@ -59,7 +63,8 @@ export function activeTextClips(p: Project, t: number): { clip: Clip; z: number 
   const out: { clip: Clip; z: number }[] = []
   for (const tr of p.tracks) {
     if (tr.kind !== 'video') continue
-    for (const c of tr.clips) if (c.kind === 'text' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
+    for (const c of tr.clips)
+      if (c.kind === 'text' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
   }
   return out.sort((a, b) => a.z - b.z) // render order: lowest first, highest on top
 }

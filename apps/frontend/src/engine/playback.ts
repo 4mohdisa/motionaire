@@ -56,7 +56,9 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
             .map((c) => elements.current?.get(c.id))
             .find(Boolean) ??
             null)
-        const masterClip = master ? findClip(p, elementClipId(elements.current!, master)!)?.clip : null
+        const masterClip = master
+          ? findClip(p, elementClipId(elements.current!, master)!)?.clip
+          : null
 
         let ph: number
         if (
@@ -147,10 +149,14 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
     const vol = resolveProp(clip, 'volume', t - clip.start)
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
-    el.playbackRate = Math.min(16, Math.max(0.0625, clip.speed * Math.max(0.0625, Math.abs(s.shuttle))))
+    el.playbackRate = Math.min(
+      16,
+      Math.max(0.0625, clip.speed * Math.max(0.0625, Math.abs(s.shuttle))),
+    )
 
     if (forward) {
-      if (Math.abs(el.currentTime - target) > DRIFT_TOLERANCE && !el.seeking) el.currentTime = target
+      if (Math.abs(el.currentTime - target) > DRIFT_TOLERANCE && !el.seeking)
+        el.currentTime = target
       if (el.paused) {
         el.play().catch(() => {
           // Autoplay refused (browser policy) — surface as paused state.

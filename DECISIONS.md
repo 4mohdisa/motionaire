@@ -227,3 +227,85 @@ AudioContext oscillator + MediaRecorder (no ffmpeg on this machine, and no binar
 fixtures in the repo). Verified for Phase A: import + probe of two 4s clips,
 sequential append, playback advance, A→B boundary handoff mid-play, end-of-project
 auto-pause, scrub-while-playing.
+
+## Phase B–G decisions (one entry per non-obvious call)
+
+**Keyframe time base:** `Keyframe.t` is clip-relative in TIMELINE seconds
+(t − clip.start), not source seconds. CONTEXT.md §1.2 says "clip-relative" without
+naming the unit; timeline seconds means keyframes keep their wall-clock rhythm when
+clip speed changes, and split/trim math stays linear. The engine converts to/from
+absolute at the edges exactly as the spec requires.
+
+**No overlaps within a track.** The document model could express overlapping clips,
+but every placement path (move, duplicate, detach, text add) clamps to the nearest
+free gap. Transitions don't need timeline overlap: they're stored on clip edges
+(spec §1.2 shape) and the preview reads the outgoing clip's media handle past its
+`out` point for the cross window. This matches how the final compositor will treat
+edge-attached transitions.
+
+**Cross-transition canon: the incoming clip's `in` edge.** Dissolve/slide/wipe on
+clip B's in-edge renders as a real dual-element cross (A keeps playing into its
+handle underneath, B animates in on top). `fade` is to/from black on either edge and
+needs no partner. An `out`-edge dissolve without an adjacent next clip renders as a
+fade-to-black tail — logged as the honest approximation until the compositor.
+
+**Overlap policy for trim/speed:** trims clamp against neighbors and media bounds
+(can't reveal media before source 0 or past asset duration); speed changes shrink
+`out` if the new duration would overlap the next clip.
+
+**Split semantics:** selection-aware (selected clips under the playhead; all clips
+under it when nothing selected). Keyframes are distributed to the halves and
+re-based; in/out transitions stay with their respective halves. Linked (detached)
+partners do NOT auto-split — logged as a niche follow-up.
+
+**Detach audio placement:** exact same start time on the first audio track with a
+free slot, else a new audio track is created. Position is never compromised to fit —
+the link is positional. Volume + volume keyframes migrate to the audio clip; the
+video half keeps `volume: 0` and the shared `linkId`.
+
+**Stopwatch semantics for properties (Phase D):** a property with zero keyframes
+edits statically; the diamond arms it (first keyframe at playhead, current value);
+once armed, edits upsert a keyframe at the playhead. This is the standard NLE
+convention and is how the brief's "setting a property while scrubbed adds or
+updates a keyframe" is interpreted — unconditional keyframe creation on every edit
+would surprise anyone who's used an NLE.
+
+**Text animation presets expand into ordinary keyframes** (spec §1.3's "sugar"
+rule) at creation and re-expand on trim or preset change, clobbering manual
+keyframes only inside the preset's edge windows on the props the preset owns.
+`typewriter` preset skipped — it needs per-character rendering, not a transform
+curve; the other five presets are honest transform/opacity keyframes.
+
+**Multi-select is shift/cmd-click; drag moves only the grabbed clip.** Marquee
+selection and multi-clip drag are deferred — logged, not forgotten. Delete/ripple/
+split operate on the whole selection.
+
+**Reverse shuttle (J) is throttled seek-stepping** (~10Hz, muted): HTML video
+cannot play backwards. Choppy is accepted and expected; smooth reverse belongs to
+the compositor session.
+
+**Export settings live in UI state, not project JSON** — spec §1.1's project shape
+has no export block, and §8.2 puts app prefs in the app-level settings store later.
+Canvas preset/fps ARE project state (spec §2.2 set_canvas) and are undoable.
+Panel sizes (timeline height, properties width) are session-only, not persisted —
+persistence belongs to the §8.2 settings table when SQLite lands.
+
+**Pinch-to-zoom** = ctrl+wheel (how Chromium delivers trackpad pinch), zooming
+around the cursor with scroll compensation; needs a non-passive native listener
+because React's synthetic onWheel can't preventDefault. Two-finger pan is native
+scroll on the timeline container.
+
+**Session-wide HMR caveat found while testing:** editing store.ts under Vite HMR
+can leave stale module instances holding a different store object than fresh
+modules (verified: state reads fine, engine writes invisible). All browser
+verification was therefore done after full reloads. Not an app bug — dev-server
+artifact only.
+
+## End of session 2
+
+All phases A–G built, verified in-browser against the real store (scripted
+`window.__motionaire` driving + real pointer/keyboard events + screenshots), with
+`tsc -b`, ESLint, Prettier, and `vite build` all clean. One commit per phase.
+Deliberately NOT touched, per the brief: Rust/wgpu compositor, FFmpeg export,
+transcription, AI tool layer, multi-clip composited preview (topmost-clip-only
+preview stands until the compositor session).

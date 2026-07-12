@@ -6,7 +6,9 @@ import { getWaveform } from '../engine/waveform'
 // Media import without the Rust side: <input type="file"> → object URL.
 // Real file-path import (Tauri dialog + fs) arrives with the native session.
 
-function probeMetadata(url: string): Promise<{ duration: number; width?: number; height?: number }> {
+function probeMetadata(
+  url: string,
+): Promise<{ duration: number; width?: number; height?: number }> {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video')
     v.preload = 'metadata'
@@ -19,7 +21,11 @@ function probeMetadata(url: string): Promise<{ duration: number; width?: number;
     v.onloadedmetadata = () => {
       if (Number.isFinite(v.duration)) {
         clearTimeout(fail)
-        resolve({ duration: v.duration, width: v.videoWidth || undefined, height: v.videoHeight || undefined })
+        resolve({
+          duration: v.duration,
+          width: v.videoWidth || undefined,
+          height: v.videoHeight || undefined,
+        })
         return
       }
       // MediaRecorder-produced webm (screen recordings) reports Infinity until
@@ -28,7 +34,11 @@ function probeMetadata(url: string): Promise<{ duration: number; width?: number;
       v.ontimeupdate = () => {
         v.ontimeupdate = null
         clearTimeout(fail)
-        resolve({ duration: v.duration, width: v.videoWidth || undefined, height: v.videoHeight || undefined })
+        resolve({
+          duration: v.duration,
+          width: v.videoWidth || undefined,
+          height: v.videoHeight || undefined,
+        })
       }
     }
   })

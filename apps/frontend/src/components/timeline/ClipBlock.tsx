@@ -15,7 +15,7 @@ interface Props {
 }
 
 function ClipBlock({ clip, trackId }: Props) {
-  const { pxPerSec, xToTime, captureLanes } = useTimeline()
+  const { pxPerSec, xToTime, captureLanes, openClipMenu } = useTimeline()
   const selected = useStore((s) => s.selection.includes(clip.id))
   const asset = useStore((s) => s.project.media.find((m) => m.id === clip.mediaId))
   const dur = clipDuration(clip)
@@ -84,8 +84,7 @@ function ClipBlock({ clip, trackId }: Props) {
       const p = useStore.getState().project
       snapTargets = [0, useStore.getState().playhead]
       for (const tr of p.tracks)
-        for (const c of tr.clips)
-          if (c.id !== clip.id) snapTargets.push(c.start, clipEnd(c))
+        for (const c of tr.clips) if (c.id !== clip.id) snapTargets.push(c.start, clipEnd(c))
     }
 
     const onMove = (ev: PointerEvent) => {
@@ -122,8 +121,7 @@ function ClipBlock({ clip, trackId }: Props) {
     window.addEventListener('pointerup', onUp)
   }
 
-  const name =
-    clip.kind === 'text' ? (clip.text?.content ?? 'Text') : (asset?.name ?? clip.kind)
+  const name = clip.kind === 'text' ? (clip.text?.content ?? 'Text') : (asset?.name ?? clip.kind)
 
   return (
     <div
@@ -132,6 +130,13 @@ function ClipBlock({ clip, trackId }: Props) {
       data-clip-id={clip.id}
       data-track-id={trackId}
       onPointerDown={onPointerDown}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const store = useStore.getState()
+        if (!store.selection.includes(clip.id)) store.select([clip.id])
+        openClipMenu(e, clip.id)
+      }}
     >
       {clip.kind === 'audio' && <canvas ref={waveRef} className="clip__wave" />}
       <span className="clip__label">{name}</span>
