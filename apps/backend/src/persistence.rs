@@ -344,10 +344,16 @@ mod tests {
         // ...and one that doesn't (deleted after being recorded).
         touch_recent(&db, "/gone/B.motionaire", "B").unwrap();
         let recents = list_recents(&db).unwrap();
-        assert_eq!(recents.len(), 1, "vanished bundles are filtered out");
-        assert_eq!(recents[0].name, "A");
-        // Upsert bumps, doesn't duplicate.
+        // Session 9 contract: vanished bundles are FLAGGED, not dropped —
+        // the launcher shows them grayed with a remove action.
+        assert_eq!(recents.len(), 2, "vanished bundles stay listed");
+        let a = recents.iter().find(|r| r.name == "A").unwrap();
+        let b = recents.iter().find(|r| r.name == "B").unwrap();
+        assert!(!a.missing);
+        assert!(b.missing);
+        // Upsert bumps, doesn't duplicate; explicit remove drops for real.
         touch_recent(&db, bundle.to_str().unwrap(), "A-renamed").unwrap();
+        remove_recent(&db, "/gone/B.motionaire").unwrap();
         let recents = list_recents(&db).unwrap();
         assert_eq!(recents.len(), 1);
         assert_eq!(recents[0].name, "A-renamed");
