@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ArrowLeftToLine,
-  AudioLines,
-  Magnet,
-  Maximize,
-  Scissors,
-  Trash2,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react'
+import { Ellipsis, Scissors, SlidersHorizontal, Trash2, ZoomIn } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
 import { findClip } from '../../engine/time'
+import { isTauri } from '../../compositor/bridge'
 import { TimelineContext, type LaneRect, type TimelineCtx } from './timelineContext'
 import Ruler from './Ruler'
 import ClipBlock from './ClipBlock'
 import ContextMenu, { type MenuItem } from '../ContextMenu'
 import IconBtn from '../IconBtn'
+import { Dropdown, DropdownCheck, DropdownItem } from '../Dropdown'
 
 const LANE_HEIGHT: Record<'video' | 'audio', number> = { video: 56, audio: 44 }
 
@@ -23,6 +17,8 @@ function Timeline() {
   const project = useStore((s) => s.project)
   const pxPerSec = useStore((s) => s.pxPerSec)
   const snap = useStore((s) => s.snap)
+  const safeZones = useStore((s) => s.safeZones)
+  const previewFull = useStore((s) => s.previewFull)
   const selection = useStore((s) => s.selection)
   const scrollRef = useRef<HTMLDivElement>(null)
   const headersRef = useRef<HTMLDivElement>(null)
@@ -108,6 +104,8 @@ function Timeline() {
   const {
     setPxPerSec,
     setSnap,
+    setSafeZones,
+    setPreviewFull,
     splitAtPlayhead,
     deleteClips,
     rippleDeleteClips,
@@ -150,29 +148,75 @@ function Timeline() {
           disabled={!selection.length}
           onClick={() => deleteClips(selection)}
         />
-        <IconBtn
-          icon={ArrowLeftToLine}
-          label="Ripple delete (close gap)"
-          disabled={!selection.length}
-          onClick={() => rippleDeleteClips(selection)}
-        />
-        <IconBtn
-          icon={AudioLines}
-          label="Detach audio to its own track"
-          disabled={!detachTarget}
-          onClick={() => detachTarget && detachAudio(detachTarget)}
-        />
+        <Dropdown icon={Ellipsis} label="More tools">
+          <DropdownItem
+            label="Ripple delete (close gap)"
+            disabled={!selection.length}
+            onClick={() => rippleDeleteClips(selection)}
+          />
+          <DropdownItem
+            label="Detach audio"
+            disabled={!detachTarget}
+            onClick={() => detachTarget && detachAudio(detachTarget)}
+          />
+        </Dropdown>
         <div className="tl__spacer" />
-        <IconBtn icon={Magnet} label="Snapping" active={snap} onClick={() => setSnap(!snap)} />
-        <IconBtn icon={ZoomOut} label="Zoom out (−)" onClick={() => setPxPerSec(pxPerSec / 1.5)} />
-        <IconBtn icon={ZoomIn} label="Zoom in (+)" onClick={() => setPxPerSec(pxPerSec * 1.5)} />
-        <IconBtn icon={Maximize} label="Fit timeline" onClick={fit} />
+        <Dropdown icon={SlidersHorizontal} label="View options" alignRight>
+          <DropdownCheck label="Snapping" checked={snap} onToggle={() => setSnap(!snap)} />
+          <DropdownCheck
+            label="Safe zones"
+            checked={safeZones}
+            onToggle={() => setSafeZones(!safeZones)}
+          />
+          <DropdownCheck
+            label="Full resolution preview"
+            checked={previewFull}
+            onToggle={() => {
+              const next = !previewFull
+              setPreviewFull(next)
+              if (isTauri) void invoke('set_preview_quality', { full: next }).catch(() => {})
+            }}
+          />
+        </Dropdown>
+        <Dropdown
+          icon={ZoomIn}
+          label="Timeline zoom"
+          value={`${Math.round((pxPerSec / 60) * 100)}%`}
+          alignRight
+        >
+          <div className="dropdown__zoom">
+            <input
+              className="selectable"
+              type="range"
+              min={7}
+              max={800}
+              value={Math.round((pxPerSec / 60) * 100)}
+              onChange={(e) => setPxPerSec((Number(e.target.value) / 100) * 60)}
+            />
+            <div className="dropdown__zoom-row">
+              {[50, 100, 200, 400].map((p) => (
+                <button
+                  key={p}
+                  className="chip"
+                  onClick={() => setPxPerSec((p / 100) * 60)}
+                >
+                  {p}%
+                </button>
+              ))}
+            </div>
+          </div>
+          <DropdownItem label="Fit timeline to window" onClick={fit} />
+        </Dropdown>
       </div>
       <div className="tl__body">
         <div className="tl__headers" ref={headersRef}>
           <div className="tl__headers-ruler" />
           {ordered.map((t) => (
-            <div key={t.id} className="tl__header" style={{ height: LANE_HEIGHT[t.kind] }}>
+            <div
+              key={t.id}
+              className={`tl__header${t.kind === 'audio' ? ' tl__header--audio' : ''}`}
+              style={{ height: LANE_HEIGHT[t.kind] }}
+            >
               {t.name}
             </div>
           ))}

@@ -576,6 +576,12 @@
   font-size: 11px;
   color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-border);
+  /* Track-type color coding (density pass): video steel-blue, audio green. */
+  border-left: 3px solid #4f77c7;
+}
+
+.tl__header--audio {
+  border-left-color: #3f7d58;
 }
 
 .tl__scroll {
@@ -743,6 +749,83 @@
 .clip__transition--out {
   right: 0;
   clip-path: polygon(0 0, 0 100%, 100% 100%);
+}
+
+.clip__fxbadge {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #f0c674;
+  pointer-events: none;
+}
+
+/* ---------- Toolbar dropdowns ---------- */
+
+.dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.iconbtn--wide {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.dropdown__value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dropdown__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  z-index: 250;
+}
+
+.dropdown__panel--right {
+  left: auto;
+  right: 0;
+}
+
+.dropdown__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown__checkmark {
+  width: 14px;
+  display: inline-flex;
+  color: var(--color-accent);
+}
+
+.dropdown__zoom {
+  padding: 8px 10px 4px;
+}
+
+.dropdown__zoom input[type='range'] {
+  width: 100%;
+}
+
+.dropdown__zoom-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .clip__kf {

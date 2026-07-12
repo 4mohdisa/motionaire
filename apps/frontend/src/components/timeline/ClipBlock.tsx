@@ -122,6 +122,13 @@ function ClipBlock({ clip, trackId }: Props) {
   }
 
   const missing = !!asset?.missing
+  // Reference-style "fx" badge: any non-default visual treatment.
+  const c = clip.transform.crop
+  const hasFx =
+    clip.keyframes.length > 0 ||
+    clip.transform.shadow != null ||
+    c.l + c.t + c.r + c.b > 0 ||
+    clip.grade != null
   const name =
     clip.kind === 'text'
       ? (clip.text?.content ?? 'Text')
@@ -144,6 +151,11 @@ function ClipBlock({ clip, trackId }: Props) {
     >
       {clip.kind === 'audio' && <canvas ref={waveRef} className="clip__wave" />}
       <span className="clip__label">{name}</span>
+      {hasFx && (
+        <span className="clip__fxbadge" title="Has effects (keyframes, crop, shadow, or grade)">
+          fx
+        </span>
+      )}
       {[...new Set(clip.keyframes.map((k) => k.t))].map((t) => (
         <div
           key={t}

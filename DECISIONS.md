@@ -869,3 +869,17 @@ Also in Phase 1:
   changed" @out_h 1080 + native capture.
 - Dev-remote grew `dev:reload`, parameterized scrub storms, and play/pause/seek
   passthroughs — the native-window driving toolkit keeps compounding.
+
+## Phase 2 — density pass
+
+Premiere-style consolidation, not more icons: timeline toolbar reduced to
+Split + Delete always-visible; Ripple/Detach into a "More" (⋯) dropdown; Snap/
+Safe Zones/Full-Res-Preview into one View Options dropdown (checks stay open on
+toggle, actions close — deliberate); zoom in/out/fit replaced by ONE zoom
+control with percentage readout (100% = the session-2 default 60px/s), slider
+7–800%, preset chips, and Fit. New Dropdown primitive reuses menu styling.
+Track headers get type color-coding (video steel-blue / audio green edge);
+clips with any effect (keyframes, crop, shadow, grade) show the reference's
+tiny italic "fx" badge. TopBar was already slim post-session-6 — unchanged.
+Verified: native capture of consolidated toolbar + fx badge; pane capture of
+the open zoom dropdown.

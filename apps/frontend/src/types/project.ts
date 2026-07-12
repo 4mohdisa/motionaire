@@ -65,6 +65,20 @@ export interface TextAnimation {
   duration: number
 }
 
+// Color grade (session 8, Phase 3): keyframeable via "grade.*" props.
+// undefined = untouched (no grade pass in the shader).
+export interface Grade {
+  exposure: number // stops, -2..2
+  contrast: number // -1..1, 0 neutral
+  saturation: number // -1..1, 0 neutral (-1 = grayscale)
+  temperature: number // -1..1, warm/cool
+  tint: number // -1..1, magenta/green
+}
+
+export function defaultGrade(): Grade {
+  return { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0 }
+}
+
 export type ClipKind = 'video' | 'audio' | 'text'
 
 export interface Clip {
@@ -83,6 +97,7 @@ export interface Clip {
   linkId?: string // shared between clips produced by detach-audio
   text?: TextStyle
   animation?: TextAnimation
+  grade?: Grade // color grade; undefined = no grade pass
 }
 
 export interface MediaAsset {
