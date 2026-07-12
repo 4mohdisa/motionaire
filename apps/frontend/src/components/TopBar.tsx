@@ -12,6 +12,12 @@ function TopBar() {
         <button className="topbar__btn" onClick={openImportDialog}>
           Import
         </button>
+        <button
+          className="topbar__btn topbar__btn--primary"
+          onClick={() => useStore.getState().setExportOpen(true)}
+        >
+          Export
+        </button>
       </div>
     </header>
   )

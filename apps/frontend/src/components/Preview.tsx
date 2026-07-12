@@ -33,6 +33,7 @@ function Preview() {
   const visible = activeVideoClips(project, playhead)[0]?.clip
   const cross = crossTransitionAt(project, playhead)
   const texts = activeTextClips(project, playhead)
+  const safeZones = useStore((s) => s.safeZones)
 
   // Outgoing fade-to-black on the visible clip's out edge.
   let visibleOpacity = 1
@@ -109,11 +110,35 @@ function Preview() {
             {texts.map(({ clip }) => (
               <TextOverlay key={clip.id} clip={clip} t={playhead} />
             ))}
+            {safeZones && <SafeZones w={cw} h={ch} />}
           </div>
         </div>
       </div>
       <TransportControls />
     </div>
+  )
+}
+
+// Action-safe (90%) and title-safe (80%) guides + center cross, broadcast/social convention.
+function SafeZones({ w, h }: { w: number; h: number }) {
+  const zone = (f: number, cls: string) => (
+    <div
+      className={`preview__safezone ${cls}`}
+      style={{
+        left: (w * (1 - f)) / 2,
+        top: (h * (1 - f)) / 2,
+        width: w * f,
+        height: h * f,
+      }}
+    />
+  )
+  return (
+    <>
+      {zone(0.9, 'preview__safezone--action')}
+      {zone(0.8, 'preview__safezone--title')}
+      <div className="preview__center-h" style={{ top: h / 2, width: w }} />
+      <div className="preview__center-v" style={{ left: w / 2, height: h }} />
+    </>
   )
 }
 

@@ -44,6 +44,139 @@
   border-color: var(--color-text-secondary);
 }
 
+.topbar__btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+/* ---------- Modal (export) ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal__panel {
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.modal__title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.modal__section {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-secondary);
+  margin: 10px 0 6px;
+}
+
+.modal__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 14px;
+  background: var(--color-bg-app);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.chip--on {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-bg-app) 70%, var(--color-accent));
+}
+
+.chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.modal__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.modal__field--wide {
+  grid-column: span 2;
+}
+
+.modal__field input,
+.modal__field select {
+  height: 26px;
+  background: var(--color-bg-app);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.modal__field input[type='range'] {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.modal__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 14px;
+  cursor: pointer;
+}
+
+.modal__notice {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-bg-app) 80%, #f0c674);
+  border: 1px solid rgba(240, 198, 116, 0.4);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* ---------- Workspace / preview ---------- */
 
 .workspace {
@@ -98,6 +231,37 @@
   top: 50%;
   white-space: pre-wrap;
   line-height: 1.2;
+}
+
+.preview__safezone {
+  position: absolute;
+  border: 1px solid;
+  pointer-events: none;
+}
+
+.preview__safezone--action {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.preview__safezone--title {
+  border-color: rgba(240, 198, 116, 0.45);
+}
+
+.preview__center-h,
+.preview__center-v {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.preview__center-h {
+  left: 0;
+  height: 1px;
+}
+
+.preview__center-v {
+  top: 0;
+  width: 1px;
 }
 
 /* ---------- Transport ---------- */

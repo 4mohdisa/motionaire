@@ -24,6 +24,24 @@ import { expandTextAnimation } from '../engine/textPresets'
 
 const HISTORY_LIMIT = 100
 
+export interface ExportSettings {
+  width: number
+  height: number
+  fps: number
+  format: 'mp4' | 'webm' | 'mov'
+  quality: number // 1..100
+}
+
+// CONTEXT.md §2.2 set_canvas presets.
+export const CANVAS_PRESETS = {
+  tiktok_9x16: { label: 'TikTok / Reels 9:16', width: 1080, height: 1920 },
+  youtube_16x9: { label: 'YouTube 16:9', width: 1920, height: 1080 },
+  square_1x1: { label: 'Square 1:1', width: 1080, height: 1080 },
+  portrait_4x5: { label: 'Portrait 4:5', width: 1080, height: 1350 },
+} as const
+
+export type CanvasPresetId = keyof typeof CANVAS_PRESETS
+
 export interface StoreState {
   project: Project
   past: Project[]
@@ -35,6 +53,9 @@ export interface StoreState {
   selection: string[]
   pxPerSec: number
   snap: boolean
+  safeZones: boolean
+  exportOpen: boolean
+  exportSettings: ExportSettings
 
   // --- history ---
   undo: () => void
@@ -86,6 +107,13 @@ export interface StoreState {
   select: (ids: string[], mode?: 'set' | 'add' | 'toggle') => void
   setPxPerSec: (v: number) => void
   setSnap: (v: boolean) => void
+
+  // --- canvas & export ---
+  setCanvasPreset: (preset: CanvasPresetId | { width: number; height: number }) => void
+  setCanvasFps: (fps: number) => void
+  setSafeZones: (v: boolean) => void
+  setExportOpen: (v: boolean) => void
+  setExportSettings: (patch: Partial<ExportSettings>) => void
 }
 
 function clampPlayhead(t: number, p: Project): number {
@@ -117,6 +145,9 @@ export const useStore = create<StoreState>()(
       selection: [],
       pxPerSec: 60,
       snap: true,
+      safeZones: false,
+      exportOpen: false,
+      exportSettings: { width: 1920, height: 1080, fps: 30, format: 'mp4', quality: 80 },
 
       undo: () =>
         set((s) => {
@@ -607,6 +638,43 @@ export const useStore = create<StoreState>()(
       setSnap: (v) =>
         set((s) => {
           s.snap = v
+        }),
+
+      setCanvasPreset: (preset) =>
+        set((s) => {
+          s.past.push(structuredClone(current(s.project)))
+          if (s.past.length > HISTORY_LIMIT) s.past.shift()
+          s.future = []
+          const dims = typeof preset === 'string' ? CANVAS_PRESETS[preset] : preset
+          s.project.canvas.width = Math.max(16, Math.round(dims.width))
+          s.project.canvas.height = Math.max(16, Math.round(dims.height))
+          // Export resolution mirrors the canvas until the user overrides it.
+          s.exportSettings.width = s.project.canvas.width
+          s.exportSettings.height = s.project.canvas.height
+        }),
+
+      setCanvasFps: (fps) =>
+        set((s) => {
+          s.past.push(structuredClone(current(s.project)))
+          if (s.past.length > HISTORY_LIMIT) s.past.shift()
+          s.future = []
+          s.project.canvas.fps = Math.min(120, Math.max(1, Math.round(fps)))
+          s.exportSettings.fps = s.project.canvas.fps
+        }),
+
+      setSafeZones: (v) =>
+        set((s) => {
+          s.safeZones = v
+        }),
+
+      setExportOpen: (v) =>
+        set((s) => {
+          s.exportOpen = v
+        }),
+
+      setExportSettings: (patch) =>
+        set((s) => {
+          Object.assign(s.exportSettings, patch)
         }),
     }
   }),
