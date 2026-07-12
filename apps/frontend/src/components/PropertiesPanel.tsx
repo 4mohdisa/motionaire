@@ -52,6 +52,12 @@ function ClipProperties({ clip }: { clip: Clip }) {
         </>
       )}
 
+      {clip.shape && (
+        <Section label="Shape">
+          <ShapeEditor clip={clip} />
+        </Section>
+      )}
+
       <Section label="Transform">
         <NumberRow clip={clip} prop="transform.x" label="X" step={1} />
         <NumberRow clip={clip} prop="transform.y" label="Y" step={1} />
@@ -90,7 +96,9 @@ function ClipProperties({ clip }: { clip: Clip }) {
 
       {clip.mediaId && (
         <Section label="Playback">
-          <SpeedRow clip={clip} />
+          {/* Keyframeable (session 9, Phase 7): armed = speed RAMP remapping
+              time inside the clip's fixed window; audio goes video-only. */}
+          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} />
           {(clip.kind === 'audio' ||
             (asset?.hasAudio && clip.volume > 0) ||
             clip.kind === 'video') && (
@@ -106,6 +114,58 @@ function ClipProperties({ clip }: { clip: Clip }) {
         </Section>
       )}
     </div>
+  )
+}
+
+function ShapeEditor({ clip }: { clip: Clip }) {
+  const { updateShape } = useStore.getState()
+  const sh = clip.shape
+  if (!sh) return null
+  const num = (label: string, key: 'width' | 'height' | 'strokeWidth', min = 1) => (
+    <div className="prow">
+      <span className="prow__label">{label}</span>
+      <input
+        className="prow__input"
+        type="number"
+        min={min}
+        value={sh[key]}
+        onChange={(e) => updateShape(clip.id, { [key]: Number(e.target.value) || sh[key] })}
+      />
+    </div>
+  )
+  return (
+    <>
+      <div className="prow">
+        <span className="prow__label">Fill</span>
+        <input
+          className="prow__color"
+          type="color"
+          value={sh.fill}
+          onChange={(e) => updateShape(clip.id, { fill: e.target.value })}
+        />
+      </div>
+      {sh.kind === 'rect' || sh.kind === 'ellipse' ? (
+        <div className="prow">
+          <span className="prow__label">Stroke</span>
+          <input
+            className="prow__color"
+            type="color"
+            value={sh.stroke ?? '#000000'}
+            onChange={(e) => updateShape(clip.id, { stroke: e.target.value })}
+          />
+          <button
+            className="chip"
+            onClick={() => updateShape(clip.id, { stroke: null })}
+            disabled={!sh.stroke}
+          >
+            none
+          </button>
+        </div>
+      ) : null}
+      {sh.stroke && num('Stroke W', 'strokeWidth')}
+      {num('Width', 'width', 2)}
+      {num(sh.kind === 'line' ? 'Thickness' : 'Height', 'height', 1)}
+    </>
   )
 }
 
@@ -390,39 +450,6 @@ function NumberRow({
       >
         ›
       </button>
-    </div>
-  )
-}
-
-function SpeedRow({ clip }: { clip: Clip }) {
-  const { setClipProperty } = useStore.getState()
-  const [draft, setDraft] = useState(String(clip.speed))
-  const [synced, setSynced] = useState(clip.speed)
-  if (clip.speed !== synced) {
-    setSynced(clip.speed)
-    setDraft(String(clip.speed))
-  }
-  return (
-    <div className="prow">
-      <span className="prow__label">Speed</span>
-      <input
-        className="prow__input"
-        type="number"
-        step={0.25}
-        min={0.25}
-        max={4}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const n = Number(draft)
-          if (Number.isFinite(n) && n > 0) setClipProperty(clip.id, 'speed', n)
-          else setDraft(String(clip.speed))
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-        }}
-      />
-      <span className="prow__unit">×</span>
     </div>
   )
 }

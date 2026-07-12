@@ -23,15 +23,16 @@ export function flatten(project: Project) {
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
-      const isText = clip.kind === 'text' && !!clip.text
-      if (!isText && (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust))) continue
+      // Raster layers (text + shapes) share the webview-raster channel.
+      const isRaster = (clip.kind === 'text' && !!clip.text) || !!clip.shape
+      if (!isRaster && (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust))) continue
       const asset =
-        clip.adjust || isText ? null : project.media.find((m) => m.id === clip.mediaId)
-      if (!clip.adjust && !isText && (!asset || !asset.path.startsWith('/'))) continue
+        clip.adjust || isRaster ? null : project.media.find((m) => m.id === clip.mediaId)
+      if (!clip.adjust && !isRaster && (!asset || !asset.path.startsWith('/'))) continue
       layers.push({
         id: clip.id,
         z: track.z,
-        mediaPath: isText ? `text:${clip.id}` : (asset?.path ?? ''),
+        mediaPath: isRaster ? `text:${clip.id}` : (asset?.path ?? ''),
         adjust: clip.adjust ?? false,
         start: clip.start,
         in: clip.in,

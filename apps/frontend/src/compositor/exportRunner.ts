@@ -27,6 +27,9 @@ function audioSpecs(project: Project): AudioClipSpec[] {
       if (!clip.mediaId) continue
       const asset = project.media.find((m) => m.id === clip.mediaId)
       if (!asset?.hasAudio || asset.missing || !asset.path.startsWith('/')) continue
+      // Speed-ramped clips are video-only (time-varying audio tempo is not
+      // representable in the filter graph — logged Phase 7 decision).
+      if (clip.keyframes.some((k) => k.prop === 'speed')) continue
       const kfs = clip.keyframes
         .filter((k) => k.prop === 'volume')
         .map((k) => [k.t, k.v] as [number, number])

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Project, TextStyle } from '../types/project'
+import type { Project, Shape, TextStyle } from '../types/project'
 
 // Text into the compositor (session 9, Phase 4 — the export blocker).
 // Each text clip is rasterized at 2x canvas pixels whenever its content or
@@ -83,6 +83,37 @@ export function rasterizeText(st: TextStyle): { b64: string; w: number; h: numbe
   return b64 ? { b64, w, h } : null
 }
 
+// Shapes (session 9, Phase 7) ride the same raster channel as text.
+export function rasterizeShape(sh: Shape): { b64: string; w: number; h: number } | null {
+  const sw = sh.stroke ? sh.strokeWidth * SS : 0
+  const w = Math.max(2, Math.ceil(sh.width * SS + sw))
+  const h = Math.max(2, Math.ceil((sh.kind === 'line' ? Math.max(sh.height, 2) : sh.height) * SS + sw))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.fillStyle = sh.fill
+  if (sh.stroke) {
+    ctx.strokeStyle = sh.stroke
+    ctx.lineWidth = sh.strokeWidth * SS
+  }
+  const inset = sw / 2
+  if (sh.kind === 'ellipse') {
+    ctx.beginPath()
+    ctx.ellipse(w / 2, h / 2, (w - sw) / 2, (h - sw) / 2, 0, 0, Math.PI * 2)
+    ctx.fill()
+    if (sh.stroke) ctx.stroke()
+  } else {
+    // rect and line are both filled rects; a line is just thin (rotate via
+    // transform.rotation for diagonals — logged).
+    ctx.fillRect(inset, inset, w - sw, h - sw)
+    if (sh.stroke && sh.kind === 'rect') ctx.strokeRect(inset, inset, w - sw, h - sw)
+  }
+  const b64 = canvas.toDataURL('image/png').split(',')[1]
+  return b64 ? { b64, w, h } : null
+}
+
 export async function syncTextRasters(project: Project): Promise<void> {
   const live: string[] = []
   const rasters: {
@@ -95,11 +126,13 @@ export async function syncTextRasters(project: Project): Promise<void> {
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
-      if (clip.kind !== 'text' || !clip.text) continue
+      const isText = clip.kind === 'text' && !!clip.text
+      const isShape = !!clip.shape
+      if (!isText && !isShape) continue
       live.push(clip.id)
-      const rev = hash(JSON.stringify(clip.text))
+      const rev = hash(JSON.stringify(isText ? clip.text : clip.shape))
       if (sent.get(clip.id) === rev) continue
-      const r = rasterizeText(clip.text)
+      const r = isText ? rasterizeText(clip.text!) : rasterizeShape(clip.shape!)
       if (!r) continue
       rasters.push({ clipId: clip.id, hash: rev, width: r.w, height: r.h, pngBase64: r.b64 })
       sent.set(clip.id, rev)

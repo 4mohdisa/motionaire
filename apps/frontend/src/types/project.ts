@@ -65,6 +65,17 @@ export interface TextAnimation {
   duration: number
 }
 
+// Shape clip payload (session 9, Phase 7). Rendered through the same
+// webview-raster → compositor-texture path as text.
+export interface Shape {
+  kind: 'rect' | 'ellipse' | 'line'
+  fill: string
+  stroke: string | null
+  strokeWidth: number
+  width: number // canvas px
+  height: number
+}
+
 // Color grade (session 8, Phase 3): keyframeable via "grade.*" props.
 // undefined = untouched (no grade pass in the shader).
 export interface Grade {
@@ -99,6 +110,7 @@ export interface Clip {
   animation?: TextAnimation
   grade?: Grade // color grade; undefined = no grade pass
   adjust?: boolean // adjustment layer: no source; grade applies to all lower z
+  shape?: Shape // shape clip: raster overlay, no source media
 }
 
 export interface MediaAsset {

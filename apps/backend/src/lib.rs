@@ -93,19 +93,25 @@ fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::Spik
 // Verification helper: a deterministic 440Hz tone in the spike dir, so export
 // tests have real audio to mix (the demo videos are silent by design).
 #[tauri::command]
-fn spike_audio() -> Result<String, String> {
+fn spike_audio(pattern: Option<String>) -> Result<String, String> {
     let dir = compositor::demo::spike_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let out = dir.join("tone.wav");
+    let gapped = pattern.as_deref() == Some("gapped");
+    let out = dir.join(if gapped { "tone-gapped.wav" } else { "tone.wav" });
     if !out.exists() {
+        let mut args: Vec<String> = vec![
+            "-v".into(), "error".into(), "-y".into(),
+            "-f".into(), "lavfi".into(),
+            "-i".into(), "sine=frequency=440:duration=10".into(),
+        ];
+        if gapped {
+            // 1s on / 1s off — deterministic "speech" for the ducking test.
+            args.push("-af".into());
+            args.push("volume='if(lt(mod(t\\,2)\\,1)\\,1\\,0)':eval=frame".into());
+        }
+        args.extend(["-ar".into(), "48000".into(), out.to_str().ok_or("bad path")?.into()]);
         let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
-            .args([
-                "-v", "error", "-y",
-                "-f", "lavfi",
-                "-i", "sine=frequency=440:duration=10",
-                "-ar", "48000",
-                out.to_str().ok_or("bad path")?,
-            ])
+            .args(&args)
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
@@ -150,6 +156,22 @@ fn db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 fn probe_media(path: String) -> Result<compositor::decoder::FullMediaInfo, String> {
     compositor::decoder::probe_full(&path)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NormalizedMedia {
+    path: String,
+    was_vfr: bool,
+}
+
+// CONTEXT.md §6: VFR footage (screen recorders!) is normalized to CFR on
+// import; the project references the normalized copy in the app cache.
+#[tauri::command]
+fn normalize_media(app: tauri::AppHandle, path: String) -> Result<NormalizedMedia, String> {
+    let cache = app.path().app_data_dir().map_err(|e| e.to_string())?.join("normalized");
+    let (p, was_vfr) = compositor::decoder::normalize_to_cfr(&path, &cache)?;
+    Ok(NormalizedMedia { path: p, was_vfr })
 }
 
 // Font import: read the file once; bytes travel as base64 and are embedded in
@@ -566,6 +588,7 @@ pub fn run() {
             extract_frame,
             extract_filmstrip,
             probe_media,
+            normalize_media,
             license_status,
             activate_license,
             deactivate_license,

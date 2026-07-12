@@ -103,6 +103,87 @@ pub fn probe_full(path: &str) -> Result<FullMediaInfo, String> {
     })
 }
 
+// VFR detection (session 9, Phase 7 — CONTEXT.md §6's named trap). Screen
+// recorders commonly emit variable frame rate, which desyncs audio and breaks
+// frame math. Heuristic: container r_frame_rate vs avg_frame_rate disagree
+// materially → VFR.
+pub fn is_vfr(path: &str) -> Result<bool, String> {
+    let out = Command::new(ffprobe_bin())
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate,avg_frame_rate",
+            "-of", "json",
+            path,
+        ])
+        .output()
+        .map_err(|e| format!("ffprobe spawn: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
+    let s = &v["streams"][0];
+    let parse = |key: &str| -> f64 {
+        let rate = s[key].as_str().unwrap_or("0/1");
+        let mut it = rate.split('/');
+        let n: f64 = it.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let d: f64 = it.next().unwrap_or("1").parse().unwrap_or(1.0);
+        if d > 0.0 { n / d } else { 0.0 }
+    };
+    let r = parse("r_frame_rate");
+    let avg = parse("avg_frame_rate");
+    if r <= 0.0 || avg <= 0.0 {
+        return Ok(false); // stills / audio / unknown: nothing to normalize
+    }
+    Ok((r - avg).abs() / avg > 0.02) // >2% disagreement = variable
+}
+
+// Normalize a VFR file to CFR in the cache dir; returns the path to use
+// (the original when already CFR, the cached transcode when VFR).
+pub fn normalize_to_cfr(path: &str, cache_dir: &std::path::Path) -> Result<(String, bool), String> {
+    if !is_vfr(path)? {
+        return Ok((path.to_string(), false));
+    }
+    let info = probe(path)?;
+    let target_fps = if info.fps > 1.0 { info.fps.round().clamp(10.0, 120.0) } else { 30.0 };
+    std::fs::create_dir_all(cache_dir).map_err(|e| e.to_string())?;
+    let stem = std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("media");
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let out = cache_dir.join(format!("{stem}-{size}-cfr.mp4"));
+    if !out.exists() {
+        log::info!("import: {path} is VFR — normalizing to {target_fps} fps CFR");
+        let vt = Command::new(ffmpeg_bin())
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("h264_videotoolbox"))
+            .unwrap_or(false);
+        let mut args: Vec<String> = vec![
+            "-v".into(), "error".into(), "-y".into(),
+            "-i".into(), path.into(),
+            "-fps_mode".into(), "cfr".into(),
+            "-r".into(), format!("{target_fps}"),
+        ];
+        if vt {
+            args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), "12M".into()]);
+        } else {
+            args.extend(["-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(), "-crf".into(), "17".into()]);
+        }
+        args.extend(["-c:a".into(), "copy".into(), out.to_string_lossy().into_owned()]);
+        let status = Command::new(ffmpeg_bin())
+            .args(&args)
+            .status()
+            .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+        if !status.success() || !out.exists() {
+            return Err("CFR normalization failed".into());
+        }
+    }
+    Ok((out.to_string_lossy().into_owned(), true))
+}
+
 fn ring_budget_bytes() -> usize {
     std::env::var("MOTIONAIRE_RING_MB")
         .ok()
@@ -349,6 +430,55 @@ impl Drop for Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Real VFR file → detected and normalized; the output must be CFR and
+    // decode-compatible. CFR input passes through untouched.
+    #[test]
+    fn vfr_detection_and_normalization() {
+        let ffmpeg = ffmpeg_bin();
+        if Command::new(&ffmpeg).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
+            eprintln!("skipping: ffmpeg unavailable");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("motionaire-vfr-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Genuinely variable frame timing: drop frames pseudo-randomly, keep
+        // timestamps (vfr mode) — r_frame_rate stays 30, avg drops well below.
+        let vfr = dir.join("vfr.mp4");
+        assert!(Command::new(&ffmpeg)
+            .args([
+                "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30",
+                "-t", "4",
+                "-vf", "select='gt(random(1)\\,0.4)'",
+                "-fps_mode", "vfr",
+                "-pix_fmt", "yuv420p",
+                vfr.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap()
+            .success());
+        assert!(is_vfr(vfr.to_str().unwrap()).unwrap(), "generated file must read as VFR");
+
+        let (normalized, was_vfr) = normalize_to_cfr(vfr.to_str().unwrap(), &dir).unwrap();
+        assert!(was_vfr);
+        assert_ne!(normalized, vfr.to_str().unwrap());
+        assert!(!is_vfr(&normalized).unwrap(), "normalized output must be CFR");
+        assert!(Decoder::new(&normalized).unwrap().frame_at(0.5).is_some());
+
+        // CFR passthrough: untouched path, no transcode.
+        let cfr = dir.join("cfr.mp4");
+        assert!(Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-t", "2", "-pix_fmt", "yuv420p", cfr.to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        let (same, was) = normalize_to_cfr(cfr.to_str().unwrap(), &dir).unwrap();
+        assert!(!was);
+        assert_eq!(same, cfr.to_str().unwrap());
+    }
 
     // Deterministic proof of the deleted-file back-off: generate a real file,
     // decode a frame, delete the file, then hammer frame_at — spawn attempts

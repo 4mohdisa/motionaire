@@ -136,9 +136,63 @@ impl Layer {
     pub fn active_at(&self, t: f64) -> bool {
         self.start <= t && t < self.end()
     }
+    // Speed ramps (session 9, Phase 7): "speed" keyframes remap time within
+    // the clip's fixed timeline window — piecewise-linear rate integrated
+    // from the clip start, clamped to the source range. Mirrors the
+    // frontend's engine/time.ts sourceTime exactly.
     pub fn source_time(&self, t: f64) -> f64 {
-        self.in_ + (t - self.start) * self.speed
+        let rel = t - self.start;
+        let mut kfs: Vec<(f64, f64)> = self
+            .keyframes
+            .iter()
+            .filter(|k| k.prop == "speed")
+            .map(|k| (k.t, k.v))
+            .collect();
+        if kfs.is_empty() {
+            return self.in_ + rel * self.speed;
+        }
+        kfs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let src = self.in_ + integrate_rate(&kfs, rel);
+        src.clamp(self.in_.min(self.out), self.out.max(self.in_))
     }
+}
+
+fn integrate_rate(kfs: &[(f64, f64)], rel: f64) -> f64 {
+    if rel <= 0.0 {
+        return 0.0;
+    }
+    let mut acc = 0.0;
+    let mut u = 0.0;
+    let first = kfs[0];
+    if u < first.0 {
+        let span = rel.min(first.0);
+        acc += span * first.1;
+        u = span;
+        if u >= rel {
+            return acc;
+        }
+    }
+    for w in kfs.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if u >= rel {
+            return acc;
+        }
+        if rel <= a.0 || b.0 <= a.0 {
+            continue;
+        }
+        let from = u.max(a.0);
+        let to = rel.min(b.0);
+        if to <= from {
+            continue;
+        }
+        let rate_at = |x: f64| a.1 + (b.1 - a.1) * (x - a.0) / (b.0 - a.0);
+        acc += (rate_at(from) + rate_at(to)) / 2.0 * (to - from);
+        u = to;
+    }
+    if u < rel {
+        acc += (rel - u) * kfs[kfs.len() - 1].1;
+    }
+    acc
 }
 
 #[cfg(test)]
@@ -171,6 +225,19 @@ mod tests {
         )
         .unwrap();
         assert!(null_shadow.shadow.is_none());
+    }
+
+    #[test]
+    fn speed_ramp_integration() {
+        // rate ramps 1→2 linearly over rel 0..4 → ∫ = (1+2)/2 * 4 = 6.
+        let kfs = vec![(0.0, 1.0), (4.0, 2.0)];
+        assert!((integrate_rate(&kfs, 4.0) - 6.0).abs() < 1e-9);
+        // halfway: ∫₀² of (1 + u/4) = 2 + 4/8*... = (1 + 1.5)/2 * 2 = 2.5
+        assert!((integrate_rate(&kfs, 2.0) - 2.5).abs() < 1e-9);
+        // held before first kf / after last kf
+        let kfs2 = vec![(1.0, 2.0), (2.0, 2.0)];
+        assert!((integrate_rate(&kfs2, 0.5) - 1.0).abs() < 1e-9); // 0.5 * 2 (held first)
+        assert!((integrate_rate(&kfs2, 3.0) - 6.0).abs() < 1e-9); // uniform 2 throughout
     }
 }
 

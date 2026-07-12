@@ -234,14 +234,21 @@ export async function importMediaNative(): Promise<void> {
   })
   if (!picked) return
   const paths = Array.isArray(picked) ? picked : [picked]
-  for (const path of paths) {
+  for (const rawPath of paths) {
     try {
+      // VFR trap (CONTEXT.md §6): screen recordings get normalized to CFR on
+      // import; the project references the normalized copy.
+      const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>(
+        'normalize_media',
+        { path: rawPath },
+      ).catch(() => ({ path: rawPath, wasVfr: false }))
+      if (wasVfr) console.info(`import: ${rawPath} was VFR — normalized to ${path}`)
       const info = await invoke<ProbeResult>('probe_media', { path })
       const asset: MediaAsset = {
         id: uid('m'),
         path,
         playbackUrl: convertFileSrc(path),
-        name: path.split('/').pop() ?? path,
+        name: rawPath.split('/').pop() ?? rawPath,
         kind: info.width > 0 ? 'video' : 'audio',
         duration: info.duration,
         width: info.width || undefined,
@@ -253,7 +260,7 @@ export async function importMediaNative(): Promise<void> {
       addMedia(asset)
       appendMediaClip(asset.id)
     } catch (e) {
-      await message(`Couldn't import ${path}:\n${e}`, { title: 'Import failed', kind: 'error' })
+      await message(`Couldn't import ${rawPath}:\n${e}`, { title: 'Import failed', kind: 'error' })
     }
   }
 }

@@ -183,13 +183,15 @@ function ClipBlock({ clip, trackId }: Props) {
     clip.grade != null
   const name = clip.adjust
     ? 'Adjustment'
-    : clip.kind === 'text'
-      ? (clip.text?.content ?? 'Text')
-      : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
+    : clip.shape
+      ? clip.shape.kind.charAt(0).toUpperCase() + clip.shape.kind.slice(1)
+      : clip.kind === 'text'
+        ? (clip.text?.content ?? 'Text')
+        : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
 
   return (
     <div
-      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
+      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${clip.shape ? ' clip--shape' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
       style={{ left: clip.start * pxPerSec, width: widthPx }}
       data-clip-id={clip.id}
       data-track-id={trackId}

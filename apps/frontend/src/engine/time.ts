@@ -18,8 +18,52 @@ export function isActiveAt(c: Clip, t: number): boolean {
 }
 
 // Map a timeline time to the clip's source (media) time.
+// Speed ramps (session 9, Phase 7): "speed" keyframes remap time WITHIN the
+// clip's fixed timeline window — piecewise-linear rate, integrated, clamped
+// to the source range. No keyframes → plain linear mapping.
 export function sourceTime(c: Clip, t: number): number {
-  return c.in + (t - c.start) * c.speed
+  const rel = t - c.start
+  const kfs = c.keyframes
+    .filter((k) => k.prop === 'speed')
+    .sort((a, b) => a.t - b.t)
+  if (!kfs.length) return c.in + rel * c.speed
+  const src = c.in + integrateRate(kfs, rel)
+  return Math.min(Math.max(src, Math.min(c.in, c.out)), Math.max(c.in, c.out))
+}
+
+// ∫₀^rel rate(u) du where rate is held before the first / after the last
+// keyframe and linear between (easing approximated linearly — logged).
+export function integrateRate(kfs: { t: number; v: number }[], rel: number): number {
+  let acc = 0
+  let u = 0
+  if (rel <= 0) return 0
+  // segment before first keyframe: constant first value
+  const first = kfs[0]
+  if (u < first.t) {
+    const span = Math.min(rel, first.t) - u
+    acc += span * first.v
+    u += span
+    if (u >= rel) return acc
+  }
+  for (let i = 0; i < kfs.length - 1; i++) {
+    const a = kfs[i]
+    const b = kfs[i + 1]
+    if (u >= rel) return acc
+    if (rel <= a.t || b.t <= a.t) continue
+    const from = Math.max(u, a.t)
+    const to = Math.min(rel, b.t)
+    if (to <= from) continue
+    // linear rate between keyframes → trapezoid area
+    const rateAt = (x: number) => a.v + ((b.v - a.v) * (x - a.t)) / (b.t - a.t)
+    acc += ((rateAt(from) + rateAt(to)) / 2) * (to - from)
+    u = to
+  }
+  if (u < rel) acc += (rel - u) * kfs[kfs.length - 1].v // hold last value
+  return acc
+}
+
+export function hasSpeedRamp(c: Clip): boolean {
+  return c.keyframes.some((k) => k.prop === 'speed')
 }
 
 export function computeDuration(p: Project): number {

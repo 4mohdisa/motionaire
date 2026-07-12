@@ -29,6 +29,7 @@ export function applyEase(ease: Ease, t: number): number {
 // Static (non-keyframed) value of a property on a clip.
 export function staticValue(clip: Clip, prop: string): number {
   if (prop === 'volume') return clip.volume
+  if (prop === 'speed') return clip.speed
   if (prop.startsWith('transform.')) {
     const key = prop.slice('transform.'.length) as keyof typeof clip.transform
     const v = clip.transform[key]

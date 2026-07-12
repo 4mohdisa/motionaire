@@ -646,9 +646,11 @@ async function dispatch(action: string, path?: string) {
         // Audio: 440Hz tone on A1, keyframed fade 6s→9.5s.
         const tonePath = await invoke<string>('spike_audio')
         const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
         st().addMedia({
           id: mkid('m'),
           path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
           name: 'tone.wav',
           kind: 'audio',
           duration: 10,
@@ -781,6 +783,98 @@ async function dispatch(action: string, path?: string) {
             pasteKeepsState &&
             cutRemoved,
           `dirty=${dirtyAfterEdit} cleanAfterSave=${cleanAfterSave} recovery=${recoveryOffered}/${recoveryHasEdit} cleared=${recoveryCleared} copyEvent=${copied} pasteState=${pasteKeepsState} cut=${cutRemoved}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:p7_test': {
+      // Phase 7 (session 9): speed ramp math + fades + ducking windows +
+      // shape clip. Ramp gets visual proof via the demo's burned-in timecode
+      // (captured after this test parks the playhead at t=4).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p7-batch', pass, detail }).catch(() => {})
+      const tick = (ms = 200) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const { sourceTime, clipDuration } = await import('../engine/time')
+        // -- speed ramp on the cam clip: kf (0,1) → (4,3); ∫ at rel 4 = 8.
+        const cam = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
+          st().clearKeyframes(cam.id, prop) // fullscreen so the timecode is readable
+        st().setPlayhead(0)
+        st().toggleKeyframe(cam.id, 'speed')
+        st().setPlayhead(4)
+        st().setClipProperty(cam.id, 'speed', 3)
+        const camNow = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === cam.id)!
+        const rampSrc = sourceTime(camNow, 4)
+        const rampOk = Math.abs(rampSrc - 8) < 0.05
+        // -- fades on a tone clip
+        const tonePath = await invoke<string>('spike_audio', { pattern: null })
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        const toneClip = () =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.mediaId === tone.id)!
+        st().addFade(toneClip().id, 'in')
+        st().addFade(toneClip().id, 'out')
+        const vkfs = toneClip().keyframes.filter((k) => k.prop === 'volume')
+        const D = clipDuration(toneClip())
+        const fadesOk =
+          vkfs.some((k) => k.t === 0 && k.v === 0) &&
+          vkfs.some((k) => Math.abs(k.t - 0.5) < 0.05 && k.v === 1) &&
+          vkfs.some((k) => Math.abs(k.t - (D - 0.5)) < 0.05 && k.v === 1) &&
+          vkfs.some((k) => Math.abs(k.t - D) < 0.05 && k.v === 0)
+        // -- ducking: gapped "speech" on a second audio track ducks the tone
+        st().applyDuckingEnvelope(toneClip().id, []) // clear fade kfs for a clean read
+        const gappedPath = await invoke<string>('spike_audio', { pattern: 'gapped' })
+        st().addMedia({
+          id: mkid('m'),
+          path: gappedPath,
+          playbackUrl: convertFileSrc(gappedPath),
+          name: 'speech.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        st().addTrack('audio')
+        const speech = st().project.media.find((m) => m.name === 'speech.wav')!
+        const a2 = st().project.tracks.filter((t) => t.kind === 'audio').pop()!
+        st().insertClipAt(speech.id, a2.id, 0)
+        const { duckUnderSpeech } = await import('../engine/ducking')
+        const windows = await duckUnderSpeech(toneClip().id)
+        const duckKfs = toneClip().keyframes.filter((k) => k.prop === 'volume')
+        const duckOk = windows >= 3 && duckKfs.some((k) => Math.abs(k.v - 0.25) < 0.01)
+        // -- shape: red ellipse at playhead 4 (grows its own track)
+        st().addShapeClip('ellipse')
+        const shapeClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.shape)!
+        st().updateShape(shapeClip.id, { fill: '#e04545', width: 500, height: 300 })
+        await tick(500) // raster + sync
+        void report(
+          rampOk && fadesOk && duckOk,
+          `rampSrc(t=4)=${rampSrc.toFixed(2)} (want 8) fades=${fadesOk} duckWindows=${windows} duckKf=${duckOk} shape=${!!shapeClip}`,
         )
       } catch (e) {
         void report(false, String(e))

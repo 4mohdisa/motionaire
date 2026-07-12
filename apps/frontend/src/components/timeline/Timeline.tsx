@@ -233,6 +233,9 @@ function Timeline() {
             label="Adjustment layer at playhead"
             onClick={() => useStore.getState().addAdjustmentLayer()}
           />
+          <DropdownItem label="Rectangle" onClick={() => useStore.getState().addShapeClip('rect')} />
+          <DropdownItem label="Ellipse" onClick={() => useStore.getState().addShapeClip('ellipse')} />
+          <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
         <IconBtn
@@ -504,6 +507,18 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
     { label: 'Freeze frame at playhead', onClick: () => void freezeFrame(clipId), disabled: !freezable },
     { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },
+    ...(clip?.kind === 'audio' ||
+    (clip?.kind === 'video' && !!asset?.hasAudio)
+      ? [
+          { label: 'Fade in (0.5s)', onClick: () => s.addFade(clipId, 'in') },
+          { label: 'Fade out (0.5s)', onClick: () => s.addFade(clipId, 'out') },
+          {
+            label: 'Duck under other audio',
+            onClick: () =>
+              void import('../../engine/ducking').then((m) => m.duckUnderSpeech(clipId)),
+          },
+        ]
+      : []),
     { label: '', onClick: () => {}, separator: true },
     { label: 'Delete', onClick: () => s.deleteClips(ids), danger: true },
     { label: 'Ripple delete', onClick: () => s.rippleDeleteClips(ids), danger: true },

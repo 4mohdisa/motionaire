@@ -1627,3 +1627,7 @@
   background: color-mix(in srgb, var(--bg-app) 80%, var(--success));
   border-color: color-mix(in srgb, var(--success) 45%, transparent);
 }
+
+.clip--shape {
+  background: var(--clip-text);
+}

@@ -4,6 +4,7 @@ import { current } from 'immer'
 import type {
   Clip,
   Ease,
+  Shape,
   Track,
   MediaAsset,
   Project,
@@ -129,6 +130,8 @@ export interface StoreState {
   setTransition: (clipId: string, edge: 'in' | 'out', transition: Transition | null) => void
   addTextClip: (content?: string) => void
   addAdjustmentLayer: () => void
+  addShapeClip: (kind: 'rect' | 'ellipse' | 'line') => void
+  updateShape: (clipId: string, patch: Partial<Shape>) => void
   updateTextClip: (
     clipId: string,
     patch: { content?: string; style?: Partial<TextStyle>; animation?: Partial<TextAnimation> },
@@ -143,6 +146,13 @@ export interface StoreState {
   setShuttle: (rate: number) => void
   frameStep: (frames: number) => void
   select: (ids: string[], mode?: 'set' | 'add' | 'toggle') => void
+
+  // --- audio sugar (session 9, Phase 7) ---
+  // Fades write ordinary volume keyframes — preview and export already honor them.
+  addFade: (clipId: string, edge: 'in' | 'out', dur?: number) => void
+  // Replace the clip's volume keyframes with a ducking envelope (computed
+  // externally from sibling waveforms).
+  applyDuckingEnvelope: (clipId: string, points: { t: number; v: number }[]) => void
 
   // --- tracks (session 9, Phase 3) ---
   addTrack: (kind: 'video' | 'audio') => void
@@ -679,7 +689,12 @@ export const useStore = create<StoreState>()(
           const { track, clip } = found
           const fps = p.canvas.fps
 
-          if (prop === 'speed' && typeof value === 'number') {
+          const speedRamped = clip.keyframes.some((k) => k.prop === 'speed')
+          if (prop === 'speed' && typeof value === 'number' && !speedRamped) {
+            // Flat speed: duration-preserving trim below. Once 'speed' is
+            // ARMED (keyframes exist) the generic stopwatch path below writes
+            // ramp keyframes instead — the clip window stays fixed (ramps
+            // remap time within it; session 9, Phase 7 decision).
             const speed = Math.min(16, Math.max(0.0625, value))
             clip.speed = speed
             // Speed changes duration; shrink `out` if we'd overlap the next clip.
@@ -843,6 +858,56 @@ export const useStore = create<StoreState>()(
           })
         }),
 
+      addShapeClip: (kind) =>
+        mutateProject((p) => {
+          // Same placement policy as adjustment layers: topmost video track,
+          // growing a new track when the playhead spot is occupied.
+          const vids = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)
+          if (!vids.length) return
+          const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
+          const duration = 4
+          let track = vids[0]
+          const fits = !track.clips.some((c) => start < clipEnd(c) && start + duration > c.start)
+          if (!fits) {
+            track = {
+              id: uid('t'),
+              kind: 'video',
+              z: vids[0].z + 1,
+              name: `V${vids.length + 1}`,
+              clips: [],
+            }
+            p.tracks.unshift(track)
+          }
+          track.clips.push({
+            id: uid('c'),
+            kind: 'video',
+            shape: {
+              kind,
+              fill: '#e4e4e4',
+              stroke: null,
+              strokeWidth: 8,
+              width: kind === 'line' ? 640 : 480,
+              height: kind === 'line' ? 8 : 320,
+            },
+            start,
+            in: 0,
+            out: duration,
+            speed: 1,
+            volume: 0,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+        }),
+
+      updateShape: (clipId, patch) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked || !found.clip.shape) return
+          Object.assign(found.clip.shape, patch)
+        }),
+
       updateTextClip: (clipId, patch) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
@@ -920,6 +985,46 @@ export const useStore = create<StoreState>()(
               if (i >= 0) s.selection.splice(i, 1)
               else s.selection.push(id)
             }
+        }),
+
+      addFade: (clipId, edge, dur = 0.5) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const { clip } = found
+          const D = clipDuration(clip)
+          const d = snapToFrame(Math.min(dur, D / 2), p.canvas.fps)
+          if (d <= 0) return
+          const base = clip.volume
+          const upsert = (t: number, v: number) => {
+            const existing = clip.keyframes.find(
+              (k) => k.prop === 'volume' && Math.abs(k.t - t) < 1 / p.canvas.fps / 2,
+            )
+            if (existing) existing.v = v
+            else clip.keyframes.push({ prop: 'volume', t, v, ease: 'linear' })
+          }
+          if (edge === 'in') {
+            upsert(0, 0)
+            upsert(d, base)
+          } else {
+            upsert(snapToFrame(D - d, p.canvas.fps), base)
+            upsert(snapToFrame(D, p.canvas.fps), 0)
+          }
+        }),
+
+      applyDuckingEnvelope: (clipId, points) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const { clip } = found
+          clip.keyframes = clip.keyframes.filter((k) => k.prop !== 'volume')
+          for (const pt of points)
+            clip.keyframes.push({
+              prop: 'volume',
+              t: snapToFrame(pt.t, p.canvas.fps),
+              v: pt.v,
+              ease: 'linear',
+            })
         }),
 
       addTrack: (kind) =>

@@ -1155,3 +1155,52 @@ file removed, exporter reusable (p5-cancel PASS).
 - Verified: p6-safety PASS (dirty lifecycle, recovery round-trip newer-
   mtime + content + cleared-on-save, ClipboardEvent copy, paste preserving
   a grade, cut) + capture showing "— safety-e2e — Edited".
+
+## Phase 7 — remaining basics
+
+1. **VFR normalization (the §6 trap, finally landed).** Detection: container
+   r_frame_rate vs avg_frame_rate disagreeing >2% (the standard signal — a
+   full frame-duration scan would cost a decode pass for marginal gain).
+   Normalization: transcode to CFR at the rounded average fps (VideoToolbox
+   when present) into app-cache/normalized, keyed by stem+size; import uses
+   the normalized copy transparently. Unit-tested against a GENERATED true-
+   VFR file (random frame drops, vfr fps_mode): detected → normalized → CFR
+   → decodable; CFR input passes through untouched.
+2. **Speed ramps.** "speed" keyframes remap time WITHIN the clip's fixed
+   timeline window: piecewise-linear rate integrated from clip start
+   (trapezoid rule), clamped to the source range — implemented identically
+   in engine/time.ts and Rust Layer::source_time (unit test: 1→3 over 4s
+   integrates to src 8.0; verified live — playhead 4 renders source ~8, and
+   the flat-speed duration-trim path still applies when unarmed; arming
+   flips the same property row to ramp keyframes). DECIDED + logged: ramped
+   clips are VIDEO-ONLY — time-varying audio tempo isn't representable in
+   the export filter graph, so ramped clips are excluded from the audio mix
+   and muted in preview. Fixed-window remap (not Premiere's duration-
+   changing remap) is the logged ceiling; upgrade path is solving the
+   integral for T at trim time.
+3. **Audio fades + ducking.** Fades are sugar writing ordinary volume
+   keyframes (0→base over 0.5s, base→0 at the tail) — preview and export
+   honored them before the feature existed. Ducking is a plain envelope
+   follower over the waveform peaks we already decode: 100ms buckets, 0.06
+   peak threshold, windows merged under 0.6s, 0.25 gain with 0.25s ramps,
+   applied as a volume-keyframe envelope (clears previous volume kfs —
+   logged). Verified with a generated 1s-on/1s-off tone: exactly 5 duck
+   windows against a constant-tone music clip.
+4. **Shapes.** rect/ellipse/line as source-less clips riding the EXACT text
+   raster path (same IPC channel, same GPU slots, same transform/keyframe/
+   grade pipeline) — a line is a thin filled rect (rotate via
+   transform.rotation, logged). Fill/stroke/size editable in a Shape panel
+   section; Add menu gained all three (closing Phase 3's deliberate
+   omission). Verified: red ellipse composited in the captured frame.
+5. **Project templates.** Satisfied by construction: the Phase 1 New
+   Project dialog already offers exactly the plan's named template list
+   (YouTube 16:9 / Reel 9:16 / Square / Portrait 4:5) with fps
+   preconfiguration. No separate template system built — logged as folded
+   in rather than duplicated.
+
+## Session 9 wrap
+
+All 8 phases (0–7) shipped with per-phase commits and evidence. Nothing was
+cut. Next session per the plan: the AI prompt-driven tool layer (CONTEXT.md
+§2), Whisper transcription, and the web/activation server — the app side of
+activation is already waiting behind the LicenseValidator seam.
