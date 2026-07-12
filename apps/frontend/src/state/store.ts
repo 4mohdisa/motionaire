@@ -123,8 +123,9 @@ export interface StoreState {
   setPropsWidth: (w: number) => void
   setCompositorStatus: (active: boolean, fps: number) => void
   setProjectPath: (path: string | null) => void
-  // Load a project bundle: wholesale replacement, fresh history/selection.
-  replaceProject: (project: Project, path: string) => void
+  // Load a project bundle (or New Project): wholesale replacement, fresh history.
+  replaceProject: (project: Project, path: string | null) => void
+  selectAllClips: () => void
 
   // Spike scaffolding: loads the flagship PiP demo (CONTEXT.md §2.3) as real,
   // editable clips + keyframes. Wipes existing timeline clips (single undo step).
@@ -738,6 +739,11 @@ export const useStore = create<StoreState>()(
           s.playhead = 0
           s.playing = false
           s.projectPath = path
+        }),
+
+      selectAllClips: () =>
+        set((s) => {
+          s.selection = s.project.tracks.flatMap((t) => t.clips.map((c) => c.id))
         }),
 
       loadPipDemo: (screen, cam) =>

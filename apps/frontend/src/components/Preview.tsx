@@ -13,20 +13,19 @@ function Preview() {
   const elements = useRef<ElementMap>(new Map())
   usePlaybackEngine(elements)
 
-  // Fit the canvas into the available area; scale factor drives the
-  // canvas-coordinate overlay layer (text, safe zones).
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [stage, setStage] = useState({ w: 0, h: 0 })
+  // Stage geometry is pure CSS (aspect-ratio + container-query units) so the
+  // frame can never distort or collapse, regardless of JS callback delivery.
+  // The observer only feeds the overlay scale factor (text, safe zones).
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [overlayScale, setOverlayScale] = useState(0)
   const { width: cw, height: ch } = project.canvas
   useEffect(() => {
-    const el = containerRef.current
+    const el = stageRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect()
-      const scale = Math.min(r.width / cw, r.height / ch)
-      setStage({ w: Math.floor(cw * scale), h: Math.floor(ch * scale) })
-    })
+    const measure = () => setOverlayScale(el.getBoundingClientRect().width / cw)
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
+    measure()
     return () => ro.disconnect()
   }, [cw, ch])
 
@@ -87,14 +86,18 @@ function Preview() {
     else elements.current.delete(clipId)
   }
 
-  const overlayScale = cw > 0 ? stage.w / cw : 0
-
   return (
     <div className="preview">
-      <div className="preview__fit" ref={containerRef}>
+      <div className="preview__fit">
         <div
           className="preview__stage"
-          style={{ width: stage.w, height: stage.h, background: project.canvas.background }}
+          ref={stageRef}
+          style={
+            {
+              '--ar': `${cw} / ${ch}`,
+              background: project.canvas.background,
+            } as React.CSSProperties
+          }
         >
           {mounted.map((clip) => {
             const asset = project.media.find((m) => m.id === clip.mediaId)

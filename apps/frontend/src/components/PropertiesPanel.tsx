@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { AlignCenter, AlignLeft, AlignRight } from 'lucide-react'
 import { useStore } from '../state/store'
+import IconBtn from './IconBtn'
 import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
 import type { Clip, Ease, TextAnimationPreset, TransitionType } from '../types/project'
@@ -199,14 +201,20 @@ function TextEditor({ clip }: { clip: Clip }) {
           onChange={(e) => updateTextClip(clip.id, { style: { color: e.target.value } })}
         />
         <div className="props__align">
-          {(['left', 'center', 'right'] as const).map((a) => (
-            <button
+          {(
+            [
+              ['left', AlignLeft, 'Align left'],
+              ['center', AlignCenter, 'Align center'],
+              ['right', AlignRight, 'Align right'],
+            ] as const
+          ).map(([a, Icon, label]) => (
+            <IconBtn
               key={a}
-              className={`tl__btn${st.align === a ? ' tl__btn--on' : ''}`}
+              icon={Icon}
+              label={label}
+              active={st.align === a}
               onClick={() => updateTextClip(clip.id, { style: { align: a } })}
-            >
-              {a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
-            </button>
+            />
           ))}
         </div>
       </div>

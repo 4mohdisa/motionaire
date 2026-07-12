@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowLeftToLine,
+  AudioLines,
+  Magnet,
+  Maximize,
+  Scissors,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { useStore } from '../../state/store'
 import { findClip } from '../../engine/time'
 import { TimelineContext, type LaneRect, type TimelineCtx } from './timelineContext'
 import Ruler from './Ruler'
 import ClipBlock from './ClipBlock'
 import ContextMenu, { type MenuItem } from '../ContextMenu'
+import IconBtn from '../IconBtn'
 
 const LANE_HEIGHT: Record<'video' | 'audio', number> = { video: 56, audio: 44 }
 
@@ -131,50 +142,30 @@ function Timeline() {
   return (
     <footer className="tl">
       <div className="tl__toolbar">
-        <button className="tl__btn" title="Split at playhead (S)" onClick={splitAtPlayhead}>
-          Split
-        </button>
-        <button
-          className="tl__btn"
-          title="Delete selected (⌫)"
+        <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
+        <IconBtn
+          icon={Trash2}
+          label="Delete selected (⌫)"
           disabled={!selection.length}
           onClick={() => deleteClips(selection)}
-        >
-          Delete
-        </button>
-        <button
-          className="tl__btn"
-          title="Ripple delete selected"
+        />
+        <IconBtn
+          icon={ArrowLeftToLine}
+          label="Ripple delete (close gap)"
           disabled={!selection.length}
           onClick={() => rippleDeleteClips(selection)}
-        >
-          Ripple
-        </button>
-        <button
-          className="tl__btn"
-          title="Detach audio to its own track"
+        />
+        <IconBtn
+          icon={AudioLines}
+          label="Detach audio to its own track"
           disabled={!detachTarget}
           onClick={() => detachTarget && detachAudio(detachTarget)}
-        >
-          Detach Audio
-        </button>
+        />
         <div className="tl__spacer" />
-        <button
-          className={`tl__btn${snap ? ' tl__btn--on' : ''}`}
-          title="Toggle snapping"
-          onClick={() => setSnap(!snap)}
-        >
-          Snap
-        </button>
-        <button className="tl__btn" title="Zoom out" onClick={() => setPxPerSec(pxPerSec / 1.5)}>
-          −
-        </button>
-        <button className="tl__btn" title="Zoom in" onClick={() => setPxPerSec(pxPerSec * 1.5)}>
-          +
-        </button>
-        <button className="tl__btn" title="Fit timeline" onClick={fit}>
-          Fit
-        </button>
+        <IconBtn icon={Magnet} label="Snapping" active={snap} onClick={() => setSnap(!snap)} />
+        <IconBtn icon={ZoomOut} label="Zoom out (−)" onClick={() => setPxPerSec(pxPerSec / 1.5)} />
+        <IconBtn icon={ZoomIn} label="Zoom in (+)" onClick={() => setPxPerSec(pxPerSec * 1.5)} />
+        <IconBtn icon={Maximize} label="Fit timeline" onClick={fit} />
       </div>
       <div className="tl__body">
         <div className="tl__headers">

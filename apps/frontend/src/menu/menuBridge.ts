@@ -1,0 +1,104 @@
+import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
+import { useStore } from '../state/store'
+import { createProject } from '../types/project'
+import { isTauri, loadPipDemo } from '../compositor/bridge'
+import {
+  importMediaNative,
+  openProject,
+  openProjectPath,
+  saveProject,
+} from '../persistence/projectIO'
+
+// Native-menu → app dispatch. Accelerators on native items are global, so
+// text-editing keys (Cmd+Z / Cmd+A) route back to the focused field when the
+// user is typing — matching what a Mac user expects.
+
+let started = false
+
+function isTyping(): boolean {
+  const el = document.activeElement as HTMLElement | null
+  return (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    (el?.isContentEditable ?? false)
+  )
+}
+
+async function dispatch(action: string, path?: string) {
+  const s = useStore.getState()
+  switch (action) {
+    case 'file:new':
+      // ponytail: no dirty-check prompt yet — undo history is cleared by design.
+      s.replaceProject(createProject(), null)
+      break
+    case 'file:open':
+      await openProject()
+      break
+    case 'file:open_recent':
+      if (path) await openProjectPath(path)
+      break
+    case 'file:save':
+      await saveProject()
+      break
+    case 'file:save_as':
+      await saveProject(true)
+      break
+    case 'file:import':
+      await importMediaNative()
+      break
+    case 'edit:undo':
+      if (isTyping()) document.execCommand('undo')
+      else s.undo()
+      break
+    case 'edit:redo':
+      if (isTyping()) document.execCommand('redo')
+      else s.redo()
+      break
+    case 'edit:delete':
+      if (!isTyping() && s.selection.length) s.deleteClips(s.selection)
+      break
+    case 'edit:ripple_delete':
+      if (!isTyping() && s.selection.length) s.rippleDeleteClips(s.selection)
+      break
+    case 'edit:select_all':
+      if (isTyping()) document.execCommand('selectAll')
+      else s.selectAllClips()
+      break
+    case 'view:safe_zones':
+      s.setSafeZones(!s.safeZones)
+      break
+    case 'view:snap':
+      s.setSnap(!s.snap)
+      break
+    case 'view:zoom_in':
+      s.setPxPerSec(s.pxPerSec * 1.5)
+      break
+    case 'view:zoom_out':
+      s.setPxPerSec(s.pxPerSec / 1.5)
+      break
+    case 'view:pip_demo':
+      await loadPipDemo()
+      break
+  }
+}
+
+export function startMenuBridge() {
+  if (!isTauri || started) return
+  started = true
+  void listen<{ action: string; path?: string }>('menu', (e) => {
+    void dispatch(e.payload.action, e.payload.path).catch((err) =>
+      console.error(`menu action ${e.payload.action} failed:`, err),
+    )
+  })
+  // Keep the View-menu checkmarks honest when the same toggles flip in-app.
+  let lastSafe = useStore.getState().safeZones
+  let lastSnap = useStore.getState().snap
+  useStore.subscribe((s) => {
+    if (s.safeZones !== lastSafe || s.snap !== lastSnap) {
+      lastSafe = s.safeZones
+      lastSnap = s.snap
+      void invoke('sync_view_menu', { safeZones: s.safeZones, snap: s.snap }).catch(() => {})
+    }
+  })
+}

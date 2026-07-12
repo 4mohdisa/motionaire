@@ -41,7 +41,15 @@
 
 .topbar__actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+}
+
+.topbar__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
+  margin: 0 6px;
 }
 
 .topbar__btn {
@@ -64,6 +72,91 @@
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: #fff;
+}
+
+/* ---------- Icon buttons + tooltips ---------- */
+
+.iconbtn {
+  position: relative;
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.iconbtn:hover:not(:disabled) {
+  background: var(--color-bg-app);
+  border-color: var(--color-border);
+}
+
+.iconbtn:disabled {
+  color: var(--color-text-secondary);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.iconbtn--on {
+  background: var(--color-bg-app);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.iconbtn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.iconbtn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 85%, #fff);
+  border-color: var(--color-accent);
+}
+
+/* Tooltip: above by default; --tipbelow flips for the top bar.
+   display:none when idle — a merely-transparent tooltip still contributes to
+   scrollable overflow and edge buttons would poke it past the viewport
+   (caught by the layout self-test). Keyframe delay stands in for the
+   can't-transition-from-display:none hover delay. */
+.iconbtn[data-tip]::after {
+  content: attr(data-tip);
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #0c0c0e;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 300;
+}
+
+.iconbtn[data-tip]:hover::after {
+  display: block;
+  opacity: 0;
+  animation: tip-in 0.12s 0.35s both;
+}
+
+@keyframes tip-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.iconbtn--tipbelow[data-tip]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
 }
 
 /* ---------- Modal (export) ---------- */
@@ -204,24 +297,38 @@
 
 .preview {
   flex: 1 1 auto;
-  min-width: 0;
+  /* The monitor must never be crushed into an illegible sliver by the
+     properties panel — it wins the flex fight down to a real floor.
+     (280px floor exists for below-min-window states that only programmatic
+     resizes can reach; the enforced window minimum keeps real use above it.) */
+  min-width: 280px;
   display: flex;
   flex-direction: column;
 }
 
 .preview__fit {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 140px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
+  /* Size container: the stage fits itself with pure CSS (cqh below), so frame
+     geometry never depends on JS callback delivery (ResizeObserver starves in
+     occluded windows — found the hard way in the session-6 layout audit). */
+  container-type: size;
 }
 
 .preview__stage {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--color-border);
+  /* contain-fit at the canvas aspect ratio, guaranteed by the layout engine:
+     width caps at either the container width or the width that exactly fills
+     the container height at this ratio. --ar is set inline per project. */
+  aspect-ratio: var(--ar, 16 / 9);
+  width: min(100%, calc(100cqh * var(--ar, 1.7777)));
+  height: auto;
 }
 
 .preview__video {
@@ -439,34 +546,6 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.tl__btn {
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 5px;
-  background: none;
-  border: 1px solid transparent;
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tl__btn:hover:not(:disabled) {
-  background: var(--color-bg-app);
-  border-color: var(--color-border);
-}
-
-.tl__btn:disabled {
-  color: var(--color-text-secondary);
-  opacity: 0.5;
-  cursor: default;
-}
-
-.tl__btn--on {
-  background: var(--color-bg-app);
-  border-color: var(--color-accent);
-}
-
 .tl__spacer {
   flex: 1;
 }
@@ -678,8 +757,10 @@
 /* ---------- Properties panel ---------- */
 
 .props {
-  flex: 0 0 var(--props-width, 264px);
-  min-width: 0;
+  /* Shrinkable under overflow pressure (never below 180px) so pathological
+     window sizes degrade to cramped panels, not horizontal scrolling. */
+  flex: 0 1 var(--props-width, 264px);
+  min-width: 180px;
   border-left: 1px solid var(--color-border);
   background: var(--color-bg-panel);
   display: flex;

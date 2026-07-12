@@ -136,6 +136,131 @@ export function startCompositorBridge() {
       if (yes) return runReopenSelfTest()
     })
     .catch(() => {})
+
+  // Layout break-test (SPIKE_LAYOUT_TEST=1): drives the REAL native window
+  // through below-minimum and extreme sizes, auditing the DOM at each.
+  void invoke<boolean>('env_flag', { name: 'SPIKE_LAYOUT_TEST' })
+    .then((yes) => {
+      if (yes) return runLayoutSelfTest()
+    })
+    .catch(() => {})
+
+  // Menu plumbing test (SPIKE_MENU_TEST=1): synthesizes events through the
+  // real Rust menu handler and asserts the store reacted.
+  void invoke<boolean>('env_flag', { name: 'SPIKE_MENU_TEST' })
+    .then((yes) => {
+      if (yes) return runMenuSelfTest()
+    })
+    .catch(() => {})
+}
+
+async function runMenuSelfTest() {
+  const report = (pass: boolean, detail: string) =>
+    invoke('report_test', { name: 'native-menu-plumbing', pass, detail }).catch(() => {})
+  try {
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const fire = (action: string) => invoke('emit_menu_action', { action })
+    await wait(1500) // let listeners attach
+
+    const snapBefore = useStore.getState().snap
+    await fire('view:snap')
+    await wait(300)
+    const snapToggled = useStore.getState().snap === !snapBefore
+
+    await loadPipDemo()
+    await fire('edit:select_all')
+    await wait(300)
+    const allClips = useStore.getState().project.tracks.flatMap((t) => t.clips).length
+    const selected = useStore.getState().selection.length
+    const selectAllOk = allClips > 0 && selected === allClips
+
+    await fire('file:new')
+    await wait(300)
+    const s = useStore.getState()
+    const newOk =
+      s.project.tracks.every((t) => t.clips.length === 0) &&
+      s.projectPath === null &&
+      s.past.length === 0
+
+    const pass = snapToggled && selectAllOk && newOk
+    void report(
+      pass,
+      `snapToggled=${snapToggled} selectAll=${selected}/${allClips} newProject=${newOk}`,
+    )
+  } catch (e) {
+    void report(false, String(e))
+  }
+}
+
+async function runLayoutSelfTest() {
+  const report = (pass: boolean, detail: string) =>
+    invoke('report_test', { name: 'layout-native-window', pass, detail }).catch(() => {})
+  try {
+    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+    const win = getCurrentWindow()
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    await loadPipDemo()
+    useStore.getState().setTimelineHeight(480)
+    useStore.getState().setPropsWidth(420)
+
+    const audit = (label: string) => {
+      const s = useStore.getState()
+      const stage = document.querySelector('.preview__stage')?.getBoundingClientRect()
+      const ar = stage && stage.height > 0 ? stage.width / stage.height : 0
+      const want = s.project.canvas.width / s.project.canvas.height
+      const lanes = [
+        ...new Set(
+          [...document.querySelectorAll('.tl__lane')].map((l) =>
+            Math.round(l.getBoundingClientRect().height),
+          ),
+        ),
+      ]
+      const checks = {
+        hasStage: !!stage,
+        ar: Math.abs(ar - want) < 0.02,
+        wide: !!stage && stage.width >= 100,
+        noHOv: !(document.body.scrollWidth > window.innerWidth),
+        lanes: lanes.every((h) => h === 56 || h === 44),
+      }
+      const ok = Object.values(checks).every(Boolean)
+      const failed = Object.entries(checks)
+        .filter(([, v]) => !v)
+        .map(([k]) => k)
+        .join(',')
+      return {
+        ok,
+        detail: `${label}: vp=${window.innerWidth}x${window.innerHeight} stage=${Math.round(stage?.width ?? 0)}x${Math.round(stage?.height ?? 0)} arErr=${Math.abs(ar - want).toFixed(3)} lanes=${lanes.join('/')}${failed ? ` FAILED[${failed}]` : ''}`,
+      }
+    }
+
+    const results = []
+    // 1) Force BELOW the minimum. macOS applies minSize to user drags, not to
+    // programmatic setSize — so the pass criterion here is that the LAYOUT
+    // stays coherent even in this unreachable-by-user state; whether the OS
+    // clamped is reported as info.
+    await win.setSize(new LogicalSize(500, 400))
+    await wait(600)
+    results.push({
+      ok: true,
+      detail: `below-min info: requested 500x400, got ${window.innerWidth}x${window.innerHeight}`,
+    })
+    results.push(audit('below-min-coherence'))
+    // 2) Extreme wide/short
+    await win.setSize(new LogicalSize(2200, 620))
+    await wait(600)
+    results.push(audit('wide-short'))
+    // 3) Extreme narrow/tall
+    await win.setSize(new LogicalSize(960, 1400))
+    await wait(600)
+    results.push(audit('narrow-tall'))
+    // Restore something sane.
+    await win.setSize(new LogicalSize(1280, 800))
+
+    const pass = results.every((r) => r.ok)
+    void report(pass, results.map((r) => r.detail).join(' | '))
+  } catch (e) {
+    void report(false, String(e))
+  }
 }
 
 async function runReopenSelfTest() {

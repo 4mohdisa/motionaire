@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from '../state/store'
+import { isTauri } from '../compositor/bridge'
 
 const SHUTTLE_CAP = 8
 
@@ -21,6 +22,9 @@ export function useShortcuts() {
       const mod = e.metaKey || e.ctrlKey
 
       if (mod && e.key.toLowerCase() === 'z') {
+        // In Tauri the native Edit-menu accelerator owns Cmd+Z/Cmd+Shift+Z;
+        // handling it here too would double-fire every undo.
+        if (isTauri) return
         e.preventDefault()
         if (e.shiftKey) s.redo()
         else s.undo()

@@ -1,5 +1,7 @@
+import { Pause, Play, SkipBack, StepBack, StepForward } from 'lucide-react'
 import { useStore } from '../state/store'
 import { formatTimecode } from '../engine/time'
+import IconBtn from './IconBtn'
 
 function TransportControls() {
   const playing = useStore((s) => s.playing)
@@ -12,22 +14,14 @@ function TransportControls() {
     <div className="transport">
       <span className="transport__time">{formatTimecode(playhead, fps)}</span>
       <div className="transport__buttons">
-        <button className="transport__btn" title="Go to start" onClick={() => setPlayhead(0)}>
-          ⏮
-        </button>
-        <button className="transport__btn" title="Previous frame (←)" onClick={() => frameStep(-1)}>
-          ◀︎▮
-        </button>
-        <button
-          className="transport__btn transport__btn--play"
-          title="Play/pause (space)"
+        <IconBtn icon={SkipBack} label="Go to start (Home)" onClick={() => setPlayhead(0)} />
+        <IconBtn icon={StepBack} label="Previous frame (←)" onClick={() => frameStep(-1)} />
+        <IconBtn
+          icon={playing ? Pause : Play}
+          label={playing ? 'Pause (Space)' : 'Play (Space)'}
           onClick={togglePlay}
-        >
-          {playing ? '❚❚' : '▶'}
-        </button>
-        <button className="transport__btn" title="Next frame (→)" onClick={() => frameStep(1)}>
-          ▮▶︎
-        </button>
+        />
+        <IconBtn icon={StepForward} label="Next frame (→)" onClick={() => frameStep(1)} />
       </div>
       <span className="transport__time transport__time--total">
         {formatTimecode(duration, fps)}

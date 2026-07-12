@@ -1,4 +1,5 @@
 pub mod compositor;
+pub mod menu;
 pub mod persistence;
 
 use std::path::PathBuf;
@@ -72,7 +73,9 @@ fn save_project(
     name: String,
 ) -> Result<(), String> {
     persistence::save_bundle(std::path::Path::new(&bundle_path), &project_json)?;
-    persistence::touch_recent(&db_path(&app)?, &bundle_path, &name)
+    persistence::touch_recent(&db_path(&app)?, &bundle_path, &name)?;
+    let _ = menu::build_and_set(&app); // refresh Open Recent
+    Ok(())
 }
 
 #[tauri::command]
@@ -83,7 +86,29 @@ fn load_project(
 ) -> Result<persistence::LoadedBundle, String> {
     let loaded = persistence::load_bundle(std::path::Path::new(&bundle_path))?;
     persistence::touch_recent(&db_path(&app)?, &bundle_path, &name)?;
+    let _ = menu::build_and_set(&app); // refresh Open Recent
     Ok(loaded)
+}
+
+// Dev harness: synthesize a menu event through the real handler so the
+// menu→emit→webview plumbing is testable without clicking the native bar.
+#[tauri::command]
+fn emit_menu_action(app: tauri::AppHandle, action: String) {
+    menu::handle_event(&app, &action);
+}
+
+// Keep View-menu checkboxes honest when the same toggles change from in-app UI.
+#[tauri::command]
+fn sync_view_menu(app: tauri::AppHandle, safe_zones: bool, snap: bool) {
+    if let Some(m) = app.menu() {
+        for (id, val) in [("view:safe_zones", safe_zones), ("view:snap", snap)] {
+            if let Some(item) = m.get(id) {
+                if let Some(check) = item.as_check_menuitem() {
+                    let _ = check.set_checked(val);
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -109,9 +134,19 @@ pub fn run() {
             // session 3 only ever saw adapter logs from LATE re-inits.
             use tauri::Manager as _;
             app.manage(compositor::start());
+            // Enforce the window minimum in code as well as config: the layout
+            // self-test found programmatic setSize sailing below the configured
+            // minWidth/minHeight (AppKit min constrains user drags, not code).
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_min_size(Some(tauri::LogicalSize::new(960.0, 620.0)));
+            }
+            if let Err(e) = menu::build_and_set(app.handle()) {
+                log::error!("native menu build failed: {e}");
+            }
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
                 log::info!("lifecycle: window '{}' close requested", window.label())
@@ -132,7 +167,9 @@ pub fn run() {
             probe_media,
             save_project,
             load_project,
-            list_recent_projects
+            list_recent_projects,
+            sync_view_menu,
+            emit_menu_action
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
