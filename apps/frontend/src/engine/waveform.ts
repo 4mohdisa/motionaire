@@ -22,7 +22,7 @@ export function getWaveform(asset: MediaAsset): Promise<WaveformData | null> {
 
 async function compute(asset: MediaAsset): Promise<WaveformData | null> {
   try {
-    const buf = await fetch(asset.path).then((r) => r.arrayBuffer())
+    const buf = await fetch(asset.playbackUrl || asset.path).then((r) => r.arrayBuffer())
     // OfflineAudioContext decodes without autoplay-policy involvement.
     const ctx = new OfflineAudioContext(1, 1, 44100)
     const audio = await ctx.decodeAudioData(buf)

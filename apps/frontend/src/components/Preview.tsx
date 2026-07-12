@@ -3,6 +3,7 @@ import { useStore } from '../state/store'
 import { activeTextClips, activeVideoClips, clipEnd, crossTransitionAt } from '../engine/time'
 import { resolveProp } from '../engine/keyframes'
 import { clipsToMount, usePlaybackEngine, type ElementMap } from '../engine/playback'
+import { startCompositorClient } from '../compositor/client'
 import type { Clip } from '../types/project'
 import TransportControls from './TransportControls'
 
@@ -34,6 +35,17 @@ function Preview() {
   const cross = crossTransitionAt(project, playhead)
   const texts = activeTextClips(project, playhead)
   const safeZones = useStore((s) => s.safeZones)
+  const compositorActive = useStore((s) => s.compositorActive)
+  const compositorFps = useStore((s) => s.compositorFps)
+
+  // Rust compositor stream → canvas. When frames flow, the canvas is the video
+  // surface (real multi-clip composite) and DOM <video> stays for audio only.
+  const compositeCanvasRef = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = compositeCanvasRef.current
+    if (!canvas) return
+    return startCompositorClient(canvas)
+  }, [])
 
   // Outgoing fade-to-black on the visible clip's out edge.
   let visibleOpacity = 1
@@ -92,13 +104,21 @@ function Preview() {
                 key={clip.id}
                 ref={registerEl(clip.id)}
                 className="preview__video"
-                style={styleFor(clip)}
-                src={asset.path}
+                style={compositorActive ? { visibility: 'hidden' } : styleFor(clip)}
+                src={asset.playbackUrl || asset.path}
                 playsInline
                 preload="auto"
               />
             )
           })}
+          <canvas
+            ref={compositeCanvasRef}
+            className="preview__composite"
+            style={{ display: compositorActive ? 'block' : 'none' }}
+          />
+          {compositorActive && (
+            <div className="preview__fps">Compositor {compositorFps.toFixed(0)} fps</div>
+          )}
           <div
             className="preview__overlay"
             style={{

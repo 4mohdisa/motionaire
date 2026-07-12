@@ -87,7 +87,8 @@ export interface Clip {
 
 export interface MediaAsset {
   id: string
-  path: string // object URL this session; absolute file path once native import lands
+  path: string // absolute file path (compositor-visible) or object URL (browser import)
+  playbackUrl?: string // webview-playable URL for file-backed assets (asset protocol)
   name: string
   kind: 'video' | 'audio'
   duration: number

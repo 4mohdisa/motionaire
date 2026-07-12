@@ -6,7 +6,11 @@ use tauri::State;
 
 #[tauri::command]
 fn sync_project(state: State<Compositor>, project: SyncProject) {
-    log::debug!("sync_project: {} layer(s)", project.layers.len());
+    log::info!(
+        "sync_project: {} layer(s), first id: {:?}",
+        project.layers.len(),
+        project.layers.first().map(|l| l.id.as_str())
+    );
     state.set_project(project);
 }
 

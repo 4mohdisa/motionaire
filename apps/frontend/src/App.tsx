@@ -3,8 +3,10 @@ import Preview from './components/Preview'
 import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import Timeline from './components/timeline/Timeline'
+import { useEffect } from 'react'
 import { useShortcuts } from './hooks/useShortcuts'
 import { useStore } from './state/store'
+import { startCompositorBridge } from './compositor/bridge'
 import './App.css'
 
 // Thin drag strip that resizes a neighboring panel.
@@ -35,6 +37,7 @@ function Resizer({
 
 function App() {
   useShortcuts()
+  useEffect(() => startCompositorBridge(), [])
   const timelineHeight = useStore((s) => s.timelineHeight)
   const propsWidth = useStore((s) => s.propsWidth)
   const { setTimelineHeight, setPropsWidth } = useStore.getState()

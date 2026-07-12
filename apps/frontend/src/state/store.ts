@@ -58,6 +58,8 @@ export interface StoreState {
   exportSettings: ExportSettings
   timelineHeight: number
   propsWidth: number
+  compositorActive: boolean
+  compositorFps: number
 
   // --- history ---
   undo: () => void
@@ -118,6 +120,19 @@ export interface StoreState {
   setExportSettings: (patch: Partial<ExportSettings>) => void
   setTimelineHeight: (h: number) => void
   setPropsWidth: (w: number) => void
+  setCompositorStatus: (active: boolean, fps: number) => void
+
+  // Spike scaffolding: loads the flagship PiP demo (CONTEXT.md §2.3) as real,
+  // editable clips + keyframes. Wipes existing timeline clips (single undo step).
+  loadPipDemo: (screen: SpikeMediaInput, cam: SpikeMediaInput) => void
+}
+
+export interface SpikeMediaInput {
+  path: string
+  playbackUrl: string
+  width: number
+  height: number
+  duration: number
 }
 
 function clampPlayhead(t: number, p: Project): number {
@@ -154,6 +169,8 @@ export const useStore = create<StoreState>()(
       exportSettings: { width: 1920, height: 1080, fps: 30, format: 'mp4', quality: 80 },
       timelineHeight: 220,
       propsWidth: 264,
+      compositorActive: false,
+      compositorFps: 0,
 
       undo: () =>
         set((s) => {
@@ -693,6 +710,81 @@ export const useStore = create<StoreState>()(
       setPropsWidth: (w) =>
         set((s) => {
           s.propsWidth = Math.min(420, Math.max(220, w))
+        }),
+
+      setCompositorStatus: (active, fps) =>
+        set((s) => {
+          s.compositorActive = active
+          s.compositorFps = fps
+        }),
+
+      loadPipDemo: (screen, cam) =>
+        mutateProject((p) => {
+          for (const tr of p.tracks) tr.clips = []
+          const mkAsset = (m: SpikeMediaInput, name: string): MediaAsset => ({
+            id: uid('m'),
+            path: m.path,
+            playbackUrl: m.playbackUrl,
+            name,
+            kind: 'video',
+            duration: m.duration,
+            width: m.width,
+            height: m.height,
+            hasAudio: false,
+          })
+          const screenAsset = mkAsset(screen, 'screen.mp4')
+          const camAsset = mkAsset(cam, 'cam.mp4')
+          p.media.push(screenAsset, camAsset)
+
+          const videoTracks = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)
+          const [v1, v2] = videoTracks
+          if (!v1 || !v2) return
+
+          const mkClip = (asset: MediaAsset): Clip => ({
+            id: uid('c'),
+            kind: 'video',
+            mediaId: asset.id,
+            start: 0,
+            in: 0,
+            out: Math.min(asset.duration, 10),
+            speed: 1,
+            volume: 1,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+          v1.clips.push(mkClip(screenAsset))
+
+          const camClip = mkClip(camAsset)
+          // Flagship PiP: fullscreen → 10% bottom-right (32px margin, r=12) → back.
+          const px = 0.45 * p.canvas.width - 32
+          const py = 0.45 * p.canvas.height - 32
+          const kf = (prop: string, t: number, v: number) => ({
+            prop,
+            t,
+            v,
+            ease: 'easeInOut' as const,
+          })
+          camClip.keyframes = [
+            kf('transform.scale', 1.0, 1.0),
+            kf('transform.scale', 2.2, 0.1),
+            kf('transform.scale', 5.0, 0.1),
+            kf('transform.scale', 6.2, 1.0),
+            kf('transform.x', 1.0, 0),
+            kf('transform.x', 2.2, px),
+            kf('transform.x', 5.0, px),
+            kf('transform.x', 6.2, 0),
+            kf('transform.y', 1.0, 0),
+            kf('transform.y', 2.2, py),
+            kf('transform.y', 5.0, py),
+            kf('transform.y', 6.2, 0),
+            kf('transform.cornerRadius', 1.0, 0),
+            kf('transform.cornerRadius', 2.2, 12),
+            kf('transform.cornerRadius', 5.0, 12),
+            kf('transform.cornerRadius', 6.2, 0),
+          ]
+          v2.clips.push(camClip)
         }),
     }
   }),

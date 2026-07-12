@@ -110,8 +110,9 @@ fn render_loop(state: Compositor) {
         };
         let (mut t, playing) = state.current_t();
 
-        // Self-demo loops forever over the 10s timeline.
-        if spike_demo && playing && t > 9.5 {
+        // Self-demo loops forever over the 10s timeline (even if the frontend
+        // paused at timeline end — observation needs continuous frames).
+        if spike_demo && t > 9.5 {
             state.set_playhead(0.0, true);
             t = 0.0;
         }

@@ -1,5 +1,6 @@
 import { openImportDialog } from '../media/importMedia'
 import { useStore } from '../state/store'
+import { isTauri, loadPipDemo } from '../compositor/bridge'
 
 function TopBar() {
   const canUndo = useStore((s) => s.past.length > 0)
@@ -10,6 +11,15 @@ function TopBar() {
     <header className="topbar">
       <span className="topbar__brand">Motionaire</span>
       <div className="topbar__actions">
+        {isTauri && (
+          <button
+            className="topbar__btn"
+            title="Load the keyframed PiP compositor demo"
+            onClick={() => void loadPipDemo().catch((e) => console.error(e))}
+          >
+            PiP Demo
+          </button>
+        )}
         <button className="topbar__btn" disabled={!canUndo} onClick={undo} title="Undo (⌘Z)">
           ↩
         </button>
