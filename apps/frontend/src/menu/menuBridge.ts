@@ -80,6 +80,17 @@ async function dispatch(action: string, path?: string) {
     case 'view:pip_demo':
       await loadPipDemo()
       break
+    // Dev-remote passthroughs (debug builds drive these via the trigger file).
+    case 'dev:play':
+      s.play()
+      break
+    case 'dev:pause':
+      s.pause()
+      break
+  }
+  if (action.startsWith('dev:seek:')) {
+    const t = Number(action.slice('dev:seek:'.length))
+    if (Number.isFinite(t)) s.setPlayhead(t)
   }
 }
 

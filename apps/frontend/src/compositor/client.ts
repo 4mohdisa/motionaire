@@ -16,8 +16,31 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
   // Delivered-to-canvas rate, measured here — the honest number. The header's
   // fps field is Rust's render-work capacity, which is much higher.
   let frameTimes: number[] = []
+  // Last decoded frame, kept so the canvas can be repainted after macOS purges
+  // an occluded canvas backing (session 7: a purged, never-repainted canvas
+  // displayed uninitialized surface memory — on one machine, another app's UI).
+  let lastImage: ImageData | null = null
+  let lastFresh = 0
 
   const ctx = canvas.getContext('2d')!
+
+  const repaint = () => {
+    if (!lastImage) return
+    if (canvas.width !== lastImage.width || canvas.height !== lastImage.height) {
+      canvas.width = lastImage.width
+      canvas.height = lastImage.height
+    }
+    ctx.putImageData(lastImage, 0, 0)
+  }
+  const onVisible = () => repaint()
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('focus', onVisible)
+  window.addEventListener('pageshow', onVisible)
+  // Belt over the Rust keepalive's suspenders: repaint from cache if no fresh
+  // frame arrived recently (covers a dropped keepalive or purge mid-idle).
+  const repaintTimer = window.setInterval(() => {
+    if (lastActive && lastImage && performance.now() - lastFresh > 1500) repaint()
+  }, 1000)
 
   const setActive = (v: boolean, fps = 0) => {
     if (v !== lastActive || v) {
@@ -53,8 +76,14 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w
         canvas.height = h
+        // Never display a freshly-reallocated (uninitialized) backing.
+        ctx.fillStyle = '#000'
+        ctx.fillRect(0, 0, w, h)
       }
-      ctx.putImageData(new ImageData(new Uint8ClampedArray(buf, 16), w, h), 0, 0)
+      const image = new ImageData(new Uint8ClampedArray(buf, 16), w, h)
+      ctx.putImageData(image, 0, 0)
+      lastImage = image
+      lastFresh = performance.now()
       setActive(true, receivedFps())
       // No frames for a while (e.g. paused with no changes) still means active;
       // only a dropped socket deactivates. Refresh a stale-guard regardless.
@@ -73,6 +102,10 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
     stopped = true
     window.clearTimeout(retryTimer)
     window.clearTimeout(staleTimer)
+    window.clearInterval(repaintTimer)
+    document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('focus', onVisible)
+    window.removeEventListener('pageshow', onVisible)
     ws?.close()
     setActive(false)
   }

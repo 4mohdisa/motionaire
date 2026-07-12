@@ -36,6 +36,7 @@ function Preview() {
   const safeZones = useStore((s) => s.safeZones)
   const compositorActive = useStore((s) => s.compositorActive)
   const compositorFps = useStore((s) => s.compositorFps)
+  const playing = useStore((s) => s.playing)
 
   // Rust compositor stream → canvas. When frames flow, the canvas is the video
   // surface (real multi-clip composite) and DOM <video> stays for audio only.
@@ -120,7 +121,11 @@ function Preview() {
             style={{ display: compositorActive ? 'block' : 'none' }}
           />
           {compositorActive && (
-            <div className="preview__fps">Compositor {compositorFps.toFixed(0)} fps</div>
+            <div className="preview__fps">
+              {playing && compositorFps > 0
+                ? `Compositor ${compositorFps.toFixed(0)} fps`
+                : 'Compositor paused'}
+            </div>
           )}
           <div
             className="preview__overlay"

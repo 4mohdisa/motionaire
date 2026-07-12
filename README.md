@@ -78,6 +78,32 @@ Compositor chaos soak (scrub storms, ffmpeg kills, GPU re-inits, WS churn):
 cd apps/backend && MOTIONAIRE_WS_PORT=43118 cargo run --release --bin soak
 ```
 
+## Native screenshots & self-verification
+
+The app can capture its own webview (including the GPU compositor canvas) with
+**no permissions needed** — this is how autonomous sessions verify the real
+native rendering. In debug builds a dev-remote file trigger drives it:
+
+```sh
+echo "capture:/tmp/shot.png"  > "$TMPDIR/motionaire-dev-trigger"   # native capture
+echo "menu:view:pip_demo"     > "$TMPDIR/motionaire-dev-trigger"   # any menu action
+echo "minimize"               > "$TMPDIR/motionaire-dev-trigger"   # window control
+cat "$TMPDIR/motionaire-dev-done"                                   # result
+```
+
+To capture the app from the **outside** (full window with title bar, or any
+other app), macOS requires the capturing tool to have Screen Recording
+permission. That is a one-time, human-only grant — there is no automatic path:
+
+1. Build the bundled app once: `npm run tauri build -- --debug --bundles app`
+   (output: `apps/backend/target/debug/bundle/macos/motionaire.app` with a real
+   Info.plist / `com.motionaire.app` identifier).
+2. Open System Settings → Privacy & Security → Screen & System Audio Recording.
+3. Enable the tool that takes the screenshots — e.g. your terminal (for
+   `screencapture`) or whatever agent host runs these sessions. Motionaire
+   itself does NOT need this permission for its own self-captures.
+4. Quit and reopen that tool; macOS applies the grant on next launch.
+
 ## Compositor spike demo
 
 ```sh

@@ -164,6 +164,11 @@ fn render_loop(state: Compositor) {
     let mut ema_ms = 16.6f64;
     let mut consecutive_errors = 0u32;
     let mut dumped = false;
+    // Keepalive cache: paused-idle re-sends the last frame ~1Hz so purged or
+    // late-connecting clients always have valid pixels within a second
+    // (session 7: the idle loop's total silence left a dead canvas on screen).
+    let mut last_msg: Option<Bytes> = None;
+    let mut last_send = Instant::now();
 
     loop {
         // A panic in one iteration is logged and recovered (GPU rebuilt),
@@ -177,6 +182,8 @@ fn render_loop(state: Compositor) {
                 &mut consecutive_errors,
                 &mut dumped,
                 spike_demo,
+                &mut last_msg,
+                &mut last_send,
             )
         }));
         if let Err(payload) = result {
@@ -203,6 +210,8 @@ fn render_iteration(
     consecutive_errors: &mut u32,
     dumped: &mut bool,
     spike_demo: bool,
+    last_msg: &mut Option<Bytes>,
+    last_send: &mut Instant,
 ) {
     let started = Instant::now();
     state.heartbeat_ms.store(now_ms(), Ordering::Relaxed);
@@ -226,6 +235,14 @@ fn render_iteration(
 
     if !playing && !state.dirty.swap(false, Ordering::Relaxed) {
         state.set_status(format!("idle: paused at t={t:.2}"));
+        // Keepalive: total silence while idle left clients with a dead canvas
+        // (purged backing = black or worse, uninitialized surface remnants).
+        if last_send.elapsed() > Duration::from_secs(1) {
+            if let Some(msg) = last_msg.as_ref() {
+                let _ = state.frame_tx.send(msg.clone());
+                *last_send = Instant::now();
+            }
+        }
         std::thread::sleep(Duration::from_millis(15));
         return;
     }
@@ -274,7 +291,9 @@ fn render_iteration(
             *ema_ms = *ema_ms * 0.9 + ms * 0.1;
             let capacity_fps = (1000.0 / *ema_ms) as f32;
             let msg = server::frame_message(g.out_w as u16, g.out_h as u16, t as f32, capacity_fps, &rgba);
-            let _ = state.frame_tx.send(msg);
+            let _ = state.frame_tx.send(msg.clone());
+            *last_msg = Some(msg);
+            *last_send = Instant::now();
             let frames = state.stats.frames.fetch_add(1, Ordering::Relaxed) + 1;
             state.set_status(format!("ok: frame {frames} t={t:.2} work={ms:.1}ms"));
             if frames % 600 == 0 {

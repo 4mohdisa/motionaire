@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod compositor;
 pub mod menu;
 pub mod persistence;
@@ -90,6 +91,19 @@ fn load_project(
     Ok(loaded)
 }
 
+// Native self-verification: snapshot the webview's real rendered pixels
+// (GPU canvas layers included) to a PNG. No Screen Recording permission
+// needed — an app may capture its own content.
+#[tauri::command]
+fn capture_preview(window: tauri::WebviewWindow, path: Option<String>) -> Result<String, String> {
+    let out = path.map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::env::temp_dir()
+            .join("motionaire-spike")
+            .join(format!("native-capture-{}.png", std::process::id()))
+    });
+    capture::snapshot_webview(&window, out)
+}
+
 // Dev harness: synthesize a menu event through the real handler so the
 // menu→emit→webview plumbing is testable without clicking the native bar.
 #[tauri::command]
@@ -114,6 +128,62 @@ fn sync_view_menu(app: tauri::AppHandle, safe_zones: bool, snap: bool) {
 #[tauri::command]
 fn list_recent_projects(app: tauri::AppHandle) -> Result<Vec<persistence::RecentProject>, String> {
     persistence::list_recents(&db_path(&app)?)
+}
+
+#[cfg(debug_assertions)]
+fn dev_remote_loop(app: tauri::AppHandle) {
+    let trigger = std::env::temp_dir().join("motionaire-dev-trigger");
+    let done = std::env::temp_dir().join("motionaire-dev-done");
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let Ok(cmd) = std::fs::read_to_string(&trigger) else { continue };
+        let _ = std::fs::remove_file(&trigger);
+        let cmd = cmd.trim();
+        log::info!("dev-remote: {cmd}");
+        let result: Result<String, String> = (|| {
+            let win = app
+                .get_webview_window("main")
+                .ok_or("no main window")?;
+            match cmd.split_once(':').map(|(a, b)| (a, b)).unwrap_or((cmd, "")) {
+                ("capture", rest) => {
+                    let path = if rest.is_empty() {
+                        std::env::temp_dir()
+                            .join("motionaire-spike")
+                            .join(format!(
+                                "native-{}.png",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_millis())
+                                    .unwrap_or(0)
+                            ))
+                    } else {
+                        std::path::PathBuf::from(rest)
+                    };
+                    capture::snapshot_webview(&win, path)
+                }
+                ("minimize", _) => {
+                    win.minimize().map_err(|e| e.to_string())?;
+                    Ok("minimized".into())
+                }
+                ("restore", _) => {
+                    win.unminimize().map_err(|e| e.to_string())?;
+                    win.set_focus().map_err(|e| e.to_string())?;
+                    Ok("restored".into())
+                }
+                ("menu", action) => {
+                    menu::handle_event(&app, action);
+                    Ok(format!("menu {action} dispatched"))
+                }
+                other => Err(format!("unknown dev-remote command: {other:?}")),
+            }
+        })();
+        let line = match &result {
+            Ok(s) => format!("OK {s}"),
+            Err(e) => format!("ERR {e}"),
+        };
+        log::info!("dev-remote: {line}");
+        let _ = std::fs::write(&done, line);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -143,6 +213,18 @@ pub fn run() {
             if let Err(e) = menu::build_and_set(app.handle()) {
                 log::error!("native menu build failed: {e}");
             }
+            // Dev remote (debug builds only): a trigger file lets the outside
+            // world (the autonomous session's shell) drive native capture,
+            // minimize/restore, and menu actions — the interaction gap that
+            // kept sessions 1-6 from ever SEEING the native window.
+            #[cfg(debug_assertions)]
+            {
+                let handle = app.handle().clone();
+                std::thread::Builder::new()
+                    .name("dev-remote".into())
+                    .spawn(move || dev_remote_loop(handle))
+                    .ok();
+            }
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
@@ -169,7 +251,8 @@ pub fn run() {
             load_project,
             list_recent_projects,
             sync_view_menu,
-            emit_menu_action
+            emit_menu_action,
+            capture_preview
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
