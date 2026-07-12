@@ -309,3 +309,151 @@ All phases A–G built, verified in-browser against the real store (scripted
 Deliberately NOT touched, per the brief: Rust/wgpu compositor, FFmpeg export,
 transcription, AI tool layer, multi-clip composited preview (topmost-clip-only
 preview stands until the compositor session).
+
+---
+
+## 2026-07-12 — Session 3: compositor spike (CONTEXT.md §5 step 1)
+
+Goal: prove real-time multi-clip compositing — two decoded videos, keyframed
+scale/position/cornerRadius PiP, live in the actual preview. **Outcome: proven,
+with large performance headroom.** Details and honest numbers below.
+
+## Q1 — How wgpu pixels reach the screen: frame streaming over native surface
+
+**Chose (b): Rust renders offscreen (headless wgpu → Metal), reads back RGBA, and
+streams frames to the webview over a localhost WebSocket (binary, 16-byte header +
+tight RGBA); the frontend paints them into a `<canvas>` in the preview stage.**
+
+Why: the spike's actual risk was decode → GPU textures → keyframed composite at
+real-time rates — identical under either presentation approach. Streaming keeps
+zero platform-specific code (no AppKit/NSView layering, no transparent-webview
+config, no preview-rect/DPI synchronization with the React layout), keeps all
+existing DOM chrome (text overlays, safe zones, transport) stacking naturally, and
+degrades gracefully: no Rust process → DOM preview from session 2 still works
+(the browser-pane dev flow depends on that).
+
+What approach (a) — native child surface via raw window handle — would have cost:
+macOS view-hierarchy work through objc2 (position a CAMetalLayer under a
+transparent WKWebView region), per-OS variants for Windows/Linux later,
+scroll/resize/DPI rect-sync between React and the native layer, and input
+passthrough handling. Its payoff (zero-copy present, no readback) is real but
+irrelevant at current frame budgets — see measurements; it remains the upgrade
+path if 4K preview or battery draw demands it. A middle option for later:
+shared-surface (IOSurface/DMA-BUF) into the webview without the WS hop.
+
+Transport numbers: 1280×720 RGBA = 3.69 MB/frame; at 60 fps ≈ 221 MB/s over
+loopback — comfortably within WS + `putImageData` capacity (measured: 52 fps
+delivered end-to-end, bottleneck is the render-loop pacing sleep, not transport).
+Frame header carries (w, h, timeline_t, render_fps). The watch-channel transport
+drops stale frames for slow clients instead of queueing (latest-wins semantics).
+
+## Q2 — State sync: structure on change, playhead as a float pair
+
+As the brief prescribed: `sync_project` sends a trimmed, flattened mirror of the
+store (canvas + video layers with transform/keyframes; ~KB, debounced 60 ms);
+`set_playhead(t, playing)` is a two-field message sent on every playhead change.
+Rust free-runs its own clock from the last (t, playing, Instant) sample while
+playing, so compositor pacing never depends on webview rAF cadence (the session-2
+rAF-starvation lesson made this non-negotiable). Each new sample re-anchors; drift
+bounded by sample interval. Rust does all per-frame interpolation from the last
+synced structure — nothing project-sized crosses IPC per frame.
+
+Keyframe math is ported to Rust formula-identical (same easings, same bracketing,
+same left-keyframe-ease rule, timeline-relative times per session 2's decision), with
+a Rust unit test asserting the same numeric checks the TS engine passed in browser
+tests. This is deliberate duplication with a plan: when the compositor takes over
+preview and export (CONTEXT.md §3.1 single-compositor rule), Rust becomes the only
+pixel-truth and the TS copy serves only panel readouts.
+
+## Q3 — Decode: FFmpeg CLI subprocess piping rawvideo, not C-API bindings
+
+**Chose the `ffmpeg` binary as a subprocess with `-f rawvideo -pix_fmt rgba pipe:1`,
+plus `ffprobe -of json` for metadata — over ffmpeg-next/rusty_ffmpeg C-API
+bindings.** Reasons: (1) CONTEXT.md §3.4 already blesses exactly this pattern
+("FFmpeg CLI, run as a subprocess — a few lines, not systems programming");
+(2) no libav linking — this machine had no FFmpeg at session start (installed via
+`brew install ffmpeg` during the session), and C-API crates inherit version-pin
+hell; (3) pipe throughput is a non-issue at these sizes (~110 MB/s per 720p30
+stream vs GB/s pipe capacity). Cost acknowledged: an extra RGBA copy through the
+pipe and no zero-copy hardware-decode surface sharing (VideoToolbox → Metal). That
+becomes the upgrade when decode is the measured bottleneck — it currently isn't
+(GPU + decode + readback together: ~3 ms/frame).
+
+Decoder model: sequential forward reads paced naturally by pipe backpressure;
+backward or >2 s forward jumps respawn ffmpeg with `-ss` (~50–150 ms; acceptable
+scrub behavior for a spike, and proxies/seek-optimization are explicitly later
+work). No dependency crate for this — ~150 lines of std::process.
+
+## Compositor structure
+
+- Offscreen target at 720p-class resolution (width follows canvas AR) — enough to
+  judge correctness, cheap to stream; full-res render is an export-path concern.
+- Per-layer: RGBA texture (`queue.write_texture` per new frame), uniform buffer,
+  bind group. One render pass, layers drawn back-to-front by track z.
+- WGSL: vertex does fit-contain sizing + keyframed scale/rotate/translate in
+  canvas coordinates → NDC; fragment applies rounded-rect SDF (radius in on-screen
+  px, computed in scaled-local space so rotation is handled) with 1.5 px AA edge +
+  opacity, standard alpha blending.
+- Readback: `copy_texture_to_buffer` (256-aligned stride) → map → strip padding →
+  WS. On Apple unified memory this is cheap; it shows in the 3 ms figure.
+
+## Measured results (honest numbers)
+
+Hardware: Apple M5 Pro (integrated GPU, Metal backend), macOS 26.5.
+
+- **spike_check (release, headless)**: two decoded streams (1280×720\@30 +
+  640×360\@30), flagship keyframed PiP, 480 frames stepped at 60 Hz playback
+  pattern: **390 fps throughput; frame time p50 2.67 ms / p95 3.02 ms / p99
+  3.07 ms** at 1280×720 output. ~6× headroom over the 16.6 ms 60 fps budget —
+  in the spike's unoptimized form (no double-buffering, synchronous readback,
+  frames re-uploaded even when unchanged).
+- **Live end-to-end (debug build, real app)**: render work ~3–4 ms/frame;
+  **delivered-to-canvas 52 fps measured client-side**. The 52-vs-60 gap is the
+  render loop's `thread::sleep` pacing overshooting by a few ms — a mechanical
+  fix (display-clocked pacing / sleep-with-spin-margin), not a capacity limit.
+- Visual correctness: PNG dumps show the composite with the source's own embedded
+  timecode matching the requested source time exactly (testsrc2 burn-in reads
+  00:00:03.500 at t=3.5), PiP at 10 % bottom-right with visible rounded corners;
+  live screenshots caught the PiP mid-interpolation between keyframes.
+
+## End-to-end verification chain (no screen-recording permission available)
+
+1. `cargo test`: Rust keyframe resolution matches the TS engine's verified numbers.
+2. `spike_check` (headless): PNG evidence + perf measurements, viewed and confirmed.
+3. `SPIKE_DEMO=1 npm run tauri dev`: Rust logs prove the webview connected to the
+   frame stream AND synced its own store project (frontend-generated clip ids in
+   `sync_project`, not the Rust demo's ids) with playhead flowing.
+4. Browser pane on the same dev server: real WS frames painting into the real
+   preview canvas inside the full editor UI — screenshotted, including delivered-fps
+   badge and the keyframed clips on the timeline.
+
+## Open items and honest caveats
+
+- **Pacing**: loop sleeps to ~52 fps; switch to display-clocked pacing for 60.
+- **One unexplained event**: the first dev run showed GPU re-inits correlated with
+  a webview hot-reload and later terminated cleanly (no panic, no crash report)
+  after ~3.5 min. A second identical run showed neither anomaly over a longer
+  observation window with more sync traffic. Not reproduced; productionization
+  should add a render-thread watchdog + structured exit logging before trusting
+  long sessions.
+- Audio stays on the session-2 DOM element path — correct for now; the compositor
+  is video-only.
+- Frontend↔Rust playhead can drift up to one sample while playing (frontend's
+  element-master clock vs Rust's free-run) — imperceptible in practice, converges
+  on every sample; unify when the compositor becomes the only preview clock.
+- Object-URL (browser-import) media is invisible to the compositor — only
+  file-backed paths sync. Native file import (Tauri dialog + asset protocol,
+  already enabled and scoped) replaces the file-input path next.
+- Render loop free-runs per client count 0 or 1 the same; skip-render-when-idle
+  exists only for the paused state. Fine for a spike.
+
+## What's still missing vs a finished compositor
+
+Per the brief, deliberately unbuilt: full-resolution offline export path (render
+loop → FFmpeg encode is structurally ready: same `render_at(t)` per frame, pipe to
+`ffmpeg -f rawvideo` stdin per CONTEXT.md §3.3); proxies; frame-accurate seeking;
+crop + shadow in the shader (spec'd in §1.2, straightforward SDF/blur additions);
+text and transitions rendered by the compositor (still DOM overlays); >2 layer
+stress testing; VFR normalization on import (§6); hardware-decode zero-copy; audio
+in Rust. None of these carry spike-level risk — the risky unknown (real-time
+multi-clip keyframed compositing reaching the actual preview) is retired.

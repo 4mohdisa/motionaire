@@ -53,6 +53,21 @@ npm run tauri build
 
 Produces a release binary/installer under `apps/backend/target/release/`.
 
+## Compositor spike demo
+
+```sh
+SPIKE_DEMO=1 npm run tauri dev
+```
+
+Auto-loads the keyframed picture-in-picture demo (two generated test clips,
+composited in Rust via wgpu, streamed into the preview). Without the env var, use
+the "PiP Demo" toolbar button inside the app. Requires `ffmpeg`/`ffprobe` on PATH
+(`brew install ffmpeg`). Headless check with PNG evidence + frame timing:
+
+```sh
+cd apps/backend && cargo run --release --bin spike_check
+```
+
 ## Frontend-only commands
 
 Useful when iterating on UI without launching the native shell:
