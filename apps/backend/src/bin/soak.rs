@@ -45,6 +45,29 @@ fn main() {
     state.set_project(project.clone());
     state.set_playhead(0.0, true, 1.0);
 
+    // SOAK_STEADY=1: no chaos — continuous forward playback only, for clean
+    // paced-delivery measurements.
+    let steady = std::env::var("SOAK_STEADY").is_ok_and(|v| v == "1");
+    if steady {
+        let started = Instant::now();
+        while started.elapsed().as_secs() < secs {
+            let (t, _, _) = state.current_t();
+            if t > 9.4 {
+                state.set_playhead(0.0, true, 1.0);
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let s = &state.stats;
+        let frames = s.frames.load(Ordering::Relaxed);
+        println!(
+            "=== STEADY REPORT === {}s, {} frames → {:.1} fps average",
+            started.elapsed().as_secs(),
+            frames,
+            frames as f64 / started.elapsed().as_secs_f64()
+        );
+        std::process::exit(0);
+    }
+
     // WS churn + validation client on a small runtime.
     let churn = std::thread::spawn({
         let port = server::port();

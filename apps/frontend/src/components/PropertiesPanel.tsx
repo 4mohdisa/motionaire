@@ -65,6 +65,12 @@ function ClipProperties({ clip }: { clip: Clip }) {
         <NumberRow clip={clip} prop="transform.cornerRadius" label="Radius" step={1} min={0} />
       </Section>
 
+      {clip.kind === 'video' && (
+        <Section label="Crop">
+          <CropEditor clip={clip} />
+        </Section>
+      )}
+
       <Section label="Shadow">
         <ShadowEditor clip={clip} />
       </Section>
@@ -399,6 +405,38 @@ function SpeedRow({ clip }: { clip: Clip }) {
       />
       <span className="prow__unit">×</span>
     </div>
+  )
+}
+
+// Crop stored as fractions per CONTEXT.md §1.2 shape, edited as percent.
+function CropEditor({ clip }: { clip: Clip }) {
+  const { setClipProperty } = useStore.getState()
+  const crop = clip.transform.crop
+  const edge = (key: 'l' | 't' | 'r' | 'b', label: string) => (
+    <div className="prow" key={key}>
+      <span className="prow__label">{label}</span>
+      <input
+        className="prow__input"
+        type="number"
+        min={0}
+        max={45}
+        step={1}
+        value={Math.round(crop[key] * 100)}
+        onChange={(e) => {
+          const pct = Math.min(45, Math.max(0, Number(e.target.value) || 0))
+          setClipProperty(clip.id, 'transform.crop', { ...crop, [key]: pct / 100 })
+        }}
+      />
+      <span className="prow__unit">%</span>
+    </div>
+  )
+  return (
+    <>
+      {edge('l', 'Left')}
+      {edge('t', 'Top')}
+      {edge('r', 'Right')}
+      {edge('b', 'Bottom')}
+    </>
   )
 }
 

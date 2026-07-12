@@ -23,7 +23,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$TEMP/motionaire-spike/**"]
+        "scope": ["$TEMP/motionaire-spike/**", "$HOME/**"]
       }
     }
   },

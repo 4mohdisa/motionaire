@@ -23,6 +23,22 @@
   color: var(--color-text-primary);
 }
 
+.topbar__project {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.topbar__recents {
+  height: 26px;
+  border-radius: 6px;
+  background: var(--color-bg-app);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 6px;
+}
+
 .topbar__actions {
   display: flex;
   gap: 8px;
@@ -588,6 +604,10 @@
 .clip--selected {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.clip--missing {
+  background: repeating-linear-gradient(-45deg, #6e2f2a, #6e2f2a 8px, #532724 8px, #532724 16px);
 }
 
 .clip__label {

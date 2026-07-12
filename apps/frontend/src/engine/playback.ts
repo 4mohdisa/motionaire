@@ -49,13 +49,21 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
       const p = s.project
 
       if (s.playing) {
-        const top = activeVideoClips(p, s.playhead)[0]?.clip
-        const master =
-          (top && elements.current?.get(top.id)) ||
-          (activeAudioClips(p, s.playhead)
-            .map((c) => elements.current?.get(c.id))
-            .find(Boolean) ??
-            null)
+        // Clock authority (session 4): with the Rust compositor active, the
+        // wall clock here is the anchor source — Rust free-runs from our
+        // (t, playing, rate) samples, and media elements (audio duty only)
+        // drift-correct against the same playhead in syncElements. The
+        // element-as-master path survives only for the no-compositor
+        // plain-browser fallback.
+        const useElementMaster = !s.compositorActive
+        const top = useElementMaster ? activeVideoClips(p, s.playhead)[0]?.clip : undefined
+        const master = useElementMaster
+          ? (top && elements.current?.get(top.id)) ||
+            (activeAudioClips(p, s.playhead)
+              .map((c) => elements.current?.get(c.id))
+              .find(Boolean) ??
+              null)
+          : null
         const masterClip = master
           ? findClip(p, elementClipId(elements.current!, master)!)?.clip
           : null

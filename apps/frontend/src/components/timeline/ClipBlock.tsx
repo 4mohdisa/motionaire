@@ -121,11 +121,15 @@ function ClipBlock({ clip, trackId }: Props) {
     window.addEventListener('pointerup', onUp)
   }
 
-  const name = clip.kind === 'text' ? (clip.text?.content ?? 'Text') : (asset?.name ?? clip.kind)
+  const missing = !!asset?.missing
+  const name =
+    clip.kind === 'text'
+      ? (clip.text?.content ?? 'Text')
+      : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
 
   return (
     <div
-      className={`clip clip--${clip.kind}${selected ? ' clip--selected' : ''}`}
+      className={`clip clip--${clip.kind}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
       style={{ left: clip.start * pxPerSec, width: widthPx }}
       data-clip-id={clip.id}
       data-track-id={trackId}

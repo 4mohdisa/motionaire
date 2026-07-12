@@ -45,6 +45,11 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
       const w = dv.getUint16(4, true)
       const h = dv.getUint16(6, true)
       if (buf.byteLength !== 16 + w * h * 4) return
+      if (import.meta.env.DEV) {
+        // Rust's timeline time for this frame — used by clock-sync self-tests.
+        const wm = window as unknown as { __motionaire?: Record<string, unknown> }
+        wm.__motionaire = { ...wm.__motionaire, lastFrameT: dv.getFloat32(8, true) }
+      }
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w
         canvas.height = h

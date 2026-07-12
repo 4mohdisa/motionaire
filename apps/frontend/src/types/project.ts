@@ -88,7 +88,8 @@ export interface Clip {
 export interface MediaAsset {
   id: string
   path: string // absolute file path (compositor-visible) or object URL (browser import)
-  playbackUrl?: string // webview-playable URL for file-backed assets (asset protocol)
+  playbackUrl?: string // webview-playable URL for file-backed assets (asset protocol); transient
+  missing?: boolean // source file gone at load time; transient, never persisted
   name: string
   kind: 'video' | 'audio'
   duration: number
