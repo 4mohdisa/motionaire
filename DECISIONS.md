@@ -1057,3 +1057,35 @@ removeMedia sweeps) + native capture of the populated bin.
 - Verified: p3-tracks PASS (add/rename-in-DOM/lock-bounces-all-edits/
   reorder round-trip) + native capture: V2 hidden via the eye → the cam PiP
   is absent from the composited frame while V2's clip stays on the timeline.
+
+## Phase 4 — text into the compositor (the export blocker)
+
+Built exactly as sketched in session 4: the webview rasterizes each text
+clip at 2x canvas resolution when content/style changes (djb2 hash of the
+style object; NEVER per frame), ships it as PNG over IPC
+(set_text_rasters, batched upserts + live-list pruning), and Rust
+composites it as an ordinary texture layer — media_path "text:<clipId>",
+LayerSlot.decoder is now Option (None for rasters), and text layers draw
+at fixed fit=0.5 (2x raster → 1:1 canvas pixels) instead of contain-fit.
+Everything else — transform, keyframes, opacity, z, transitions, grade,
+crop, shadow — applies unchanged because it's the same uniform pipeline.
+Raster layout mirrors the DOM overlay (line-height 1.4, shrink-to-fit ≤
+maxWidth, centered block anchor, stroke-under-fill at 2x lineWidth for
+-webkit-text-stroke parity); the same WebKit shaper renders both, so glyph
+parity is structural. While the compositor is ACTIVE the DOM text overlay
+is hidden — the composited frame is the single on-screen source of truth
+(the overlay remains as the browser-mode fallback). Missing raster at draw
+time = skip that layer this frame; the raster IPC marks dirty so it pops
+in on arrival (~1 frame).
+
+Verified three ways: (1) deterministic spike_check PNG — a synthetic
+400x100 raster lands exactly 200x50 canvas px above center through the
+standard transform path; (2) live native capture — styled text (yellow,
+5px black stroke, 110px) rendered INSIDE the composited frame with the
+DOM overlay asserted hidden; (3) keyframed animation — capture at
+t=start+0.12 shows the fadeUp preset mid-flight (partial alpha + y
+offset), resolved per frame by the Rust keyframe engine. Known limits,
+logged: typewriter preset stays excluded (re-rasters per char step), and
+CSS↔canvas line-BREAK edge cases can differ at extreme widths (same
+shaper, different wrap code) — acceptable, wrap happens at word
+granularity in both.

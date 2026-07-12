@@ -111,12 +111,43 @@ fn main() {
         println!("dumped {}", p.display());
     }
 
+    // Text raster layer (session 9, Phase 4): a synthetic 400x100 red rounded
+    // box raster keyed "text:t1" must land centered at 200x50 CANVAS pixels
+    // (fit = 0.5), riding the standard transform pipeline.
+    {
+        use motionaire_lib::compositor::types::TextRaster;
+        let mut tp = demo::demo_project(&screen.path, &cam.path);
+        tp.layers[1].keyframes.clear();
+        let mut txt = tp.layers[0].clone();
+        txt.id = "t1".into();
+        txt.z = 50;
+        txt.media_path = "text:t1".into();
+        txt.keyframes.clear();
+        txt.transitions = Default::default();
+        txt.transform.y = -200.0; // above center so it sits over the bars
+        tp.layers.push(txt);
+        let (tw, th) = (400u32, 100u32);
+        let mut rgba = vec![0u8; (tw * th * 4) as usize];
+        for y in 0..th {
+            for x in 0..tw {
+                let i = ((y * tw + x) * 4) as usize;
+                rgba[i] = 230;
+                rgba[i + 3] = 255;
+            }
+        }
+        let mut texts = std::collections::HashMap::new();
+        texts.insert("t1".to_string(), TextRaster { hash: "r1".into(), w: tw, h: th, rgba });
+        let p = dir.join("check-text-raster-t2.png");
+        gpu.dump_png_texts(&tp, 2.0, &texts, &p).expect("text raster dump");
+        println!("dumped {}", p.display());
+    }
+
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
     // this fast (few respawns), correctness checked by timing + no panics.
     let rev_start = Instant::now();
     for i in 0..120 {
         let t = 5.0 - i as f64 / 60.0;
-        gpu.render_at(&styled, t).expect("reverse render");
+        gpu.render_at(&styled, t, &Default::default()).expect("reverse render");
     }
     println!("reverse: 120 frames (2s of timeline) in {:.2}s", rev_start.elapsed().as_secs_f64());
 
@@ -128,7 +159,7 @@ fn main() {
     for i in 0..steps {
         let t = 0.0 + i as f64 / 60.0;
         let f = Instant::now();
-        gpu.render_at(&project, t).expect("render");
+        gpu.render_at(&project, t, &Default::default()).expect("render");
         times_ms.push(f.elapsed().as_secs_f64() * 1000.0);
     }
     let total = started.elapsed().as_secs_f64();

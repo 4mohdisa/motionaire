@@ -108,7 +108,11 @@ struct LayerUniform {
 }
 
 struct LayerSlot {
-    decoder: Decoder,
+    // None for text-raster slots (session 9, Phase 4) — their pixels arrive
+    // pre-rendered from the webview instead of an ffmpeg pipe.
+    decoder: Option<Decoder>,
+    dims: (u32, u32),
+    raster_hash: String, // text slots: revision of the uploaded raster
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     uniform: wgpu::Buffer,
@@ -284,6 +288,43 @@ impl GpuCompositor {
         }
         let decoder = Decoder::new(path)?;
         let (w, h) = (decoder.info.width, decoder.info.height);
+        let slot = self.build_slot(w, h, Some(decoder));
+        self.slots.insert(path.to_string(), slot);
+        Ok(())
+    }
+
+    // Text-raster slot: (re)build on size change, upload pixels on revision change.
+    fn text_slot_for(&mut self, key: &str, raster: &super::types::TextRaster) {
+        let rebuild = match self.slots.get(key) {
+            Some(s) => s.dims != (raster.w, raster.h),
+            None => true,
+        };
+        if rebuild {
+            let slot = self.build_slot(raster.w, raster.h, None);
+            self.slots.insert(key.to_string(), slot);
+        }
+        let slot = self.slots.get_mut(key).unwrap();
+        if slot.raster_hash != raster.hash {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &slot.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &raster.rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(raster.w * 4),
+                    rows_per_image: Some(raster.h),
+                },
+                wgpu::Extent3d { width: raster.w, height: raster.h, depth_or_array_layers: 1 },
+            );
+            slot.raster_hash = raster.hash.clone();
+        }
+    }
+
+    fn build_slot(&self, w: u32, h: u32, decoder: Option<Decoder>) -> LayerSlot {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("layer"),
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
@@ -324,11 +365,16 @@ impl GpuCompositor {
         };
         let bind_group = mk_bg(&uniform);
         let bind_group_shadow = mk_bg(&uniform_shadow);
-        self.slots.insert(
-            path.to_string(),
-            LayerSlot { decoder, texture, bind_group, uniform, bind_group_shadow, uniform_shadow },
-        );
-        Ok(())
+        LayerSlot {
+            decoder,
+            dims: (w, h),
+            raster_hash: String::new(),
+            texture,
+            bind_group,
+            uniform,
+            bind_group_shadow,
+            uniform_shadow,
+        }
     }
 
     // "#RRGGBB" or "#RRGGBBAA" → linear-ish rgba floats (target is non-srgb).
@@ -357,7 +403,12 @@ impl GpuCompositor {
     }
 
     // Composite the project at timeline time `t` and return tightly-packed RGBA.
-    pub fn render_at(&mut self, project: &SyncProject, t: f64) -> Result<Vec<u8>, String> {
+    pub fn render_at(
+        &mut self,
+        project: &SyncProject,
+        t: f64,
+        texts: &std::collections::HashMap<String, super::types::TextRaster>,
+    ) -> Result<Vec<u8>, String> {
         let cw = project.canvas.width as f32;
         let ch = project.canvas.height as f32;
         // Canvas-space math throughout; the viewport scale falls out of NDC mapping.
@@ -396,30 +447,42 @@ impl GpuCompositor {
             if layer.adjust {
                 continue; // no pixels of its own
             }
-            if self.slot_for(&layer.media_path).is_err() {
-                continue; // unreadable media: skip layer, keep compositing the rest
-            }
-            let src_t = layer.source_time(t);
-            let slot = self.slots.get_mut(&layer.media_path).unwrap();
-            let (mw, mh) = (slot.decoder.info.width, slot.decoder.info.height);
-            if let Some(frame) = slot.decoder.frame_at(src_t) {
-                self.queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &slot.texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    frame,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(mw * 4),
-                        rows_per_image: Some(mh),
-                    },
-                    wgpu::Extent3d { width: mw, height: mh, depth_or_array_layers: 1 },
-                );
+            let is_text = layer.media_path.starts_with("text:");
+            let (mw, mh): (u32, u32);
+            if is_text {
+                // No raster yet (it arrives asynchronously from the webview):
+                // skip this frame; the raster IPC marks dirty so we re-render.
+                let id = layer.media_path.trim_start_matches("text:");
+                let Some(raster) = texts.get(id) else { continue };
+                self.text_slot_for(&layer.media_path, raster);
+                (mw, mh) = (raster.w, raster.h);
             } else {
-                continue;
+                if self.slot_for(&layer.media_path).is_err() {
+                    continue; // unreadable media: skip layer, keep compositing the rest
+                }
+                let src_t = layer.source_time(t);
+                let slot = self.slots.get_mut(&layer.media_path).unwrap();
+                let dec = slot.decoder.as_mut().expect("media slot has decoder");
+                (mw, mh) = (dec.info.width, dec.info.height);
+                if let Some(frame) = dec.frame_at(src_t) {
+                    self.queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &slot.texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        frame,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(mw * 4),
+                            rows_per_image: Some(mh),
+                        },
+                        wgpu::Extent3d { width: mw, height: mh, depth_or_array_layers: 1 },
+                    );
+                } else {
+                    continue;
+                }
             }
 
             let mut r = resolve_layer(layer, t);
@@ -460,7 +523,9 @@ impl GpuCompositor {
             }
 
             // object-fit: contain into the canvas, then keyframed transform.
-            let fit = (cw / mw as f32).min(ch / mh as f32);
+            // Text rasters are 2x canvas pixels: fixed 0.5 maps them 1:1 onto
+            // canvas coordinates (matching the DOM overlay), never contain-fit.
+            let fit = if is_text { 0.5 } else { (cw / mw as f32).min(ch / mh as f32) };
             let (dw, dh) = (mw as f32 * fit * r.scale, mh as f32 * fit * r.scale);
 
             // Crop cuts pixels away from the fitted rect (Premiere semantics):
@@ -488,6 +553,7 @@ impl GpuCompositor {
                 grade1: [r.grade[0], r.grade[1], r.grade[2], r.grade[3]],
                 grade2: [r.grade[4], 0.0, 0.0, 0.0],
             };
+            let slot = &self.slots[&layer.media_path];
             self.queue.write_buffer(&slot.uniform, 0, bytemuck::bytes_of(&content));
 
             let mut has_shadow = false;
@@ -590,7 +656,17 @@ impl GpuCompositor {
     }
 
     pub fn dump_png(&mut self, project: &SyncProject, t: f64, path: &std::path::Path) -> Result<(), String> {
-        let pixels = self.render_at(project, t)?;
+        self.dump_png_texts(project, t, &std::collections::HashMap::new(), path)
+    }
+
+    pub fn dump_png_texts(
+        &mut self,
+        project: &SyncProject,
+        t: f64,
+        texts: &std::collections::HashMap<String, super::types::TextRaster>,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        let pixels = self.render_at(project, t, texts)?;
         let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
         let mut enc = png::Encoder::new(std::io::BufWriter::new(file), self.out_w, self.out_h);
         enc.set_color(png::ColorType::Rgba);

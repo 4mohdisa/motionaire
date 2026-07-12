@@ -135,9 +135,11 @@ function Preview() {
               transform: `scale(${overlayScale})`,
             }}
           >
-            {texts.map(({ clip }) => (
-              <TextOverlay key={clip.id} clip={clip} t={playhead} />
-            ))}
+            {/* Compositor active: text is IN the composited frame (session 9,
+                Phase 4) — the DOM overlay would double-draw it. It remains the
+                fallback for browser mode / compositor outages. */}
+            {!compositorActive &&
+              texts.map(({ clip }) => <TextOverlay key={clip.id} clip={clip} t={playhead} />)}
             {safeZones && <SafeZones w={cw} h={ch} />}
           </div>
         </div>

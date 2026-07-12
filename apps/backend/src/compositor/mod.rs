@@ -36,6 +36,7 @@ pub struct Stats {
 
 pub struct CompositorState {
     project: Mutex<Option<SyncProject>>,
+    text_rasters: Mutex<std::collections::HashMap<String, types::TextRaster>>,
     clock: Mutex<Clock>,
     dirty: AtomicBool,
     // Draft (720p-class, default) vs full-canvas-resolution preview.
@@ -60,6 +61,21 @@ fn now_ms() -> i64 {
 impl CompositorState {
     pub fn set_project(&self, p: SyncProject) {
         *self.project.lock().unwrap() = Some(p);
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    // Upsert changed rasters; drop rasters for clips no longer alive.
+    pub fn set_text_rasters(
+        &self,
+        upserts: Vec<(String, types::TextRaster)>,
+        live: Vec<String>,
+    ) {
+        let mut map = self.text_rasters.lock().unwrap();
+        for (id, r) in upserts {
+            map.insert(id, r);
+        }
+        let keep: std::collections::HashSet<&str> = live.iter().map(|s| s.as_str()).collect();
+        map.retain(|k, _| keep.contains(k.as_str()));
         self.dirty.store(true, Ordering::Relaxed);
     }
 
@@ -97,6 +113,7 @@ pub fn start() -> Compositor {
     let (frame_tx, frame_rx) = watch::channel(Bytes::new());
     let state: Compositor = Arc::new(CompositorState {
         project: Mutex::new(None),
+        text_rasters: Mutex::new(std::collections::HashMap::new()),
         clock: Mutex::new(Clock { t: 0.0, playing: false, rate: 1.0, anchored: Instant::now() }),
         dirty: AtomicBool::new(true),
         preview_full: AtomicBool::new(false),
@@ -301,7 +318,8 @@ fn render_iteration(
         }
     }
 
-    match g.render_at(&project, t) {
+    let texts = state.text_rasters.lock().unwrap();
+    match g.render_at(&project, t, &texts) {
         Ok(rgba) => {
             *consecutive_errors = 0;
             let ms = started.elapsed().as_secs_f64() * 1000.0;

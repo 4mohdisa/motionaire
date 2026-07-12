@@ -549,6 +549,44 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p4_text_test': {
+      // Phase 4 (session 9): a styled text clip must reach the COMPOSITED
+      // frame (DOM overlay is hidden while the compositor is active). The
+      // follow-up captures prove presence, keyframe animation, and that
+      // hiding the track removes it from the canvas.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p4-text', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPlayhead(3)
+        st().addTrack('video') // free topmost lane — V2 is fully occupied
+        st().addTextClip('Compositor Text')
+        const txt = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.kind === 'text')
+        if (!txt) {
+          void report(false, 'no text clip created')
+          break
+        }
+        st().updateTextClip(txt.id, {
+          style: { size: 110, color: '#ffcc00', stroke: { color: '#000000', width: 5 } },
+        })
+        // Debounced sync (60ms) + raster + IPC + a render.
+        await new Promise((r) => setTimeout(r, 700))
+        const overlayHidden =
+          st().compositorActive && !document.querySelector('.preview__text')
+        void report(
+          overlayHidden,
+          `clip=${txt.id} start=${txt.start} overlayHidden=${overlayHidden} (visual proof via captures)`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

@@ -174,6 +174,16 @@ mod tests {
     }
 }
 
+// Frontend-rasterized text (session 9, Phase 4): the webview draws each text
+// clip at 2x canvas resolution whenever content/style changes; Rust composites
+// it as an ordinary texture layer (media_path "text:<clipId>", fit 0.5).
+pub struct TextRaster {
+    pub hash: String,
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+}
+
 // Resolved per-layer draw parameters at one instant, all in canvas pixels.
 #[derive(Debug, Clone)]
 pub struct ResolvedLayer {

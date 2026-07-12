@@ -23,13 +23,15 @@ function flatten(project: Project) {
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
-      if (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust)) continue
-      const asset = clip.adjust ? null : project.media.find((m) => m.id === clip.mediaId)
-      if (!clip.adjust && (!asset || !asset.path.startsWith('/'))) continue
+      const isText = clip.kind === 'text' && !!clip.text
+      if (!isText && (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust))) continue
+      const asset =
+        clip.adjust || isText ? null : project.media.find((m) => m.id === clip.mediaId)
+      if (!clip.adjust && !isText && (!asset || !asset.path.startsWith('/'))) continue
       layers.push({
         id: clip.id,
         z: track.z,
-        mediaPath: asset?.path ?? '',
+        mediaPath: isText ? `text:${clip.id}` : (asset?.path ?? ''),
         adjust: clip.adjust ?? false,
         start: clip.start,
         in: clip.in,
@@ -80,9 +82,15 @@ export function startCompositorBridge() {
   const syncProject = (project: Project) => {
     window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
-      void invoke('sync_project', { project: flatten(project) }).catch((e) =>
-        console.error('sync_project failed:', e),
-      )
+      // Rasters first so a new/edited text layer never renders as a hole;
+      // both are cheap no-ops when nothing text-related changed.
+      void import('./textRaster')
+        .then((m) => m.syncTextRasters(project))
+        .finally(() => {
+          void invoke('sync_project', { project: flatten(project) }).catch((e) =>
+            console.error('sync_project failed:', e),
+          )
+        })
     }, 60)
   }
 

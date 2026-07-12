@@ -30,6 +30,60 @@ fn set_preview_quality(state: State<Compositor>, full: bool) {
     state.set_preview_full(full);
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TextRasterMsg {
+    clip_id: String,
+    hash: String,
+    width: u32,
+    height: u32,
+    png_base64: String,
+}
+
+// Text-into-compositor (session 9, Phase 4): the webview rasterizes each text
+// clip on change (never per frame) and ships it here; the compositor treats
+// it as one more texture layer.
+#[tauri::command]
+fn set_text_rasters(
+    state: State<Compositor>,
+    rasters: Vec<TextRasterMsg>,
+    live: Vec<String>,
+) -> Result<(), String> {
+    use base64::Engine as _;
+    let mut upserts = Vec::new();
+    for m in rasters {
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&m.png_base64)
+            .map_err(|e| format!("raster base64: {e}"))?;
+        let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+        let mut reader = decoder.read_info().map_err(|e| format!("raster png: {e}"))?;
+        let mut buf = vec![0u8; reader.output_buffer_size().ok_or("raster too large")?];
+        let info = reader.next_frame(&mut buf).map_err(|e| format!("raster png frame: {e}"))?;
+        if info.width != m.width || info.height != m.height {
+            return Err("raster dims mismatch".into());
+        }
+        let rgba = match info.color_type {
+            png::ColorType::Rgba => buf[..(info.width * info.height * 4) as usize].to_vec(),
+            png::ColorType::Rgb => {
+                let n = (info.width * info.height) as usize;
+                let mut out = Vec::with_capacity(n * 4);
+                for px in buf[..n * 3].chunks_exact(3) {
+                    out.extend_from_slice(px);
+                    out.push(255);
+                }
+                out
+            }
+            other => return Err(format!("unsupported raster color type {other:?}")),
+        };
+        upserts.push((
+            m.clip_id,
+            compositor::types::TextRaster { hash: m.hash, w: m.width, h: m.height, rgba },
+        ));
+    }
+    state.set_text_rasters(upserts, live);
+    Ok(())
+}
+
 #[tauri::command]
 fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::SpikeMedia), String> {
     compositor::demo::spike_media_info()
@@ -416,6 +470,7 @@ pub fn run() {
             sync_project,
             set_playhead,
             set_preview_quality,
+            set_text_rasters,
             spike_setup,
             autorun_demo,
             env_flag,
