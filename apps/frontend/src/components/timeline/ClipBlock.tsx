@@ -38,7 +38,8 @@ function ClipBlock({ clip, trackId }: Props) {
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
-      ctx.fillStyle = 'rgba(255,255,255,0.55)'
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+      ctx.globalAlpha = 0.55
       for (let x = 0; x < w; x++) {
         const src = clip.in + (x / pxPerSec) * clip.speed
         const peak = wf.peaks[Math.floor(src * wf.pps)] ?? 0
@@ -188,7 +189,7 @@ function ClipBlock({ clip, trackId }: Props) {
 
   return (
     <div
-      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
+      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
       style={{ left: clip.start * pxPerSec, width: widthPx }}
       data-clip-id={clip.id}
       data-track-id={trackId}

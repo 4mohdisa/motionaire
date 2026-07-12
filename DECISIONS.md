@@ -959,3 +959,32 @@ background-position — no live decode ever. Thumb is position:fixed so it
 escapes scroll clipping. Strip cache key is filename+size — a re-rendered
 source at the same path serves a stale strip (logged). p5-thumb PASS: tile 16
 at 80% hover, tile 2 at 10%, removed on leave.
+
+# Session 9 (overnight) — completion plan
+
+Work order: OVERNIGHT_PLAN.md. CONTEXT.md was deleted from the working tree
+earlier today at the user's request, but tonight's brief names it ground
+truth — restored it from git history (it was tracked; nothing lost).
+
+## Phase 0 — charcoal retheme
+
+Full token system from OVERNIGHT_PLAN Part 2 replaces the old 7-var palette
+(names dropped, not aliased — two names for one color is permanent debt).
+Additions the plan's set needed: --bg-monitor (program-monitor surround,
+darker than panels so video black out-blacks it), --text-bright (on-accent
+fills; never pure #fff per the plan's own rule), editor accents (--playhead,
+--kf/--kf-bright keyframe gold, --marker/--marker-text), stripe partners
+(--clip-adjust-alt, --clip-missing/-alt), and shadow/scrim tokens. Seam rule
+applied: the ten structural panel boundaries (topbar, transport, timeline
+top, toolbar, track headers, ruler, lanes, props edge) use --border-seam
+(#141414, darker than panels); control borders keep --border-default.
+Canvas-drawn colors (ruler ticks/labels, waveforms) read tokens via
+getComputedStyle per draw — canvas can't resolve CSS vars. Clip type colors
+now follow the plan: text purple, image amber (new clip--image class keyed
+off still extensions), adjust red-brown stripes (was purple). Exemptions,
+logged deliberately: project CONTENT colors stay literal — canvas background
+#000000, default text fill #FFFFFF, default shadow #000000, and the
+compositor client's black canvas fill; they are data rendered inside the
+video frame, where true black is the point. Contrast: secondary #9c9c9c on
+panel #232323 ≈ 5.9:1 (AA). Verified by native capture with the full demo
+scene (clip colors, fx badges, keyframes, adjustment stripes, playhead).

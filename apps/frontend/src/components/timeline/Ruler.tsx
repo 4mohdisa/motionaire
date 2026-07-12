@@ -35,20 +35,24 @@ function Ruler() {
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
+      // Canvas can't resolve CSS vars — read the tokens once per draw.
+      const tok = getComputedStyle(document.documentElement)
+      const textColor = tok.getPropertyValue('--text-secondary')
+      const majorColor = tok.getPropertyValue('--text-disabled')
+      const minorColor = tok.getPropertyValue('--border-default')
       const step = TICK_STEPS.find((s) => s * pxPerSec >= 70) ?? 600
       const sub = step / 5
       const t0 = scroll.scrollLeft / pxPerSec
       const t1 = (scroll.scrollLeft + w) / pxPerSec
-      ctx.fillStyle = '#8b8b93'
       ctx.font = '10px system-ui, sans-serif'
       ctx.textBaseline = 'top'
       for (let t = Math.floor(t0 / sub) * sub; t <= t1; t += sub) {
         const x = t * pxPerSec - scroll.scrollLeft
         const major = Math.abs(t / step - Math.round(t / step)) < 1e-6
-        ctx.fillStyle = major ? '#5a5a63' : '#3a3a41'
+        ctx.fillStyle = major ? majorColor : minorColor
         ctx.fillRect(x, major ? 10 : 17, 1, major ? 14 : 7)
         if (major) {
-          ctx.fillStyle = '#8b8b93'
+          ctx.fillStyle = textColor
           ctx.fillText(label(Math.round(t / sub) * sub), x + 4, 3)
         }
       }
