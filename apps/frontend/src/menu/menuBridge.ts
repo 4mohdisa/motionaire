@@ -303,6 +303,90 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_thumb_test': {
+      // Phase 5 item 5 check: strip extraction (20 tiles), then a real
+      // pointermove over a clip must float the thumb with the right tile
+      // offset; pointerleave must remove it.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-thumb', pass, detail }).catch(() => {})
+      const tick = (ms = 120) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = useStore.getState()
+        st.pause()
+        const asset = st.project.media.find((m) => m.name === 'cam.mp4')!
+        const { getFilmstrip } = await import('../engine/filmstrip')
+        const strip = await getFilmstrip(asset)
+        if (!strip) {
+          void report(false, 'no strip extracted')
+          break
+        }
+        const clip = st.project.tracks
+          .filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        const el = document.querySelector<HTMLElement>(`[data-clip-id="${clip.id}"]`)!
+        const rect = el.getBoundingClientRect()
+        const mv = (fx: number) =>
+          el.dispatchEvent(
+            new PointerEvent('pointermove', {
+              clientX: rect.left + rect.width * fx,
+              clientY: rect.top + rect.height / 2,
+              bubbles: true,
+            }),
+          )
+        mv(0.8) // first move arms the async strip fetch (already cached now)
+        await tick()
+        mv(0.8)
+        await tick()
+        const thumb = document.querySelector<HTMLElement>('.clip__thumb')
+        const posLate = thumb?.style.backgroundPositionX ?? 'none'
+        mv(0.1)
+        await tick()
+        const posEarly =
+          document.querySelector<HTMLElement>('.clip__thumb')?.style.backgroundPositionX ?? 'none'
+        // React synthesizes onPointerLeave from bubbling pointerout + an
+        // outside relatedTarget — same as a real mouse.
+        el.dispatchEvent(
+          new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }),
+        )
+        await tick()
+        const gone = !document.querySelector('.clip__thumb')
+        void report(
+          !!thumb && posLate !== posEarly && gone,
+          `strip=${strip.frames}f ${strip.frameW}x${strip.h} late=${posLate} early=${posEarly} gone=${gone}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:p5_thumb_show': {
+      // Leave a hover thumb on screen for a native capture.
+      await loadPipDemo()
+      await new Promise((r) => setTimeout(r, 300))
+      const st = useStore.getState()
+      st.pause()
+      const asset = st.project.media.find((m) => m.name === 'cam.mp4')!
+      const { getFilmstrip } = await import('../engine/filmstrip')
+      await getFilmstrip(asset)
+      const clip = st.project.tracks
+        .filter((t) => t.kind === 'video')
+        .sort((a, b) => b.z - a.z)[0].clips[0]
+      const el = document.querySelector<HTMLElement>(`[data-clip-id="${clip.id}"]`)!
+      const rect = el.getBoundingClientRect()
+      for (let i = 0; i < 2; i++) {
+        el.dispatchEvent(
+          new PointerEvent('pointermove', {
+            clientX: rect.left + rect.width * 0.6,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 150))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

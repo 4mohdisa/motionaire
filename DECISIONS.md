@@ -920,3 +920,42 @@ standard: killed the app, relaunched a FRESH process, opened the bundle from
 the recents menu, native capture shows the text clip rendering in Comic Sans
 from bundle bytes. Known limit: text is DOM-rendered (session-4 decision), so
 fonts affect preview/export only insofar as text stays DOM-composited.
+
+## Phase 5 — feature batch (all five landed)
+
+1. **Marquee + group drag.** Marquee lives on empty lane space in content-local
+coordinates (scroll-proof); shift adds to the selection. Dragging any clip of a
+multi-selection moves the whole group through a new atomic `moveClipsTo` —
+all-or-nothing collision check against clips outside the group, so offsets are
+preserved exactly or nothing moves. Group drag is horizontal-only (cross-track
+group moves deferred until a real need). Verified with real dispatched
+PointerEvents through the lane/clip DOM (p5-select PASS).
+
+2. **Markers.** `Marker {id,t,label}` on the project object — persistence and
+undo come free. M adds at the playhead (frame-snapped, deduped half-frame),
+flags+labels render on the ruler; click seeks, double-click renames inline,
+right-click deletes. Real keydown/contextmenu events in p5-markers PASS.
+
+3. **Freeze frame.** `extract_frame` (ffmpeg -frames:v 1) into the app cache;
+the still is ordinary media. Deliberately zero decoder changes: a single-frame
+source probes duration 0, so frame_at clamps every request to frame 0 and holds
+it after EOF — the still pipeline already existed. Still assets carry
+duration 3600 so trim limits need no special case. DOM-fallback preview shows
+stills blank (video element can't play PNG) — compositor is authoritative in
+the app; logged as a browser-mode-only gap. Verified by native capture at t=13
+where only the frozen clip exists.
+
+4. **Adjustment layers.** `adjust: true` clip, no source; Rust resolves its
+(keyframeable) grade per frame and adds it component-wise onto every lower-z
+layer inside the span. Exact when targets have no grade; stacked grade-on-grade
+is an additive approximation (sequential shader passes don't commute — logged
+ceiling; per-layer render-to-texture chain is the upgrade). Adding at an
+occupied playhead grows a new topmost track, Premiere-style. Verified by
+spike_check PNG pair (whole stack grayscale inside span only) + in-app captures.
+
+5. **Hover-scrub filmstrip.** One 20-tile strip PNG per media (ffmpeg
+fps=N/duration + tile), extracted once into the app cache; hover just moves a
+background-position — no live decode ever. Thumb is position:fixed so it
+escapes scroll clipping. Strip cache key is filename+size — a re-rendered
+source at the same path serves a stale strip (logged). p5-thumb PASS: tile 16
+at 80% hover, tile 2 at 10%, removed on leave.

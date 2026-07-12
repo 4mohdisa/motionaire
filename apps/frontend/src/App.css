@@ -700,6 +700,18 @@
   padding: 0 3px;
 }
 
+.clip__thumb {
+  position: fixed;
+  transform: translateX(-50%);
+  background-color: #000;
+  background-repeat: no-repeat;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  z-index: 30;
+}
+
 .tl__marquee {
   position: absolute;
   border: 1px solid var(--color-accent);

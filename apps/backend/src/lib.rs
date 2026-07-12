@@ -98,6 +98,57 @@ fn save_fonts(bundle_path: String, fonts: Vec<persistence::BundleFont>) -> Resul
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct Filmstrip {
+    path: String,
+    width: u32,
+    height: u32,
+    frames: u32,
+    duration: f64,
+}
+
+// Hover-scrub filmstrip: N frames sampled evenly across the source, tiled
+// into ONE horizontal strip PNG in the app cache. Pre-sampled once per media
+// — hovering never touches a live decoder.
+#[tauri::command]
+fn extract_filmstrip(app: tauri::AppHandle, path: String) -> Result<Filmstrip, String> {
+    const N: u32 = 20;
+    const H: u32 = 56;
+    let info = compositor::decoder::probe(&path)?;
+    if info.width == 0 || info.duration <= 0.0 {
+        return Err("no video stream / zero duration".into());
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("filmstrips");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("strip");
+    // ponytail: cache key is stem+N+H; a re-rendered source at the same path
+    // serves a stale strip until the cache file is deleted.
+    let out = dir.join(format!("{stem}-{N}x{H}.png"));
+    let out_str = out.to_str().ok_or("bad output path")?.to_string();
+    if !out.exists() {
+        let vf = format!("fps={N}/{:.6},scale=-2:{H},tile={N}x1", info.duration);
+        let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+            .args(["-v", "error", "-y", "-i", &path, "-vf", &vf, "-frames:v", "1", &out_str])
+            .status()
+            .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+        if !status.success() || !out.exists() {
+            return Err(format!("filmstrip extraction failed for {path}"));
+        }
+    }
+    let strip = compositor::decoder::probe(&out_str)?;
+    Ok(Filmstrip {
+        path: out_str,
+        width: strip.width,
+        height: strip.height,
+        frames: N,
+        duration: info.duration,
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FrozenFrame {
     path: String,
     width: u32,
@@ -314,6 +365,7 @@ pub fn run() {
             env_flag,
             report_test,
             extract_frame,
+            extract_filmstrip,
             probe_media,
             import_font,
             save_fonts,

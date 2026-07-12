@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../types/project'
 import { useStore } from '../../state/store'
 import { clipDuration, clipEnd, snapTime } from '../../engine/time'
 import { getWaveform } from '../../engine/waveform'
+import { getFilmstrip, type Strip } from '../../engine/filmstrip'
 import { useTimeline, type LaneRect } from './timelineContext'
 
 const EDGE_PX = 8
@@ -145,6 +146,32 @@ function ClipBlock({ clip, trackId }: Props) {
     window.addEventListener('pointerup', onUp)
   }
 
+  // Hover-scrub: pre-sampled filmstrip frame nearest the pointer's source
+  // time, floated above the clip (position: fixed escapes scroll clipping).
+  const [hover, setHover] = useState<{ cx: number; top: number; idx: number } | null>(null)
+  const [strip, setStrip] = useState<Strip | null>(null)
+  const canScrub = clip.kind === 'video' && !clip.adjust && !!asset && !asset.missing
+
+  const onHoverMove = (e: React.PointerEvent) => {
+    if (!canScrub || e.buttons !== 0) {
+      if (hover) setHover(null)
+      return
+    }
+    if (!strip) {
+      // getFilmstrip caches the promise per asset — repeat calls are free.
+      void getFilmstrip(asset!).then((s) => s && setStrip(s))
+      return
+    }
+    const s = strip
+    const rect = e.currentTarget.getBoundingClientRect()
+    const srcT = clip.in + ((e.clientX - rect.left) / pxPerSec) * clip.speed
+    const idx = Math.min(
+      s.frames - 1,
+      Math.max(0, Math.floor((srcT / s.duration) * s.frames)),
+    )
+    setHover({ cx: e.clientX, top: rect.top - s.h - 8, idx })
+  }
+
   const missing = !!asset?.missing
   // Reference-style "fx" badge: any non-default visual treatment.
   const c = clip.transform.crop
@@ -166,6 +193,8 @@ function ClipBlock({ clip, trackId }: Props) {
       data-clip-id={clip.id}
       data-track-id={trackId}
       onPointerDown={onPointerDown}
+      onPointerMove={onHoverMove}
+      onPointerLeave={() => setHover(null)}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -209,6 +238,19 @@ function ClipBlock({ clip, trackId }: Props) {
       )}
       <div className="clip__edge clip__edge--l" />
       <div className="clip__edge clip__edge--r" />
+      {hover && strip && (
+        <div
+          className="clip__thumb"
+          style={{
+            left: hover.cx,
+            top: hover.top,
+            width: strip.frameW,
+            height: strip.h,
+            backgroundImage: `url(${strip.url})`,
+            backgroundPositionX: -hover.idx * strip.frameW,
+          }}
+        />
+      )}
     </div>
   )
 }
