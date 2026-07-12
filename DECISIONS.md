@@ -104,3 +104,34 @@ setup (`@eslint/js` + `typescript-eslint` + `eslint-plugin-react-hooks` +
 Prettier) — this is what `create-vite`'s react-ts template shipped before switching
 its default to oxlint, so it's a well-worn, conventional combination rather than a
 novel one.
+
+## End-of-session verification
+
+Ran the full chain: `npm install` (root, npm workspaces), `npm run lint` / `npm run
+build` for the frontend (ESLint clean, `tsc -b` clean under strict mode, Vite
+production build succeeds), `cargo check` for the Rust crate (clean), and finally
+`npm run tauri dev` end to end — Rust backend compiled with zero errors/warnings,
+the Vite dev server came up on `http://localhost:5173`, and the Tauri process
+(`target/debug/motionaire`) launched and stayed alive with no panics in the log.
+
+Could not get a native OS screenshot of the actual Tauri window: `cargo run`-launched
+dev binaries aren't registered as a normal macOS application (no bundle/Info.plist),
+so the computer-use `request_access` tool couldn't find "motionaire" as an
+installed/running app to grant, and a raw `screencapture` came back solid black —
+the standard symptom of the terminal/agent process lacking macOS Screen Recording
+permission, which can't be granted non-interactively. Confirmed correctness instead
+by (a) build/run logs showing no errors and the process staying resident, and (b)
+loading the exact same dev URL the Tauri webview points at
+(`http://localhost:5173`) in the sandboxed browser preview and screenshotting it
+there — same HTML/CSS the native webview renders, and it showed the dark shell
+exactly as intended (top bar, centered blank 16:9 canvas, empty timeline strip
+pinned to the bottom). Good enough for "does it build and run"; a real visual check
+of the native window is a one-time manual thing for whoever picks this up next.
+
+Cargo normalized two `Cargo.toml` dependency lines during the build (added explicit
+`features = []` to `tauri` and `tauri-build`) — cosmetic, left as-is.
+
+**Scaffold session complete.** All 7 planned tasks done: monorepo init, frontend
+scaffold, backend scaffold, UI shell, tooling, README, build/run verification.
+Next session picks up real feature work per CONTEXT.md §5's build order, starting
+with the compositor spike — explicitly out of scope here.
