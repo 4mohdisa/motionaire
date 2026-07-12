@@ -293,6 +293,33 @@ fn cancel_export(exporter: State<export::Exporter>) {
 }
 
 #[tauri::command]
+fn save_recovery(bundle_path: String, project_json: String) -> Result<(), String> {
+    persistence::save_recovery(std::path::Path::new(&bundle_path), &project_json)
+}
+
+// macOS titlebar "edited" dot — the standard unsaved-changes convention.
+// (No tauri v2 API for NSWindow.documentEdited; one objc2 message, on the
+// main thread as AppKit requires.)
+#[tauri::command]
+fn set_edited(window: tauri::WebviewWindow, edited: bool) {
+    let w = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        #[cfg(target_os = "macos")]
+        if let Ok(ns) = w.ns_window() {
+            unsafe {
+                let obj: *mut objc2::runtime::AnyObject = ns.cast();
+                let _: () = objc2::msg_send![
+                    &*obj,
+                    setDocumentEdited: objc2::runtime::Bool::new(edited)
+                ];
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (&w, edited);
+    });
+}
+
+#[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let status = std::process::Command::new("open")
         .args(["-R", &path])
@@ -344,6 +371,7 @@ fn save_project(
     use base64::Engine as _;
     let bundle = std::path::Path::new(&bundle_path);
     persistence::save_bundle(bundle, &project_json)?;
+    persistence::clear_recovery(bundle); // explicit save supersedes autosave
     // Launcher thumbnail: regenerable cache, plain write is fine.
     let mut thumb_path: Option<String> = None;
     if let Some(b64) = thumb_jpeg_base64 {
@@ -545,6 +573,8 @@ pub fn run() {
             set_setting,
             remove_recent_project,
             reveal_in_finder,
+            save_recovery,
+            set_edited,
             start_export,
             cancel_export,
             import_font,

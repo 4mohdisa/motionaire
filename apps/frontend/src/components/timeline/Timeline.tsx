@@ -470,7 +470,11 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     return [
       { label: 'Add text at playhead', onClick: () => s.addTextClip() },
       { label: 'Add adjustment layer at playhead', onClick: () => s.addAdjustmentLayer() },
-      { label: 'Paste is coming later', onClick: () => {}, disabled: true },
+      {
+        label: 'Paste at playhead',
+        onClick: () => s.pasteAtPlayhead(),
+        disabled: !s.clipboard.length,
+      },
     ]
   }
   const found = findClip(s.project, clipId)
@@ -494,6 +498,9 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     s.playhead <= clip.start + (clip.out - clip.in) / clip.speed
   return [
     { label: 'Split at playhead', onClick: () => s.splitAtPlayhead() },
+    { label: 'Cut', onClick: () => s.cutClips(ids) },
+    { label: 'Copy', onClick: () => s.copyClips(ids) },
+    { label: 'Paste at playhead', onClick: () => s.pasteAtPlayhead(), disabled: !s.clipboard.length },
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
     { label: 'Freeze frame at playhead', onClick: () => void freezeFrame(clipId), disabled: !freezable },
     { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },

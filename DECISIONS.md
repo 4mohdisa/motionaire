@@ -1127,3 +1127,31 @@ with the PiP mid-shrink (t=1.5) and the image card + dissolve mid-blend
 (t=5.6); volumedetect measures the fade (mean −21.1dB at 0–2s → −50.0dB at
 9.2–10s). Break-test: cancel at 500ms → export:done{cancelled}, partial
 file removed, exporter reusable (p5-cancel PASS).
+
+## Phase 6 — project safety
+
+- **Dirty tracking:** one line in mutateProject (every history-pushing edit
+  marks dirty); saveProject/replaceProject clear it. Surfaced as "— Edited"
+  in the TopBar AND the native macOS titlebar dot (NSWindow.documentEdited
+  via one objc2 msg_send on the main thread — tauri v2 has no API for it).
+- **Unsaved prompt:** a real 3-way modal (Save / Don't Save / Cancel) —
+  plugin-dialog only does 2-button asks, and losing "Don't Save" or
+  blocking discard entirely were both unacceptable. Gates file:new/open/
+  open_recent/close AND window close (onCloseRequested → preventDefault →
+  prompt → destroy).
+- **Autosave:** every 30s, dirty + bundle-backed projects write
+  bundle/recovery.json (atomic, validated) — project.json is never touched
+  except by explicit save, which also CLEARS recovery. Load offers restore
+  when recovery is newer than the last save (mtime), and restored state
+  loads as dirty so the user decides whether it becomes real. Untitled
+  (never-saved) projects have no autosave home — logged limitation.
+- **Clip clipboard:** internal store clipboard (deep clones), not the
+  system pasteboard. Copy carries full state (transform/keyframes/grade/
+  transitions); paste lands at the playhead preserving multi-clip offsets,
+  gap-clamped, linkId dropped. The native Edit-menu items stay Predefined
+  so TEXT fields keep true system clipboard; outside text WebKit forwards
+  menu cut/copy/paste to the DOM as ClipboardEvents, which we claim for
+  clips — context-menu Cut/Copy/Paste cover the same ops unconditionally.
+- Verified: p6-safety PASS (dirty lifecycle, recovery round-trip newer-
+  mtime + content + cleared-on-save, ClipboardEvent copy, paste preserving
+  a grade, cut) + capture showing "— safety-e2e — Edited".

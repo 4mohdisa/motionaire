@@ -63,6 +63,19 @@ export interface StoreState {
   appView: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor'
   setAppView: (v: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor') => void
 
+  // Project safety (session 9, Phase 6)
+  dirty: boolean
+  markSaved: () => void
+  markDirty: () => void
+  unsavedOpen: boolean
+  setUnsavedOpen: (v: boolean) => void
+
+  // Clip clipboard (session 9, Phase 6): internal, not the system clipboard.
+  clipboard: Clip[]
+  copyClips: (ids: string[]) => void
+  cutClips: (ids: string[]) => void
+  pasteAtPlayhead: () => void
+
   timelineHeight: number
   propsWidth: number
   compositorActive: boolean
@@ -190,6 +203,7 @@ export const useStore = create<StoreState>()(
         }
         fn(s.project as Project)
         s.project.duration = computeDuration(s.project as Project)
+        s.dirty = true // any mutation = unsaved changes (session 9, Phase 6)
       })
 
     return {
@@ -210,6 +224,58 @@ export const useStore = create<StoreState>()(
       setAppView: (v) =>
         set((s) => {
           s.appView = v
+        }),
+
+      dirty: false,
+      markSaved: () =>
+        set((s) => {
+          s.dirty = false
+        }),
+      markDirty: () =>
+        set((s) => {
+          s.dirty = true
+        }),
+      unsavedOpen: false,
+      setUnsavedOpen: (v) =>
+        set((s) => {
+          s.unsavedOpen = v
+        }),
+
+      clipboard: [],
+      copyClips: (ids) =>
+        set((s) => {
+          const clips = s.project.tracks
+            .flatMap((t) => t.clips)
+            .filter((c) => ids.includes(c.id))
+            .map((c) => structuredClone(current(c)) as Clip)
+          if (clips.length) s.clipboard = clips
+        }),
+      cutClips: (ids) => {
+        get().copyClips(ids)
+        if (get().clipboard.length) get().deleteClips(ids)
+      },
+      pasteAtPlayhead: () =>
+        mutateProject((p) => {
+          const s = useStore.getState()
+          if (!s.clipboard.length) return
+          const minStart = Math.min(...s.clipboard.map((c) => c.start))
+          const at = snapToFrame(s.playhead, p.canvas.fps)
+          for (const src of s.clipboard) {
+            const copy: Clip = structuredClone(src)
+            copy.id = uid('c')
+            delete copy.linkId // pasted halves aren't linked to originals
+            const kind: 'video' | 'audio' = copy.kind === 'audio' ? 'audio' : 'video'
+            const track =
+              p.tracks.find((t) => t.kind === kind && !t.locked) ?? undefined
+            if (!track) continue
+            const dur = clipDuration(copy)
+            const desired = at + (src.start - minStart)
+            const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
+            const placed = clampStartToGaps(siblings, dur, desired)
+            if (placed === null) continue
+            copy.start = snapToFrame(placed, p.canvas.fps)
+            track.clips.push(copy)
+          }
         }),
 
       timelineHeight: 220,
@@ -1002,6 +1068,7 @@ export const useStore = create<StoreState>()(
           s.playhead = 0
           s.playing = false
           s.projectPath = path
+          s.dirty = false
         }),
 
       addProjectFont: (font) =>

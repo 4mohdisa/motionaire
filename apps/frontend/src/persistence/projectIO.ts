@@ -82,6 +82,7 @@ export async function saveProject(saveAs = false): Promise<boolean> {
     })
     await persistFonts(path)
     useStore.getState().setProjectPath(path)
+    useStore.getState().markSaved()
     return true
   } catch (e) {
     await message(`Couldn't save project:\n${e}`, { title: 'Save failed', kind: 'error' })
@@ -100,13 +101,25 @@ export async function openProject(): Promise<void> {
 
 export async function openProjectPath(path: string): Promise<void> {
   try {
-    const { projectJson, missingMedia, fonts } = await invoke<{
+    const { projectJson, missingMedia, fonts, recoveryJson } = await invoke<{
       projectJson: string
       missingMedia: string[]
       fonts: BundleFont[]
+      recoveryJson: string | null
     }>('load_project', { bundlePath: path, name: bundleName(path) })
     await restoreFonts(fonts ?? [])
-    const project = JSON.parse(projectJson) as Project
+    // Autosave recovery (session 9, Phase 6): offer the newer autosaved state.
+    let source = projectJson
+    let recovered = false
+    if (recoveryJson) {
+      const { confirm } = await import('@tauri-apps/plugin-dialog')
+      recovered = await confirm(
+        'An autosaved version newer than the last save was found (the app may not have closed cleanly). Restore it?',
+        { title: 'Restore autosave?', kind: 'warning' },
+      )
+      if (recovered) source = recoveryJson
+    }
+    const project = JSON.parse(source) as Project
     const missing = new Set(missingMedia)
     for (const m of project.media) {
       if (m.path.startsWith('/') && !missing.has(m.path)) {
@@ -119,6 +132,8 @@ export async function openProjectPath(path: string): Promise<void> {
     }
     useStore.getState().replaceProject(project, path)
     useStore.getState().setAppView('editor')
+    // Recovered state is unsaved by definition — saving persists it for real.
+    if (recovered) useStore.getState().markDirty()
     if (missing.size > 0) {
       // Non-blocking: the warning must not stall the editor (or self-tests).
       void message(

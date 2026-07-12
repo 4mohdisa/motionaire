@@ -12,6 +12,7 @@ function TopBar() {
   const canUndo = useStore((s) => s.past.length > 0)
   const canRedo = useStore((s) => s.future.length > 0)
   const projectPath = useStore((s) => s.projectPath)
+  const dirty = useStore((s) => s.dirty)
   const { undo, redo, addTextClip, setExportOpen } = useStore.getState()
 
   const projectName = projectPath
@@ -21,7 +22,11 @@ function TopBar() {
   return (
     <header className="topbar">
       <span className="topbar__brand">
-        Motionaire <span className="topbar__project">— {projectName}</span>
+        Motionaire{' '}
+        <span className="topbar__project">
+          — {projectName}
+          {dirty ? ' — Edited' : ''}
+        </span>
       </span>
       <div className="topbar__actions">
         <IconBtn icon={Undo2} label="Undo (⌘Z)" disabled={!canUndo} onClick={undo} tipBelow />

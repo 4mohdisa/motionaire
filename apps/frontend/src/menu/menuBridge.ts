@@ -28,28 +28,39 @@ function isTyping(): boolean {
 async function dispatch(action: string, path?: string) {
   const s = useStore.getState()
   switch (action) {
-    case 'file:new':
-      // ponytail: no dirty-check prompt yet — undo history is cleared by design.
+    case 'file:new': {
+      const { guardDirty } = await import('../hooks/unsaved')
+      if (!(await guardDirty())) break
       s.replaceProject(createProject(), null)
       break
-    case 'file:open':
+    }
+    case 'file:open': {
+      const { guardDirty } = await import('../hooks/unsaved')
+      if (!(await guardDirty())) break
       await openProject()
       break
-    case 'file:open_recent':
+    }
+    case 'file:open_recent': {
+      const { guardDirty } = await import('../hooks/unsaved')
+      if (!(await guardDirty())) break
       if (path) await openProjectPath(path)
       break
+    }
     case 'file:save':
       await saveProject()
       break
     case 'file:save_as':
       await saveProject(true)
       break
-    case 'file:close':
+    case 'file:close': {
+      const { guardDirty } = await import('../hooks/unsaved')
+      if (!(await guardDirty())) break
       // Back to the launcher; the editor is a full-window view it replaces.
       s.pause()
       s.replaceProject(createProject(), null)
       s.setAppView('launcher')
       break
+    }
     case 'file:import':
       await importMediaNative()
       break
@@ -692,6 +703,84 @@ async function dispatch(action: string, path?: string) {
         void report(
           !result.ok && result.cancelled === true && fileGone,
           `ok=${result.ok} cancelled=${result.cancelled} partialRemoved=${fileGone}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:p6_safety_test': {
+      // Phase 6 (session 9): dirty lifecycle, autosave recovery round-trip,
+      // clip clipboard (copy/cut/paste incl. DOM ClipboardEvent path).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p6-safety', pass, detail }).catch(() => {})
+      const tick = (ms = 200) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = () => useStore.getState()
+        st().pause()
+        // -- dirty lifecycle: demo load marks dirty; save clears it
+        const dirtyAfterEdit = st().dirty
+        const spike = st().project.media[0].path
+        const dir = spike.slice(0, spike.lastIndexOf('/'))
+        st().setProjectPath(`${dir}/safety-e2e.motionaire`)
+        const { saveProject, serializeProject } = await import('../persistence/projectIO')
+        await saveProject()
+        const cleanAfterSave = !st().dirty
+        // -- autosave recovery: mutate, write recovery, reload → offer accepted?
+        // confirm() would block; instead verify the Rust round-trip directly.
+        st().moveClip(st().project.tracks.flatMap((t) => t.clips)[0].id, 2)
+        await new Promise((r) => setTimeout(r, 1100)) // recovery mtime > project.json mtime (1s resolution)
+        await invoke('save_recovery', {
+          bundlePath: `${dir}/safety-e2e.motionaire`,
+          projectJson: serializeProject(st().project),
+        })
+        const loaded = await invoke<{ recoveryJson: string | null }>('load_project', {
+          bundlePath: `${dir}/safety-e2e.motionaire`,
+          name: 'safety-e2e',
+        })
+        const recoveryOffered = !!loaded.recoveryJson
+        const recoveredProject = loaded.recoveryJson
+          ? (JSON.parse(loaded.recoveryJson) as { tracks: { clips: { start: number }[] }[] })
+          : null
+        const recoveryHasEdit = !!recoveredProject?.tracks.some((t) =>
+          t.clips.some((c) => c.start === 2),
+        )
+        // explicit save clears recovery
+        await saveProject()
+        const loaded2 = await invoke<{ recoveryJson: string | null }>('load_project', {
+          bundlePath: `${dir}/safety-e2e.motionaire`,
+          name: 'safety-e2e',
+        })
+        const recoveryCleared = !loaded2.recoveryJson
+        // -- clipboard: copy/paste preserves state; cut removes; DOM event path
+        const src = st().project.tracks.flatMap((t) => t.clips)[0]
+        st().setClipProperty(src.id, 'grade.saturation', -0.4)
+        st().select([src.id])
+        document.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true }))
+        const copied = st().clipboard.length === 1
+        st().setPlayhead(12)
+        st().pasteAtPlayhead()
+        const pasted = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => Math.abs(c.start - 12) < 0.05 && c.id !== src.id)
+        const pasteKeepsState = !!pasted && pasted.grade?.saturation === -0.4
+        const before = st().project.tracks.flatMap((t) => t.clips).length
+        st().cutClips([pasted!.id])
+        const cutRemoved =
+          st().project.tracks.flatMap((t) => t.clips).length === before - 1 &&
+          st().clipboard.length === 1
+        void report(
+          dirtyAfterEdit &&
+            cleanAfterSave &&
+            recoveryOffered &&
+            recoveryHasEdit &&
+            recoveryCleared &&
+            copied &&
+            pasteKeepsState &&
+            cutRemoved,
+          `dirty=${dirtyAfterEdit} cleanAfterSave=${cleanAfterSave} recovery=${recoveryOffered}/${recoveryHasEdit} cleared=${recoveryCleared} copyEvent=${copied} pasteState=${pasteKeepsState} cut=${cutRemoved}`,
         )
       } catch (e) {
         void report(false, String(e))

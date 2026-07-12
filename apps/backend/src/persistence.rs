@@ -102,6 +102,8 @@ pub struct LoadedBundle {
     pub project_json: String,
     pub missing_media: Vec<String>,
     pub fonts: Vec<BundleFont>,
+    // Autosave newer than the last explicit save (session 9, Phase 6).
+    pub recovery_json: Option<String>,
 }
 
 pub fn load_bundle(bundle_dir: &Path) -> Result<LoadedBundle, String> {
@@ -128,7 +130,12 @@ pub fn load_bundle(bundle_dir: &Path) -> Result<LoadedBundle, String> {
         }
     }
     let fonts = load_fonts(bundle_dir);
-    Ok(LoadedBundle { project_json, missing_media, fonts })
+    Ok(LoadedBundle {
+        project_json,
+        missing_media,
+        fonts,
+        recovery_json: check_recovery(bundle_dir),
+    })
 }
 
 // ---- App-level SQLite (CONTEXT.md §8.2) ----
@@ -158,6 +165,31 @@ fn db_open(db_path: &Path) -> Result<Connection, String> {
     // Migration (session 9): launcher thumbnails. Errors mean "column exists".
     let _ = conn.execute("ALTER TABLE recent_projects ADD COLUMN thumbnail TEXT", ());
     Ok(conn)
+}
+
+// Autosave recovery (session 9, Phase 6): a sidecar file inside the bundle,
+// never clobbering project.json. Newer-than-last-save is the recovery signal.
+pub fn save_recovery(bundle_dir: &Path, project_json: &str) -> Result<(), String> {
+    serde_json::from_str::<serde_json::Value>(project_json)
+        .map_err(|e| format!("recovery json invalid: {e}"))?;
+    fs::create_dir_all(bundle_dir).map_err(|e| e.to_string())?;
+    atomic_write(&bundle_dir.join("recovery.json"), project_json.as_bytes())
+}
+
+pub fn clear_recovery(bundle_dir: &Path) {
+    let _ = fs::remove_file(bundle_dir.join("recovery.json"));
+}
+
+pub fn check_recovery(bundle_dir: &Path) -> Option<String> {
+    let rec = bundle_dir.join("recovery.json");
+    let newer = match (fs::metadata(&rec), fs::metadata(bundle_dir.join("project.json"))) {
+        (Ok(r), Ok(p)) => match (r.modified(), p.modified()) {
+            (Ok(rm), Ok(pm)) => rm > pm,
+            _ => false,
+        },
+        _ => false,
+    };
+    if newer { fs::read_to_string(&rec).ok() } else { None }
 }
 
 pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> {

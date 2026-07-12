@@ -98,6 +98,35 @@ export function useShortcuts() {
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // Clip clipboard (session 9, Phase 6): the native Edit-menu cut/copy/paste
+    // stay Predefined (text fields keep real system clipboard); outside text
+    // WebKit forwards them to the DOM as ClipboardEvents, which we claim for
+    // clips. Context-menu entries cover the same ops regardless.
+    const onClip = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement
+      const typing =
+        t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t?.isContentEditable
+      const s = useStore.getState()
+      if (typing || s.appView !== 'editor') return
+      if (e.type === 'copy' && s.selection.length) {
+        e.preventDefault()
+        s.copyClips(s.selection)
+      } else if (e.type === 'cut' && s.selection.length) {
+        e.preventDefault()
+        s.cutClips(s.selection)
+      } else if (e.type === 'paste' && s.clipboard.length) {
+        e.preventDefault()
+        s.pasteAtPlayhead()
+      }
+    }
+    document.addEventListener('copy', onClip)
+    document.addEventListener('cut', onClip)
+    document.addEventListener('paste', onClip)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('copy', onClip)
+      document.removeEventListener('cut', onClip)
+      document.removeEventListener('paste', onClip)
+    }
   }, [])
 }
