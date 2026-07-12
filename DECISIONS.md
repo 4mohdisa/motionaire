@@ -649,3 +649,80 @@ after, zero crashes either way).
   Rust's header fps remains work-capacity. Steady release pacing measured
   58.2fps including startup and wrap gaps — effectively 60Hz; the ~1.5%
   bookkeeping gap is real and noted rather than rounded away.
+
+---
+
+## 2026-07-12 — Session 6: layout hardening, icon toolbars, native menu bar
+
+**Design reference caveat:** the brief pointed at `design-reference/` (4 Premiere
+screenshots) but the folder does not exist in the repo. One real Premiere
+screenshot WAS attached inline to the brief and covers everything this session
+needed (dense icon toolbars, keyframe diamonds, panel layout, native menu chrome);
+work proceeded from that single real reference, not from a paraphrase. The
+object-mask compositing reference remains unseen — irrelevant here, flagged for
+whoever scopes that later session.
+
+## Part 1 — layout
+
+- **Stage sizing moved from JS (ResizeObserver) to pure CSS** (`aspect-ratio` +
+  container-query `cqh` units). Trigger: the layout audit found the stage
+  rendered 2×2px in a render-starved (occluded) window — ResizeObserver
+  callbacks are delivered on the rendering pipeline, same starvation class as
+  session 3's rAF discovery. Frame geometry must not depend on JS callback
+  delivery; now the layout engine guarantees it. RO remains only for the text/
+  safe-zone overlay scale factor (worst case there: stale overlay scale while
+  occluded, corrected on first visible frame).
+- **Window minimum 960×620, enforced twice**: tauri.conf.json AND
+  `set_min_size` in setup — because the native break-test proved programmatic
+  `setSize` sails straight past the config minimum on macOS (AppKit minSize
+  constrains user drags, not code). Below-minimum states are therefore
+  user-unreachable but still layout-coherent (panels yield: props can shrink
+  to 180px under overflow pressure; preview floors at 280×140).
+- **Panel clamps are live**, not just static: drags and window resizes both
+  re-clamp timeline height / props width against the current window, so sizes
+  dragged on a big display can't crush the preview after moving to a laptop.
+- Timeline lanes stay fixed-height by construction (56/44px) and scroll
+  vertically — 12 tracks in a 200px-tall timeline: zero compression, scrolls.
+- Break-testing found and fixed TWO self-inflicted regressions during the
+  session: (1) the initial tooltip implementation used `opacity: 0`, which
+  still contributes to scrollable overflow — edge-button tooltips poked past
+  the viewport at every size (fixed with display:none + keyframe-delayed
+  reveal); (2) the pre-existing overcrowded TopBar was the only remaining
+  horizontal-overflow source at forced below-min sizes — structurally removed
+  by Part 3, not band-aided.
+
+## Part 2 — icons
+
+- lucide-react; one `IconBtn` primitive (16px stroke icons, 28×26 buttons,
+  CSS-only tooltips, ~350ms delay) used by every toolbar: top bar, transport,
+  timeline toolbar, text-align buttons. Zero text buttons remain in toolbars;
+  dialog buttons (Export modal) deliberately stay text — dialogs are text
+  territory in the reference too.
+- Keyframe diamonds keep the session-2 `◆` glyph treatment per the brief
+  ("match its visual weight, don't reinvent it").
+- Icon semantics logged where non-obvious: ripple delete = ArrowLeftToLine
+  (pull left to close the gap), detach audio = AudioLines, fit = Maximize.
+
+## Part 3 — native menu bar
+
+- Real `tauri::menu` bar: app menu (About/Quit), File (New, Open, Open Recent
+  submenu built from the SQLite recents table — rebuilt on every save/load),
+  Edit, View (CheckMenuItems for Safe Zones/Snapping kept in sync BOTH ways —
+  menu clicks update the store, in-app toggles call `sync_view_menu`).
+- All menu events funnel through one Rust handler → a single `menu` emit →
+  focus-aware dispatch in the webview: Cmd+Z/Cmd+A while typing in a field
+  applies to the text (execCommand), otherwise to the timeline. The JS Cmd+Z
+  handler is disabled under Tauri — the menu accelerator owns it (double-undo
+  otherwise). Delete/Backspace deliberately has NO menu accelerator so plain
+  Backspace keeps working in text fields; it stays a JS shortcut.
+- Edit▸Cut/Copy/Paste are the native predefined items (text editing only).
+  Clip-level clipboard is new functionality, out of scope this session, logged
+  as future work rather than half-shipped.
+- New Project replaces state without a dirty-check prompt — there is no dirty
+  tracking yet; logged as a known gap to pair with autosave later.
+- Verification without clicking the native bar: a dev command synthesizes
+  events through the real Rust menu handler; the self-test proved
+  snap-toggle, select-all (2/2 clips), and new-project through the full
+  native-event → emit → dispatch chain. The one thing this cannot prove is
+  the OS rendering the bar itself — that's Tauri's contract; menu build
+  errors would appear in the log (none do).
