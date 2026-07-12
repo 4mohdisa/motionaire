@@ -12,7 +12,7 @@ import {
   saveProject,
   type RecentProject,
 } from '../persistence/projectIO'
-import { isTauri, loadPipDemo } from '../compositor/bridge'
+import { loadPipDemo } from '../compositor/bridge'
 
 // App shell (session 9, Phase 1): activation → onboarding (first run) →
 // launcher → editor. All full-window views in one window.
@@ -301,27 +301,3 @@ function relTime(unixSecs: number): string {
   return `${Math.round(d / 86400)}d ago`
 }
 
-// Boot: resolve activation + first-run state once at startup.
-export function useBootFlow() {
-  useEffect(() => {
-    void (async () => {
-      const st = useStore.getState()
-      if (st.appView !== 'boot') return
-      if (!isTauri) {
-        st.setAppView('editor') // browser dev: no gate to talk to
-        return
-      }
-      const activated = await invoke<boolean>('license_status').catch(() => false)
-      if (!activated) {
-        st.setAppView('activate')
-        return
-      }
-      const done = await invoke<string | null>('get_setting', {
-        key: 'onboarding_completed',
-      }).catch(() => null)
-      // Don't clobber a view a self-test already forced (e.g. loadPipDemo).
-      if (useStore.getState().appView === 'boot')
-        useStore.getState().setAppView(done === '1' ? 'launcher' : 'onboard')
-    })()
-  }, [])
-}

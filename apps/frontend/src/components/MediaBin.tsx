@@ -23,36 +23,33 @@ function fmtDur(s: number): string {
 }
 
 function BinThumb({ asset }: { asset: MediaAsset }) {
-  const [thumb, setThumb] = useState<{ url: string; w: number; h: number } | null>(null)
+  // Stills need no async work — their file IS the thumbnail.
+  const still = asset.kind === 'video' && /\.(png|jpe?g)$/i.test(asset.path)
+  const [strip, setStrip] = useState<{ url: string; w: number; h: number } | null>(null)
   useEffect(() => {
     let gone = false
-    if (asset.kind === 'video' && !asset.missing) {
-      if (/\.(png|jpe?g)$/i.test(asset.path)) {
-        setThumb({ url: convertFileSrc(asset.path), w: 0, h: 0 })
-      } else {
-        void getFilmstrip(asset).then((s) => {
-          if (s && !gone) setThumb({ url: s.url, w: s.frameW, h: s.h })
-        })
-      }
+    if (asset.kind === 'video' && !asset.missing && !still) {
+      void getFilmstrip(asset).then((s) => {
+        if (s && !gone) setStrip({ url: s.url, w: s.frameW, h: s.h })
+      })
     }
     return () => {
       gone = true
     }
-  }, [asset])
+  }, [asset, still])
 
   if (asset.kind === 'audio') return <Music size={16} />
-  if (!thumb) return <Film size={16} />
-  return thumb.w > 0 ? (
+  if (still) return <img className="bin__strip" src={convertFileSrc(asset.path)} alt="" />
+  if (!strip) return <Film size={16} />
+  return (
     <div
       className="bin__strip"
       style={{
-        backgroundImage: `url(${thumb.url})`,
+        backgroundImage: `url(${strip.url})`,
         backgroundSize: 'auto 100%',
         backgroundPosition: '0 0',
       }}
     />
-  ) : (
-    <img className="bin__strip" src={thumb.url} alt="" />
   )
 }
 
