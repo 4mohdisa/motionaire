@@ -116,6 +116,11 @@ export interface StoreState {
   setShuttle: (rate: number) => void
   frameStep: (frames: number) => void
   select: (ids: string[], mode?: 'set' | 'add' | 'toggle') => void
+
+  // --- markers ---
+  addMarkerAtPlayhead: () => void
+  renameMarker: (id: string, label: string) => void
+  deleteMarker: (id: string) => void
   setPxPerSec: (v: number) => void
   setSnap: (v: boolean) => void
 
@@ -699,6 +704,26 @@ export const useStore = create<StoreState>()(
               if (i >= 0) s.selection.splice(i, 1)
               else s.selection.push(id)
             }
+        }),
+
+      addMarkerAtPlayhead: () =>
+        mutateProject((p) => {
+          const t = snapToFrame(get().playhead, p.canvas.fps)
+          p.markers ??= []
+          if (p.markers.some((m) => Math.abs(m.t - t) < 0.5 / p.canvas.fps)) return
+          p.markers.push({ id: uid('mk'), t, label: `Marker ${p.markers.length + 1}` })
+          p.markers.sort((a, b) => a.t - b.t)
+        }),
+
+      renameMarker: (id, label) =>
+        mutateProject((p) => {
+          const m = p.markers?.find((x) => x.id === id)
+          if (m) m.label = label
+        }),
+
+      deleteMarker: (id) =>
+        mutateProject((p) => {
+          if (p.markers) p.markers = p.markers.filter((x) => x.id !== id)
         }),
 
       setPxPerSec: (v) =>

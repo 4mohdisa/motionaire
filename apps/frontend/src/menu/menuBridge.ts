@@ -189,6 +189,48 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_marker_test': {
+      // Phase 5 item 2 check: M shortcut through the real keydown path, DOM
+      // flags/labels on the ruler, rename, right-click delete.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-markers', pass, detail }).catch(() => {})
+      const tick = () => new Promise((r) => setTimeout(r, 80))
+      try {
+        await loadPipDemo()
+        await tick()
+        const st = () => useStore.getState()
+        st().pause()
+        const key = () =>
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
+        st().setPlayhead(2)
+        key()
+        st().setPlayhead(4)
+        key()
+        key() // duplicate at same frame must dedupe
+        await tick()
+        const ms = st().project.markers ?? []
+        const added =
+          ms.length === 2 && Math.abs(ms[0].t - 2) < 0.05 && Math.abs(ms[1].t - 4) < 0.05
+        const domOk = document.querySelectorAll('.tl__marker').length === 2
+        st().renameMarker(ms[0].id, 'Intro')
+        await tick()
+        const renamed = Array.from(document.querySelectorAll('.tl__marker-label')).some(
+          (el) => el.textContent === 'Intro',
+        )
+        document
+          .querySelector('.tl__marker')!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+        await tick()
+        const deleted = (st().project.markers ?? []).length === 1
+        void report(
+          added && domOk && renamed && deleted,
+          `added=${added} dom=${domOk} renamed=${renamed} deleted=${deleted}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

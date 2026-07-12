@@ -58,6 +58,10 @@ export function useShortcuts() {
         case 'S':
           s.splitAtPlayhead()
           break
+        case 'm':
+        case 'M':
+          s.addMarkerAtPlayhead()
+          break
         case 'ArrowLeft':
           e.preventDefault()
           s.frameStep(e.shiftKey ? -10 : -1)

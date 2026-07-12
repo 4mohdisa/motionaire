@@ -130,6 +130,13 @@ export interface CanvasSettings {
   background: string
 }
 
+// Timeline marker / chapter point (session 8, Phase 5).
+export interface Marker {
+  id: string
+  t: number // timeline seconds
+  label: string
+}
+
 export interface ProjectFont {
   id: string
   family: string
@@ -144,6 +151,7 @@ export interface Project {
   tracks: Track[]
   transcript: { words: unknown[] }
   fonts?: ProjectFont[]
+  markers?: Marker[]
 }
 
 let uidCounter = 0

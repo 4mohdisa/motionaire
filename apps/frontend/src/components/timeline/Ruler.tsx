@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../state/store'
 import { useTimeline } from './timelineContext'
 
@@ -14,6 +14,8 @@ function label(t: number): string {
 function Ruler() {
   const { pxPerSec, xToTime, scrollEl } = useTimeline()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const markers = useStore((s) => s.project.markers)
+  const [editing, setEditing] = useState<string | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -76,6 +78,52 @@ function Ruler() {
       }}
     >
       <canvas ref={canvasRef} className="tl__ruler-canvas" />
+      {(markers ?? []).map((m) => {
+        const s = useStore.getState()
+        return (
+          <div
+            key={m.id}
+            className="tl__marker"
+            style={{ left: m.t * pxPerSec }}
+            title={`${m.label} — double-click to rename, right-click to delete`}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              s.setPlayhead(m.t)
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              setEditing(m.id)
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              s.deleteMarker(m.id)
+            }}
+          >
+            <span className="tl__marker-flag" />
+            {editing === m.id ? (
+              <input
+                className="tl__marker-input selectable"
+                autoFocus
+                defaultValue={m.label}
+                onPointerDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter' || e.key === 'Escape')
+                    (e.target as HTMLInputElement).blur()
+                }}
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v && v !== m.label) s.renameMarker(m.id, v)
+                  setEditing(null)
+                }}
+              />
+            ) : (
+              <span className="tl__marker-label">{m.label}</span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
