@@ -135,3 +135,95 @@ Cargo normalized two `Cargo.toml` dependency lines during the build (added expli
 scaffold, backend scaffold, UI shell, tooling, README, build/run verification.
 Next session picks up real feature work per CONTEXT.md §5's build order, starting
 with the compositor spike — explicitly out of scope here.
+
+---
+
+## 2026-07-12 — Session 2: NLE feature build (phases A–G, webview-only)
+
+Scope per the session brief: preview player, timeline, detach audio, properties +
+keyframes, transitions + text, export settings + presets, chrome/shortcuts/undo.
+No Rust, no compositor, no FFmpeg. Multi-clip composited preview explicitly out —
+preview shows the topmost active video clip only.
+
+## State management: Zustand + Immer
+
+Zustand chosen — CONTEXT.md §3.4 names it directly ("Zustand or similar"). Immer
+added (via zustand/middleware/immer) because the document model is deeply nested
+(tracks → clips → keyframes/transform) and ~30 mutation actions written as hand-rolled
+spread chains are exactly where subtle state bugs breed. Two runtime deps total this
+session; nothing else added.
+
+Undo/redo: JSON-snapshot stack (past/future arrays, `structuredClone` of the project,
+cap 100) exactly as CONTEXT.md §8.1 prescribes for early stage ("snapshotting the
+whole JSON is fine early; move to patches only if it gets slow"). Only project
+mutations push history; playhead/selection/zoom are UI state and don't. Drag/trim
+gestures push ONE history entry at gesture start (`beginGesture`), then mutate
+transiently — undo reverts the whole gesture, not each pointermove.
+
+## Document model deviations from CONTEXT.md §1 (logged, deliberate)
+
+- **Text clips use in/out** (in=0, out=duration) instead of the spec's separate
+  `duration` field, so every clip shares one time system and all trim/split/move
+  code paths work on text clips unchanged. A storage adapter can translate when
+  save/load lands.
+- **`linkId` field added to Clip** — spec is silent on how detach-audio links the
+  resulting pair; a shared opaque id is the minimal representation.
+- **`name` on Track, `name` on MediaAsset** — UI needs display labels; spec examples
+  imply but don't declare them.
+- **`path` on MediaAsset holds an object URL this session** (media import is
+  `<input type="file">` + `URL.createObjectURL` — no Rust file dialogs yet). Object
+  URLs die with the document, so projects aren't persistable across reloads until
+  native import lands. Acceptable: save/load is not in this session's phase list.
+
+## Media import & probing without the native side
+
+Import via file input; duration/dimensions probed from a metadata-preloaded video
+element. MediaRecorder-produced webm (i.e. real screen recordings) report
+`duration: Infinity` until seeked far past the end — the known Chromium quirk — so
+the prober does the `currentTime = 1e101` workaround. fps is not detectable from a
+media element; the project canvas default (30) governs frame math until FFprobe
+arrives with the native session (CONTEXT.md §6 VFR normalization lands there too).
+
+`hasAudio` is determined by attempting the waveform decode (fetch → OfflineAudioContext
+.decodeAudioData): decode success = has audio, failure = silent. One decode serves
+both purposes and is cached per media id (decode-once rule from the brief).
+
+Imported clips append to the end of the bottom-most track of matching kind. No media
+bin this session — it's §4 table stakes but not in any phase of this brief.
+
+## Playback engine design
+
+One hidden/visible `<video>` element per active-or-imminent clip (mount window:
+active now or starting within 1s — pre-decodes upcoming cuts). Topmost-z active
+video clip is visible; everything else plays hidden (real multi-track audio without
+a mixing graph: media elements ARE the mixer this session; per-clip Web Audio gain
+graph arrives with the compositor). The master clock is the visible video element
+when healthy; the wall clock covers gaps between clips, reverse shuttle, and
+elements mid-seek. Sanity rule: if the element-derived playhead disagrees with the
+store playhead by >0.5s the element is treated as stale (external seek) and gets
+corrected, not trusted — this makes scrub-during-playback race-free with zero extra
+state.
+
+Reverse playback (J shuttle): `<video>` cannot play backwards; reverse is throttled
+seek-stepping (10 Hz), muted. Choppy by design; smooth reverse belongs to the native
+compositor. Elements' audio is muted during reverse.
+
+rAF drives the loop when visible; a 250ms interval takes over when rAF is starved
+(hidden/occluded window) so playback lifecycle — clip boundary handoffs, element
+start/stop — keeps working while backgrounded. Found the hard way: the sandboxed
+test browser suspends rAF entirely, and the same applies to a minimized Tauri window
+mid-playback.
+
+Keyframed `volume` is applied live per tick (`resolveProp`); visual transform
+keyframes are data-only until the compositor renders them (per the session brief).
+
+## Testing approach for this session
+
+No test framework added (nothing in the brief asks for one; the app's logic is
+exercised end-to-end instead). Dev-only `window.__motionaire = { store, importFile }`
+handle lets scripted browser automation drive the real store and import real
+generated Files — test clips are synthesized in-page via canvas.captureStream +
+AudioContext oscillator + MediaRecorder (no ffmpeg on this machine, and no binary
+fixtures in the repo). Verified for Phase A: import + probe of two 4s clips,
+sequential append, playback advance, A→B boundary handoff mid-play, end-of-project
+auto-pause, scrub-while-playing.

@@ -1,11 +1,13 @@
+import { openImportDialog } from '../media/importMedia'
+
 function TopBar() {
   return (
     <header className="topbar">
       <span className="topbar__brand">Motionaire</span>
       <div className="topbar__actions">
-        <div className="topbar__action" />
-        <div className="topbar__action" />
-        <div className="topbar__action" />
+        <button className="topbar__btn" onClick={openImportDialog}>
+          Import
+        </button>
       </div>
     </header>
   )

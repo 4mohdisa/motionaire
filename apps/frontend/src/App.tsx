@@ -1,4 +1,5 @@
 import TopBar from './components/TopBar'
+import Preview from './components/Preview'
 import TimelineStrip from './components/TimelineStrip'
 import './App.css'
 
@@ -7,7 +8,7 @@ function App() {
     <div className="app-shell">
       <TopBar />
       <main className="workspace">
-        <div className="canvas-placeholder" />
+        <Preview />
       </main>
       <TimelineStrip />
     </div>
