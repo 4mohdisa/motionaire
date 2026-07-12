@@ -53,6 +53,31 @@ npm run tauri build
 
 Produces a release binary/installer under `apps/backend/target/release/`.
 
+## Projects
+
+Projects save as `Name.motionaire/` bundles (project.json + transcript.json +
+history.jsonl + cache/), written crash-safely (temp + fsync + atomic rename).
+Recent projects live in an app-level SQLite DB. Media is imported through the
+native file dialog and referenced by absolute path; sources missing on disk are
+flagged offline in the timeline instead of failing the load.
+
+## Self-tests
+
+Rust: `cd apps/backend && cargo test --lib` (keyframe parity, persistence
+crash-safety, decoder back-off, sync wire format). End-to-end inside the real
+webview, reported into the Rust log as `WEBVIEW-TEST PASS/FAIL`:
+
+```sh
+SPIKE_DEMO=1 SPIKE_PERSIST_TEST=1 SPIKE_CLOCK_TEST=1 npm run tauri dev
+SPIKE_REOPEN_TEST=1 npm run tauri dev   # run afterwards: cross-process reopen
+```
+
+Compositor chaos soak (scrub storms, ffmpeg kills, GPU re-inits, WS churn):
+
+```sh
+cd apps/backend && MOTIONAIRE_WS_PORT=43118 cargo run --release --bin soak
+```
+
 ## Compositor spike demo
 
 ```sh

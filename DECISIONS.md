@@ -588,3 +588,64 @@ invalidation and export-resolution re-raster.
   keyframed transform animates AROUND them, verified visually.
 - Old sync payloads without crop/shadow deserialize via serde defaults — no
   frontend/backend lockstep required.
+
+## Soak results (35 min, release build, Apple M5 Pro)
+
+```
+chaos actions:        7469     (scrubs both directions, rate flips, re-syncs)
+frames rendered:      50355
+gpu re-inits:         23       (11 deliberate canvas flips ×2 + startup — all logged with reasons)
+render errors:        0
+panics (recovered):   0
+watchdog trips:       0
+ffmpeg kill rounds:   17       (SIGKILL all decode children — 441 child deaths, all respawned)
+ws client reconnects: 208
+verdict: PASS
+```
+
+The soak binary ran the pre-back-off decoder (built before the delete-file
+finding); its 441 kill-recoveries all succeeded because the files existed. The
+back-off path for genuinely-gone files is covered by the deterministic unit test
+plus the delete-mid-playback run (218 spawn-attempts/10s before the fix → 2
+after, zero crashes either way).
+
+## Break-testing ledger (what was tried, what happened)
+
+- Webview hot-reload during streaming: dozens across the session, plus 208
+  scripted client reconnects — zero anomalies; the session-3 "GPU re-init on
+  reload" reading is now attributed to swallowed startup logs (fixed).
+- ffmpeg SIGKILL mid-decode: detected as premature EOF, logged, respawned; 17
+  rounds in the soak without a dropped session.
+- Source file deleted mid-playback: found the respawn-storm flaw (fixed with
+  back-off + stale-frame serving); after the fix, graceful degradation with two
+  log lines. Deleted source at load: flagged offline in UI, everything else
+  loads and plays.
+- Save mid-playback / mid-drag: consistent by construction (immutable
+  snapshots); load of truncated/garbage/wrong-version project.json rejected
+  with clear errors (unit-tested); atomic-rename discipline unit-tested.
+- Scrub storm (30 random seeks in 600ms) during playback with text + PiP:
+  compositor settles on the exact target frame (0.000s residual).
+- Zero-length clips can't be created through the UI (trim clamps at one frame,
+  split refuses sub-half-frame cuts); a hand-edited zero-length clip in
+  project.json is inert (active_at is start ≤ t < start+0 — never true).
+
+## Honest limits, named
+
+- **Sleep/wake and native window minimize/restore remain untested** — both need
+  a human at the machine (sleeping the machine would kill the autonomous session
+  driving the test). The code paths they stress (client reconnect, render-loop
+  stall detection, device re-init) are each exercised directly and pass; the
+  integration under real power events is not proven.
+- **Audio sync is verified by architecture, not by ear this session**: the
+  generated test media is video-only, so the clock-sync test proves playhead↔
+  compositor-frame agreement, and audio elements follow that same playhead via
+  the session-2 drift rule (verified then against real audio). No audible
+  end-to-end run happened here.
+- **Crop/shadow via the actual panel UI** wasn't visually confirmed (needs
+  clicking the native window); verified instead: shader output pixels
+  (spike_check PNG), the wire format both directions (unit test), and 35 min of
+  soak rendering with nonzero crop+shadow on the animating PiP layer.
+- The delivered-fps number in the app UI is measured client-side and honest;
+  Rust's header fps remains work-capacity. Steady release pacing measured
+  58.2fps including startup and wrap gaps — effectively 60Hz; the ~1.5%
+  bookkeeping gap is real and noted rather than rounded away.
