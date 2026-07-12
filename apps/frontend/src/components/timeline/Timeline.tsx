@@ -65,8 +65,32 @@ function Timeline() {
     [],
   )
 
-  const { setPxPerSec, setSnap, splitAtPlayhead, deleteClips, rippleDeleteClips, select } =
-    useStore.getState()
+  const {
+    setPxPerSec,
+    setSnap,
+    splitAtPlayhead,
+    deleteClips,
+    rippleDeleteClips,
+    select,
+    detachAudio,
+  } = useStore.getState()
+
+  // Detach is offered when exactly one video clip with (attached) audio is selected.
+  const detachTarget = useMemo(() => {
+    if (selection.length !== 1) return null
+    for (const tr of project.tracks) {
+      const c = tr.clips.find((x) => x.id === selection[0])
+      if (!c) continue
+      if (c.kind !== 'video' || !c.mediaId) return null
+      const asset = project.media.find((m) => m.id === c.mediaId)
+      if (!asset?.hasAudio) return null
+      const alreadyDetached =
+        c.linkId != null &&
+        project.tracks.some((t) => t.clips.some((x) => x.linkId === c.linkId && x.kind === 'audio'))
+      return alreadyDetached ? null : c.id
+    }
+    return null
+  }, [selection, project])
 
   const fit = () => {
     const scroll = scrollRef.current
@@ -97,6 +121,14 @@ function Timeline() {
           onClick={() => rippleDeleteClips(selection)}
         >
           Ripple
+        </button>
+        <button
+          className="tl__btn"
+          title="Detach audio to its own track"
+          disabled={!detachTarget}
+          onClick={() => detachTarget && detachAudio(detachTarget)}
+        >
+          Detach Audio
         </button>
         <div className="tl__spacer" />
         <button

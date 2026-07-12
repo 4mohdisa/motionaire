@@ -46,6 +46,7 @@ export interface StoreState {
   deleteClips: (ids: string[]) => void
   rippleDeleteClips: (ids: string[]) => void
   duplicateClip: (clipId: string) => void
+  detachAudio: (clipId: string) => void
 
   // --- transport / ui ---
   setPlayhead: (t: number) => void
@@ -307,6 +308,56 @@ export const useStore = create<StoreState>()(
           if (placed === null) return
           copy.start = snapToFrame(placed, p.canvas.fps)
           track.clips.push(copy)
+        }),
+
+      detachAudio: (clipId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const { clip } = found
+          if (clip.kind !== 'video' || !clip.mediaId) return
+          const asset = p.media.find((m) => m.id === clip.mediaId)
+          if (!asset?.hasAudio) return
+          // Already detached: the clip is silent and linked to an audio partner.
+          if (clip.linkId && p.tracks.some((t) => t.clips.some((c) => c.linkId === clip.linkId && c.kind === 'audio')))
+            return
+
+          const linkId = clip.linkId ?? uid('link')
+          const audioClip: Clip = {
+            id: uid('c'),
+            kind: 'audio',
+            mediaId: clip.mediaId,
+            start: clip.start,
+            in: clip.in,
+            out: clip.out,
+            speed: clip.speed,
+            volume: clip.volume,
+            transform: defaultTransform(),
+            // Volume keyframes belong to the audio half now.
+            keyframes: clip.keyframes.filter((k) => k.prop === 'volume'),
+            transitions: { in: null, out: null },
+            effects: [],
+            linkId,
+          }
+
+          // Place at the same timeline position: first audio track with a free
+          // slot there; otherwise add a new audio track.
+          const dur = clipDuration(audioClip)
+          let target = p.tracks.find(
+            (t) =>
+              t.kind === 'audio' &&
+              !t.clips.some((c) => audioClip.start < clipEnd(c) && c.start < audioClip.start + dur),
+          )
+          if (!target) {
+            const z = p.tracks.filter((t) => t.kind === 'audio').length
+            target = { id: uid('t'), kind: 'audio', z, name: `A${z + 1}`, clips: [] }
+            p.tracks.push(target)
+          }
+          target.clips.push(audioClip)
+
+          clip.linkId = linkId
+          clip.volume = 0
+          clip.keyframes = clip.keyframes.filter((k) => k.prop !== 'volume')
         }),
 
       setPlayhead: (t) =>
