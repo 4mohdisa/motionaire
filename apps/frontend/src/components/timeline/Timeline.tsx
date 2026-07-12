@@ -22,6 +22,10 @@ function Timeline() {
   const selection = useStore((s) => s.selection)
   const scrollRef = useRef<HTMLDivElement>(null)
   const headersRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
+    null,
+  )
 
   // Display order: video tracks top (highest z first), audio tracks below.
   const ordered = useMemo(() => {
@@ -130,6 +134,57 @@ function Timeline() {
     return null
   }, [selection, project])
 
+  // Marquee select: drag on empty lane space. Coordinates are content-local so
+  // mid-drag scrolling keeps the box anchored to timeline time, not the screen.
+  const onLanePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      const content = contentRef.current
+      if (!content) return
+      const additive = e.shiftKey || e.metaKey
+      if (!additive) select([])
+      const baseSel = additive ? useStore.getState().selection : []
+      const r0 = content.getBoundingClientRect()
+      const sx = e.clientX - r0.left
+      const sy = e.clientY - r0.top
+      let active = false
+      const onMove = (ev: PointerEvent) => {
+        const rect = content.getBoundingClientRect()
+        const cx = ev.clientX - rect.left
+        const cy = ev.clientY - rect.top
+        if (!active && Math.hypot(cx - sx, cy - sy) < 4) return
+        active = true
+        const box = {
+          x: Math.min(sx, cx),
+          y: Math.min(sy, cy),
+          w: Math.abs(cx - sx),
+          h: Math.abs(cy - sy),
+        }
+        setMarquee(box)
+        const s = useStore.getState()
+        const t0 = box.x / s.pxPerSec
+        const t1 = (box.x + box.w) / s.pxPerSec
+        const ids: string[] = []
+        for (const laneEl of content.querySelectorAll<HTMLElement>('[data-lane-track]')) {
+          const lr = laneEl.getBoundingClientRect()
+          if (lr.bottom - rect.top < box.y || lr.top - rect.top > box.y + box.h) continue
+          const track = s.project.tracks.find((t) => t.id === laneEl.dataset.laneTrack)
+          for (const c of track?.clips ?? [])
+            if (c.start < t1 && c.start + (c.out - c.in) / c.speed > t0) ids.push(c.id)
+        }
+        s.select([...new Set([...baseSel, ...ids])])
+      }
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        setMarquee(null)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [select],
+  )
+
   const fit = () => {
     const scroll = scrollRef.current
     if (!scroll || project.duration <= 0) return
@@ -232,7 +287,7 @@ function Timeline() {
           }}
         >
           <TimelineContext.Provider value={ctx}>
-            <div className="tl__content" style={{ width: contentWidth }}>
+            <div className="tl__content" ref={contentRef} style={{ width: contentWidth }}>
               <Ruler />
               {ordered.map((t) => (
                 <div
@@ -241,7 +296,7 @@ function Timeline() {
                   style={{ height: LANE_HEIGHT[t.kind] }}
                   data-lane-track={t.id}
                   data-lane-kind={t.kind}
-                  onPointerDown={() => select([])}
+                  onPointerDown={onLanePointerDown}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     setMenu({ x: e.clientX, y: e.clientY, clipId: null })
@@ -253,6 +308,12 @@ function Timeline() {
                 </div>
               ))}
               {!hasClips && <div className="tl__empty">Import media to get started</div>}
+              {marquee && (
+                <div
+                  className="tl__marquee"
+                  style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }}
+                />
+              )}
               <Playhead />
             </div>
           </TimelineContext.Provider>

@@ -663,6 +663,14 @@
   clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 
+.tl__marquee {
+  position: absolute;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ---------- Clips ---------- */
 
 .clip {

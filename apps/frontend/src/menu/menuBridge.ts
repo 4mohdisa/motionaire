@@ -121,6 +121,74 @@ async function dispatch(action: string, path?: string) {
       st.setPlayhead(0.5)
       break
     }
+    case 'dev:p5_select_test': {
+      // Phase 5 item 1 check: marquee via real pointer events on the lane DOM,
+      // group drag via a real drag on a clip block, collision rejection via
+      // moveClipsTo. Reports through report_test like the other self-tests.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-select', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPlayhead(0)
+        st().select([])
+        const vids = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .flatMap((t) => t.clips.map((c) => c.id))
+        const [aId, bId] = vids
+        st().moveClip(bId, 1) // create a nonzero offset between the two clips
+        const pe = (type: string, x: number, y: number) =>
+          new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true })
+        // -- marquee: start on empty lane space right of the clips, drag left
+        const lanes = Array.from(document.querySelectorAll<HTMLElement>('[data-lane-track]'))
+        const l0 = lanes[0].getBoundingClientRect()
+        const l1 = lanes[1].getBoundingClientRect()
+        lanes[0].dispatchEvent(pe('pointerdown', l0.left + 700, l0.top + 4))
+        window.dispatchEvent(pe('pointermove', l0.left + 100, l1.bottom - 4))
+        window.dispatchEvent(pe('pointerup', l0.left + 100, l1.bottom - 4))
+        const marqueeOk = st().selection.includes(aId) && st().selection.includes(bId)
+        // -- group drag: real drag on clip A's block, +120px = +2s at 60px/s
+        const aStart0 = 0
+        const bStart0 = 1
+        const clipEl = document.querySelector<HTMLElement>(`[data-clip-id="${aId}"]`)!
+        const cr = clipEl.getBoundingClientRect()
+        const cx = cr.left + cr.width / 2
+        const cy = cr.top + cr.height / 2
+        clipEl.dispatchEvent(pe('pointerdown', cx, cy))
+        window.dispatchEvent(pe('pointermove', cx + 60, cy))
+        window.dispatchEvent(pe('pointermove', cx + 120, cy))
+        window.dispatchEvent(pe('pointerup', cx + 120, cy))
+        const find = (id: string) =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.id === id)!
+        const aStart1 = find(aId).start
+        const bStart1 = find(bId).start
+        const dragOk =
+          Math.abs(aStart1 - (aStart0 + 2)) < 0.05 &&
+          Math.abs(bStart1 - aStart1 - (bStart0 - aStart0)) < 0.001
+        // -- collision rejection: split A, try to shove left piece into right
+        st().splitClip(aId, aStart1 + 1)
+        const leftPiece = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === aId)!
+        st().moveClipsTo([
+          { id: leftPiece.id, start: leftPiece.start + 0.5 },
+          { id: bId, start: bStart1 + 0.5 },
+        ])
+        const rejected =
+          find(leftPiece.id).start === leftPiece.start && find(bId).start === bStart1
+        void report(
+          marqueeOk && dragOk && rejected,
+          `marquee=${marqueeOk} groupDrag=${dragOk} (a ${aStart1.toFixed(2)} b ${bStart1.toFixed(2)}) reject=${rejected}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

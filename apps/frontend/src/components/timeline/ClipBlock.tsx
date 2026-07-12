@@ -75,6 +75,8 @@ function ClipBlock({ clip, trackId }: Props) {
     let started = false
     let lanes: LaneRect[] = []
     let snapTargets: number[] = []
+    // Multi-select drag: all selected clips move together, offsets preserved.
+    let group: { id: string; start: number }[] | null = null
     const startX = e.clientX
 
     const begin = () => {
@@ -82,9 +84,17 @@ function ClipBlock({ clip, trackId }: Props) {
       store.beginGesture()
       lanes = captureLanes()
       const p = useStore.getState().project
+      const sel = useStore.getState().selection
+      if (mode === 'move' && sel.length > 1 && sel.includes(clip.id)) {
+        group = p.tracks
+          .flatMap((t) => t.clips)
+          .filter((c) => sel.includes(c.id))
+          .map((c) => ({ id: c.id, start: c.start }))
+      }
+      const moving = new Set(group ? group.map((g) => g.id) : [clip.id])
       snapTargets = [0, useStore.getState().playhead]
       for (const tr of p.tracks)
-        for (const c of tr.clips) if (c.id !== clip.id) snapTargets.push(c.start, clipEnd(c))
+        for (const c of tr.clips) if (!moving.has(c.id)) snapTargets.push(c.start, clipEnd(c))
     }
 
     const onMove = (ev: PointerEvent) => {
@@ -103,10 +113,24 @@ function ClipBlock({ clip, trackId }: Props) {
           if (snappedStart !== desired) desired = snappedStart
           else if (snappedEnd !== desired + dur) desired = snappedEnd - dur
         }
-        const lane = lanes.find(
-          (l) => ev.clientY >= l.top && ev.clientY <= l.bottom && l.kind === laneKind(clip),
-        )
-        s.moveClip(clip.id, Math.max(0, desired), lane?.trackId, true)
+        if (group) {
+          // ponytail: group drag is horizontal-only; cross-track group moves
+          // when a real need shows up.
+          const anchor = group.find((g) => g.id === clip.id)!
+          const delta = Math.max(
+            desired - anchor.start,
+            -Math.min(...group.map((g) => g.start)),
+          )
+          s.moveClipsTo(
+            group.map((g) => ({ id: g.id, start: g.start + delta })),
+            true,
+          )
+        } else {
+          const lane = lanes.find(
+            (l) => ev.clientY >= l.top && ev.clientY <= l.bottom && l.kind === laneKind(clip),
+          )
+          s.moveClip(clip.id, Math.max(0, desired), lane?.trackId, true)
+        }
       } else {
         const t = snapEnabled ? snapTime(pointerTime, snapTargets, tol) : pointerTime
         s.trimClip(clip.id, mode === 'trim-in' ? 'in' : 'out', t, true)

@@ -4,6 +4,7 @@ import { current } from 'immer'
 import type {
   Clip,
   Ease,
+  Track,
   MediaAsset,
   Project,
   ProjectFont,
@@ -78,6 +79,9 @@ export interface StoreState {
 
   // --- clip editing ---
   moveClip: (clipId: string, start: number, trackId?: string, transient?: boolean) => void
+  // Group drag: set several clips' starts atomically; the whole move is
+  // rejected if any clip would overlap a clip outside the group.
+  moveClipsTo: (entries: { id: string; start: number }[], transient?: boolean) => void
   trimClip: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
   splitClip: (clipId: string, at: number) => void
   splitAtPlayhead: () => void
@@ -266,6 +270,34 @@ export const useStore = create<StoreState>()(
               track.clips.splice(index, 1)
               target.clips.push(clip)
             }
+          },
+          { history: transient ? false : true },
+        ),
+
+      moveClipsTo: (entries, transient) =>
+        mutateProject(
+          (p) => {
+            const ids = new Set(entries.map((e) => e.id))
+            const moves: { clip: Clip; track: Track; start: number }[] = []
+            const newStart = new Map<string, number>()
+            for (const e of entries) {
+              const found = findClip(p, e.id)
+              if (!found) return
+              const s = snapToFrame(Math.max(0, e.start), p.canvas.fps)
+              moves.push({ clip: found.clip, track: found.track, start: s })
+              newStart.set(e.id, s)
+            }
+            // All-or-nothing: any collision with a clip outside the group (or a
+            // scrambled in-group pair on the same track) rejects the whole move.
+            for (const m of moves) {
+              const end = m.start + clipDuration(m.clip)
+              for (const c of m.track.clips) {
+                if (c.id === m.clip.id) continue
+                const cs = ids.has(c.id) ? newStart.get(c.id)! : c.start
+                if (m.start < cs + clipDuration(c) - 1e-6 && end > cs + 1e-6) return
+              }
+            }
+            for (const m of moves) m.clip.start = m.start
           },
           { history: transient ? false : true },
         ),
