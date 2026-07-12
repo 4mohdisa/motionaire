@@ -133,7 +133,8 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
       continue
     }
 
-    const vol = resolveProp(clip, 'volume', sourceTime(clip, t) - clip.in)
+    // Keyframe times are clip-relative in TIMELINE seconds (t - clip.start).
+    const vol = resolveProp(clip, 'volume', t - clip.start)
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
     el.playbackRate = Math.min(16, Math.max(0.0625, clip.speed * Math.max(0.0625, Math.abs(s.shuttle))))

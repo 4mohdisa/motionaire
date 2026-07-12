@@ -1,6 +1,6 @@
 import TopBar from './components/TopBar'
 import Preview from './components/Preview'
-import TimelineStrip from './components/TimelineStrip'
+import Timeline from './components/timeline/Timeline'
 import './App.css'
 
 function App() {
@@ -10,7 +10,7 @@ function App() {
       <main className="workspace">
         <Preview />
       </main>
-      <TimelineStrip />
+      <Timeline />
     </div>
   )
 }

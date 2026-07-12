@@ -1,9 +1,16 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { current } from 'immer'
-import type { MediaAsset, Project } from '../types/project'
+import type { Clip, MediaAsset, Project } from '../types/project'
 import { createProject, defaultTransform, uid } from '../types/project'
-import { clipEnd, computeDuration, findClip, snapToFrame } from '../engine/time'
+import {
+  clampStartToGaps,
+  clipDuration,
+  clipEnd,
+  computeDuration,
+  findClip,
+  snapToFrame,
+} from '../engine/time'
 
 const HISTORY_LIMIT = 100
 
@@ -30,6 +37,15 @@ export interface StoreState {
   addMedia: (asset: MediaAsset) => void
   updateMedia: (id: string, patch: Partial<MediaAsset>) => void
   appendMediaClip: (mediaId: string) => void
+
+  // --- clip editing ---
+  moveClip: (clipId: string, start: number, trackId?: string, transient?: boolean) => void
+  trimClip: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
+  splitClip: (clipId: string, at: number) => void
+  splitAtPlayhead: () => void
+  deleteClips: (ids: string[]) => void
+  rippleDeleteClips: (ids: string[]) => void
+  duplicateClip: (clipId: string) => void
 
   // --- transport / ui ---
   setPlayhead: (t: number) => void
@@ -136,6 +152,161 @@ export const useStore = create<StoreState>()(
             transitions: { in: null, out: null },
             effects: [],
           })
+        }),
+
+      moveClip: (clipId, start, trackId, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found) return
+            const { track, clip, index } = found
+            const target = trackId ? p.tracks.find((t) => t.id === trackId) : track
+            if (!target || target.kind !== track.kind) return
+            const dur = clipDuration(clip)
+            const siblings = target.clips
+              .filter((c) => c.id !== clipId)
+              .map((c) => ({ start: c.start, end: clipEnd(c) }))
+            const placed = clampStartToGaps(siblings, dur, snapToFrame(start, p.canvas.fps))
+            if (placed === null) return
+            clip.start = snapToFrame(placed, p.canvas.fps)
+            if (target !== track) {
+              track.clips.splice(index, 1)
+              target.clips.push(clip)
+            }
+          },
+          { history: transient ? false : true },
+        ),
+
+      trimClip: (clipId, edge, timelineTime, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found) return
+            const { track, clip } = found
+            const fps = p.canvas.fps
+            const minDur = 1 / fps
+            const asset = clip.mediaId ? p.media.find((m) => m.id === clip.mediaId) : null
+            const t = snapToFrame(timelineTime, fps)
+            const end = clipEnd(clip)
+            const siblings = track.clips.filter((c) => c.id !== clipId)
+
+            if (edge === 'in') {
+              // Left edge: end stays fixed. Media clips shift `in`; text shrinks duration.
+              const prevEnd = siblings
+                .filter((c) => clipEnd(c) <= clip.start + 1e-6)
+                .reduce((m, c) => Math.max(m, clipEnd(c)), 0)
+              let newStart = Math.max(prevEnd, Math.min(t, end - minDur))
+              if (clip.mediaId) {
+                // Can't reveal media before source 0.
+                const earliest = clip.start - clip.in / clip.speed
+                newStart = Math.max(newStart, earliest)
+              }
+              newStart = snapToFrame(newStart, fps)
+              const delta = newStart - clip.start
+              if (clip.mediaId) clip.in += delta * clip.speed
+              else clip.out = (end - newStart) * clip.speed
+              clip.start = newStart
+              // Keyframes are clip-relative: shift by -delta so they hold their
+              // absolute timeline positions; drop any now before the clip.
+              if (delta !== 0)
+                clip.keyframes = clip.keyframes
+                  .map((k) => ({ ...k, t: k.t - delta }))
+                  .filter((k) => k.t >= 0)
+            } else {
+              // Right edge: start stays fixed.
+              const nextStart = siblings
+                .filter((c) => c.start >= end - 1e-6)
+                .reduce((m, c) => Math.min(m, c.start), Infinity)
+              let newEnd = Math.min(nextStart, Math.max(t, clip.start + minDur))
+              if (asset) {
+                const latest = clip.start + (asset.duration - clip.in) / clip.speed
+                newEnd = Math.min(newEnd, latest)
+              }
+              newEnd = snapToFrame(newEnd, fps)
+              clip.out = clip.in + (newEnd - clip.start) * clip.speed
+              const dur = clipDuration(clip)
+              clip.keyframes = clip.keyframes.filter((k) => k.t <= dur)
+            }
+          },
+          { history: transient ? false : true },
+        ),
+
+      splitClip: (clipId, at) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const { track, clip, index } = found
+          const fps = p.canvas.fps
+          const t = snapToFrame(at, fps)
+          if (t <= clip.start + 1 / fps / 2 || t >= clipEnd(clip) - 1 / fps / 2) return
+          const rel = t - clip.start
+          const second: Clip = structuredClone(current(clip)) as Clip
+          second.id = uid('c')
+          second.start = t
+          if (clip.mediaId) {
+            second.in = clip.in + rel * clip.speed
+            clip.out = second.in
+          } else {
+            second.out = clip.out - rel * clip.speed
+            clip.out = rel * clip.speed
+          }
+          clip.keyframes = clip.keyframes.filter((k) => k.t <= rel)
+          second.keyframes = second.keyframes
+            .filter((k) => k.t > rel)
+            .map((k) => ({ ...k, t: k.t - rel }))
+          second.transitions = { in: null, out: clip.transitions.out }
+          clip.transitions = { in: clip.transitions.in, out: null }
+          track.clips.splice(index + 1, 0, second)
+        }),
+
+      splitAtPlayhead: () => {
+        const s = get()
+        const t = s.playhead
+        const p = s.project
+        // Split selected clips under the playhead; if none selected, all under it.
+        const candidates = p.tracks
+          .flatMap((tr) => tr.clips)
+          .filter((c) => c.start < t && t < clipEnd(c))
+          .filter((c) => (s.selection.length ? s.selection.includes(c.id) : true))
+        for (const c of candidates) get().splitClip(c.id, t)
+      },
+
+      deleteClips: (ids) =>
+        mutateProject((p) => {
+          for (const tr of p.tracks) tr.clips = tr.clips.filter((c) => !ids.includes(c.id))
+        }),
+
+      rippleDeleteClips: (ids) =>
+        mutateProject((p) => {
+          for (const tr of p.tracks) {
+            const removed = tr.clips
+              .filter((c) => ids.includes(c.id))
+              .map((c) => ({ start: c.start, span: clipDuration(c) }))
+              .sort((a, b) => a.start - b.start)
+            if (!removed.length) continue
+            tr.clips = tr.clips.filter((c) => !ids.includes(c.id))
+            for (const c of tr.clips) {
+              const shift = removed
+                .filter((r) => r.start <= c.start)
+                .reduce((sum, r) => sum + r.span, 0)
+              if (shift > 0) c.start = snapToFrame(c.start - shift, p.canvas.fps)
+            }
+          }
+        }),
+
+      duplicateClip: (clipId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found) return
+          const { track, clip } = found
+          const copy: Clip = structuredClone(current(clip)) as Clip
+          copy.id = uid('c')
+          const dur = clipDuration(clip)
+          const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
+          const placed = clampStartToGaps(siblings, dur, clipEnd(clip))
+          if (placed === null) return
+          copy.start = snapToFrame(placed, p.canvas.fps)
+          track.clips.push(copy)
         }),
 
       setPlayhead: (t) =>

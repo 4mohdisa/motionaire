@@ -64,6 +64,41 @@ export function activeTextClips(p: Project, t: number): { clip: Clip; z: number 
   return out.sort((a, b) => a.z - b.z) // render order: lowest first, highest on top
 }
 
+// Clamp a desired start so [start, start+duration) doesn't overlap siblings.
+// Returns null when the clip can't be placed near the desired position.
+export function clampStartToGaps(
+  siblings: { start: number; end: number }[],
+  duration: number,
+  desired: number,
+): number | null {
+  const d = Math.max(0, desired)
+  const hits = (s: number) =>
+    siblings.some((o) => s < o.end - 1e-6 && o.start + 1e-6 < s + duration)
+  if (!hits(d)) return d
+  // Try snapping to the nearest colliding neighbor's edges.
+  const candidates: number[] = []
+  for (const o of siblings) {
+    candidates.push(o.end) // after the neighbor
+    if (o.start - duration >= 0) candidates.push(o.start - duration) // before it
+  }
+  const valid = candidates.filter((s) => !hits(s)).sort((a, b) => Math.abs(a - d) - Math.abs(b - d))
+  return valid.length ? valid[0] : null
+}
+
+// Snap a time to nearby targets (playhead, clip edges) within tolerance seconds.
+export function snapTime(t: number, targets: number[], tolerance: number): number {
+  let best = t
+  let bestDist = tolerance
+  for (const target of targets) {
+    const dist = Math.abs(target - t)
+    if (dist < bestDist) {
+      best = target
+      bestDist = dist
+    }
+  }
+  return best
+}
+
 export function formatTimecode(t: number, fps: number): string {
   const totalFrames = Math.round(Math.max(0, t) * fps)
   const f = totalFrames % fps
