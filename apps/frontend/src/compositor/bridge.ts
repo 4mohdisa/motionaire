@@ -154,6 +154,65 @@ export function startCompositorBridge() {
       if (yes) return runMenuSelfTest()
     })
     .catch(() => {})
+
+  // Font round-trip (SPIKE_FONT_TEST=1): import a system TTF, apply to a text
+  // clip, save, wreck state, reload from the bundle → FontFace must resolve.
+  void invoke<boolean>('env_flag', { name: 'SPIKE_FONT_TEST' })
+    .then((yes) => {
+      if (yes) return runFontSelfTest()
+    })
+    .catch(() => {})
+}
+
+async function runFontSelfTest() {
+  const report = (pass: boolean, detail: string) =>
+    invoke('report_test', { name: 'font-roundtrip', pass, detail }).catch(() => {})
+  try {
+    const { restoreFonts, persistFonts } = await import('../persistence/fontManager')
+    const { openProjectPath, serializeProject } = await import('../persistence/projectIO')
+    const { uid } = await import('../types/project')
+    // Import bytes directly (dialog-free): a known system TTF.
+    const sysFont = '/System/Library/Fonts/Supplemental/Comic Sans MS.ttf'
+    const font = await invoke<{ fileName: string; dataBase64: string }>('import_font', {
+      path: sysFont,
+    })
+    await restoreFonts([font]) // registers + caches bytes, same as import flow
+    const family = font.fileName.replace(/\.(ttf|otf)$/i, '')
+    useStore.getState().addProjectFont({ id: uid('f'), family, fileName: font.fileName })
+    const registered = document.fonts.check(`16px "${family}"`)
+
+    // Text clip using the font, then save the bundle.
+    useStore.getState().addTextClip('Custom font!')
+    const txt = useStore
+      .getState()
+      .project.tracks.flatMap((t) => t.clips)
+      .find((c) => c.kind === 'text')
+    if (txt) useStore.getState().updateTextClip(txt.id, { style: { font: family } })
+    const spike = await invoke<[{ path: string }, { path: string }]>('spike_setup')
+    const bundle = spike[0].path.replace(/screen\.mp4$/, 'font-e2e.motionaire')
+    await invoke('save_project', {
+      bundlePath: bundle,
+      projectJson: serializeProject(useStore.getState().project),
+      name: 'font-e2e',
+    })
+    await persistFonts(bundle)
+
+    // Wreck and reload.
+    const { createProject } = await import('../types/project')
+    useStore.getState().replaceProject(createProject(), null)
+    await openProjectPath(bundle)
+    const p = useStore.getState().project
+    const fontKept = p.fonts?.some((f) => f.family === family) ?? false
+    const textKept =
+      p.tracks.flatMap((t) => t.clips).find((c) => c.kind === 'text')?.text?.font === family
+    const stillRegistered = document.fonts.check(`16px "${family}"`)
+    void report(
+      registered && fontKept && textKept && stillRegistered,
+      `registered=${registered} metaKept=${fontKept} textUsesIt=${textKept} loadableAfterReload=${stillRegistered} family="${family}"`,
+    )
+  } catch (e) {
+    void report(false, String(e))
+  }
 }
 
 async function runMenuSelfTest() {

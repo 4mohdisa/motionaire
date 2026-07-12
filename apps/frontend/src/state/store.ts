@@ -6,6 +6,7 @@ import type {
   Ease,
   MediaAsset,
   Project,
+  ProjectFont,
   TextAnimation,
   TextStyle,
   Transition,
@@ -128,6 +129,7 @@ export interface StoreState {
   // Load a project bundle (or New Project): wholesale replacement, fresh history.
   replaceProject: (project: Project, path: string | null) => void
   selectAllClips: () => void
+  addProjectFont: (font: ProjectFont) => void
 
   // Spike scaffolding: loads the flagship PiP demo (CONTEXT.md §2.3) as real,
   // editable clips + keyframes. Wipes existing timeline clips (single undo step).
@@ -750,6 +752,12 @@ export const useStore = create<StoreState>()(
           s.playhead = 0
           s.playing = false
           s.projectPath = path
+        }),
+
+      addProjectFont: (font) =>
+        mutateProject((p) => {
+          if (!p.fonts) p.fonts = []
+          if (!p.fonts.some((f) => f.fileName === font.fileName)) p.fonts.push(font)
         }),
 
       selectAllClips: () =>

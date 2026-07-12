@@ -4,6 +4,7 @@ import { useStore } from '../state/store'
 import IconBtn from './IconBtn'
 import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
+import { customFamilies } from '../persistence/fontManager'
 import type { Clip, Ease, TextAnimationPreset, TransitionType } from '../types/project'
 
 const EASES: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'spring']
@@ -170,7 +171,7 @@ function TextEditor({ clip }: { clip: Clip }) {
           value={st.font}
           onChange={(e) => updateTextClip(clip.id, { style: { font: e.target.value } })}
         >
-          {FONTS.map((f) => (
+          {[...FONTS, ...customFamilies()].map((f) => (
             <option key={f} value={f}>
               {f}
             </option>

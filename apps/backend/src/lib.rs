@@ -71,6 +71,31 @@ fn probe_media(path: String) -> Result<compositor::decoder::FullMediaInfo, Strin
     compositor::decoder::probe_full(&path)
 }
 
+// Font import: read the file once; bytes travel as base64 and are embedded in
+// the bundle on save (persistence::save_fonts).
+#[tauri::command]
+fn import_font(path: String) -> Result<persistence::BundleFont, String> {
+    use base64::Engine as _;
+    let p = std::path::Path::new(&path);
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if ext != "ttf" && ext != "otf" {
+        return Err("only .ttf/.otf fonts are supported".into());
+    }
+    let bytes = std::fs::read(p).map_err(|e| format!("read font: {e}"))?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("font file too large (>10MB)".into());
+    }
+    Ok(persistence::BundleFont {
+        file_name: p.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
+}
+
+#[tauri::command]
+fn save_fonts(bundle_path: String, fonts: Vec<persistence::BundleFont>) -> Result<(), String> {
+    persistence::save_fonts(std::path::Path::new(&bundle_path), &fonts)
+}
+
 #[tauri::command]
 fn save_project(
     app: tauri::AppHandle,
@@ -257,6 +282,8 @@ pub fn run() {
             env_flag,
             report_test,
             probe_media,
+            import_font,
+            save_fonts,
             save_project,
             load_project,
             list_recent_projects,

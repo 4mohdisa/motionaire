@@ -130,6 +130,12 @@ export interface CanvasSettings {
   background: string
 }
 
+export interface ProjectFont {
+  id: string
+  family: string
+  fileName: string // bytes live in the bundle's fonts/ dir
+}
+
 export interface Project {
   version: 1
   canvas: CanvasSettings
@@ -137,6 +143,7 @@ export interface Project {
   media: MediaAsset[]
   tracks: Track[]
   transcript: { words: unknown[] }
+  fonts?: ProjectFont[]
 }
 
 let uidCounter = 0

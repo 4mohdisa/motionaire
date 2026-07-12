@@ -898,3 +898,25 @@ grayscale at sat -1, clipped whites at +2 stops, warm shift), and keyframed
 exposure+saturation animating in the real preview via native captures at t=0.5
 vs t=5.5. Static grade values on the clip serve as the keyframe base exactly
 like transform statics.
+
+## Phase 4 — font import (bundle-embedded)
+
+Fonts are project assets, not machine state: "Import Font…" (File menu) copies
+the TTF/OTF bytes INTO the bundle at `fonts/<name>` (atomic write, 10MB cap,
+path components stripped server-side), and `project.fonts` stores only
+metadata `{id, family, fileName}`. On load, Rust returns each font's bytes
+(base64) with the bundle and the frontend registers them via the FontFace API
+— so a project opened on a machine that never had the font still renders it.
+Family name = file stem (ponytail: real name-table parsing needs a font parser
+dep; stem is correct for well-named files and the family is only a CSS key).
+Bytes are cached in a Map so save re-embeds without re-reading disk. Custom
+families appear in the text font dropdown alongside built-ins.
+
+Verified both legs: (1) SPIKE_FONT_TEST self-test — import Comic Sans MS.ttf
+via the real `import_font` command, apply to a text clip, save bundle, wreck
+state with a fresh empty project, reopen → PASS (registered/metaKept/
+textUsesIt/loadableAfterReload all true); (2) the persistence-session
+standard: killed the app, relaunched a FRESH process, opened the bundle from
+the recents menu, native capture shows the text clip rendering in Comic Sans
+from bundle bytes. Known limit: text is DOM-rendered (session-4 decision), so
+fonts affect preview/export only insofar as text stays DOM-composited.

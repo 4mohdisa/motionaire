@@ -69,6 +69,7 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &MenuItem::with_id(app, "file:save_as", "Save As…", true, Some("CmdOrCtrl+Shift+S"))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "file:import", "Import Media…", true, Some("CmdOrCtrl+I"))?,
+            &MenuItem::with_id(app, "file:import_font", "Import Font…", true, None::<&str>)?,
         ],
     )?;
 

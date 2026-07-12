@@ -50,11 +50,58 @@ pub fn save_bundle(bundle_dir: &Path, project_json: &str) -> Result<(), String> 
     Ok(())
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleFont {
+    pub file_name: String,
+    pub data_base64: String,
+}
+
+// Fonts embed INTO the bundle (fonts/ dir) — external references would recreate
+// the dies-when-the-path-dies problem media had before native import.
+pub fn save_fonts(bundle_dir: &Path, fonts: &[BundleFont]) -> Result<(), String> {
+    use base64::Engine as _;
+    let dir = bundle_dir.join("fonts");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for f in fonts {
+        // File names come from our own import flow; strip any path parts anyway.
+        let name = Path::new(&f.file_name)
+            .file_name()
+            .ok_or("bad font file name")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&f.data_base64)
+            .map_err(|e| format!("font b64: {e}"))?;
+        atomic_write(&dir.join(name), &bytes)?;
+    }
+    Ok(())
+}
+
+pub fn load_fonts(bundle_dir: &Path) -> Vec<BundleFont> {
+    use base64::Engine as _;
+    let mut out = Vec::new();
+    let Ok(rd) = fs::read_dir(bundle_dir.join("fonts")) else { return out };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf") {
+            continue;
+        }
+        if let Ok(bytes) = fs::read(&p) {
+            out.push(BundleFont {
+                file_name: entry.file_name().to_string_lossy().into_owned(),
+                data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
+        }
+    }
+    out
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadedBundle {
     pub project_json: String,
     pub missing_media: Vec<String>,
+    pub fonts: Vec<BundleFont>,
 }
 
 pub fn load_bundle(bundle_dir: &Path) -> Result<LoadedBundle, String> {
@@ -80,7 +127,8 @@ pub fn load_bundle(bundle_dir: &Path) -> Result<LoadedBundle, String> {
             }
         }
     }
-    Ok(LoadedBundle { project_json, missing_media })
+    let fonts = load_fonts(bundle_dir);
+    Ok(LoadedBundle { project_json, missing_media, fonts })
 }
 
 // ---- App-level SQLite (CONTEXT.md §8.2) ----

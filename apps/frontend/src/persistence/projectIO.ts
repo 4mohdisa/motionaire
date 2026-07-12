@@ -4,6 +4,7 @@ import { useStore } from '../state/store'
 import type { MediaAsset, Project } from '../types/project'
 import { uid } from '../types/project'
 import { isTauri } from '../compositor/bridge'
+import { persistFonts, restoreFonts, type BundleFont } from './fontManager'
 
 // Project bundle I/O (CONTEXT.md §8.1). The bundle is a `Name.motionaire/`
 // directory; Rust owns the crash-safe writes and the recents DB.
@@ -58,6 +59,7 @@ export async function saveProject(saveAs = false): Promise<boolean> {
       projectJson: serializeProject(s.project),
       name: bundleName(path),
     })
+    await persistFonts(path)
     useStore.getState().setProjectPath(path)
     return true
   } catch (e) {
@@ -77,10 +79,12 @@ export async function openProject(): Promise<void> {
 
 export async function openProjectPath(path: string): Promise<void> {
   try {
-    const { projectJson, missingMedia } = await invoke<{
+    const { projectJson, missingMedia, fonts } = await invoke<{
       projectJson: string
       missingMedia: string[]
+      fonts: BundleFont[]
     }>('load_project', { bundlePath: path, name: bundleName(path) })
+    await restoreFonts(fonts ?? [])
     const project = JSON.parse(projectJson) as Project
     const missing = new Set(missingMedia)
     for (const m of project.media) {

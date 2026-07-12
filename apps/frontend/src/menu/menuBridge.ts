@@ -47,6 +47,11 @@ async function dispatch(action: string, path?: string) {
     case 'file:import':
       await importMediaNative()
       break
+    case 'file:import_font': {
+      const { importFontFlow } = await import('../persistence/fontManager')
+      await importFontFlow()
+      break
+    }
     case 'edit:undo':
       if (isTyping()) document.execCommand('undo')
       else s.undo()
