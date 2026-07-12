@@ -9,6 +9,7 @@ import Ruler from './Ruler'
 import ClipBlock from './ClipBlock'
 import ContextMenu, { type MenuItem } from '../ContextMenu'
 import { freezeFrame } from '../../persistence/projectIO'
+import { MEDIA_DND } from '../MediaBin'
 import IconBtn from '../IconBtn'
 import { Dropdown, DropdownCheck, DropdownItem } from '../Dropdown'
 
@@ -298,6 +299,15 @@ function Timeline() {
                   data-lane-track={t.id}
                   data-lane-kind={t.kind}
                   onPointerDown={onLanePointerDown}
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes(MEDIA_DND)) e.preventDefault()
+                  }}
+                  onDrop={(e) => {
+                    const id = e.dataTransfer.getData(MEDIA_DND)
+                    if (!id) return
+                    e.preventDefault()
+                    useStore.getState().insertClipAt(id, t.id, xToTime(e.clientX))
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     setMenu({ x: e.clientX, y: e.clientY, clipId: null })

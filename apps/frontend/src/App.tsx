@@ -4,6 +4,7 @@ import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import Timeline from './components/timeline/Timeline'
 import { Activation, Launcher, Onboarding, useBootFlow } from './components/Shell'
+import MediaBin from './components/MediaBin'
 import { useEffect } from 'react'
 import { useShortcuts } from './hooks/useShortcuts'
 import { useStore } from './state/store'
@@ -79,6 +80,7 @@ function App() {
     >
       <TopBar />
       <main className="workspace">
+        <MediaBin />
         <Preview />
         <Resizer
           direction="col"

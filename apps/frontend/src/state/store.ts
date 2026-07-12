@@ -81,6 +81,11 @@ export interface StoreState {
   addMedia: (asset: MediaAsset) => void
   updateMedia: (id: string, patch: Partial<MediaAsset>) => void
   appendMediaClip: (mediaId: string) => void
+  // Media bin (session 9, Phase 2)
+  binOpen: boolean
+  setBinOpen: (v: boolean) => void
+  insertClipAt: (mediaId: string, trackId: string | null, at: number) => void
+  removeMedia: (mediaId: string) => void
   // Freeze frame: add a still asset + a clip on the topmost video track at
   // `at` (nearest gap; end of track if nothing fits).
   addStillClip: (asset: MediaAsset, at: number) => void
@@ -270,6 +275,57 @@ export const useStore = create<StoreState>()(
             effects: [],
           })
         }),
+
+      binOpen: true,
+      setBinOpen: (v) =>
+        set((s) => {
+          s.binOpen = v
+        }),
+
+      insertClipAt: (mediaId, trackId, at) =>
+        mutateProject((p) => {
+          const asset = p.media.find((a) => a.id === mediaId)
+          if (!asset) return
+          // Wrong-kind lane (or no lane): fall back to the first matching track.
+          let track = trackId ? p.tracks.find((t) => t.id === trackId) : undefined
+          if (!track || track.kind !== asset.kind)
+            track = p.tracks.find((t) => t.kind === asset.kind)
+          if (!track) return
+          const still = /\.(png|jpe?g)$/i.test(asset.path)
+          const dur = still ? 3 : asset.duration
+          if (dur <= 0) return
+          const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
+          const start = clampStartToGaps(
+            siblings,
+            dur,
+            snapToFrame(Math.max(0, at), p.canvas.fps),
+          )
+          if (start === null) return
+          track.clips.push({
+            id: uid('c'),
+            kind: asset.kind,
+            mediaId,
+            start: snapToFrame(start, p.canvas.fps),
+            in: 0,
+            out: dur,
+            speed: 1,
+            volume: 1,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+        }),
+
+      removeMedia: (mediaId) => {
+        mutateProject((p) => {
+          p.media = p.media.filter((m) => m.id !== mediaId)
+          for (const t of p.tracks) t.clips = t.clips.filter((c) => c.mediaId !== mediaId)
+        })
+        set((s) => {
+          s.selection = s.selection.filter((id) => findClip(s.project as Project, id))
+        })
+      },
 
       addStillClip: (asset, at) =>
         mutateProject((p) => {
@@ -921,6 +977,9 @@ export const useStore = create<StoreState>()(
           })
           const screenAsset = mkAsset(screen, 'screen.mp4')
           const camAsset = mkAsset(cam, 'cam.mp4')
+          // Repeat demo loads must not accumulate duplicate media — invisible
+          // until the media bin existed, caught by its listing (session 9).
+          p.media = p.media.filter((m) => m.path !== screen.path && m.path !== cam.path)
           p.media.push(screenAsset, camAsset)
 
           const videoTracks = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)

@@ -1017,3 +1017,21 @@ scene (clip colors, fx badges, keyframes, adjustment stripes, playhead).
 - Verified: p1-shell PASS (deactivate → bad key rejected → activate →
   status flips → onboarding flag persists → programmatic save produces a
   real thumbnail in recents) + native captures of all three screens.
+
+## Phase 2 — media bin
+
+Left panel in the editor workspace (collapsible to a rail; no native menu
+item — zero Rust surface for a per-session toggle). Rows: filmstrip-first-
+tile thumbnails (reuses the Phase-5.5 strip cache — no new extraction path),
+name, duration, resolution, kind; offline badge rides the existing missing
+flag. Drag to timeline is native HTML5 DnD (custom text/motionaire-media
+type); drop resolves time via xToTime and the lane's track, falling back to
+the first kind-matching track on a wrong-kind lane. insertClipAt clamps to
+gaps like every other placement; stills get 3s default. Right-click: add at
+playhead, Reveal in Finder (open -R via Rust), Relink (re-probe + updateMedia
+— compositor picks it up through the normal flatten sync), Remove (asset +
+every clip using it, selection pruned). Found & fixed by the bin's own
+listing: loadPipDemo accumulated duplicate media assets on repeat loads —
+invisible for eight sessions because nothing ever showed the media array.
+Verified: p2-bin PASS (real DnD DragEvents land a clip at exactly 12s;
+removeMedia sweeps) + native capture of the populated bin.

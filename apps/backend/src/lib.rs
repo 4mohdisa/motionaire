@@ -181,6 +181,15 @@ fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<Froze
 }
 
 #[tauri::command]
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    let status = std::process::Command::new("open")
+        .args(["-R", &path])
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() { Ok(()) } else { Err("open -R failed".into()) }
+}
+
+#[tauri::command]
 fn license_status() -> bool {
     license::is_activated()
 }
@@ -420,6 +429,7 @@ pub fn run() {
             get_setting,
             set_setting,
             remove_recent_project,
+            reveal_in_finder,
             import_font,
             save_fonts,
             save_project,

@@ -433,6 +433,66 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p2_bin_test': {
+      // Phase 2 (session 9): bin lists media, real DnD drop places a clip at
+      // the drop time, removeMedia sweeps clips, relink data path verified
+      // through updateMedia.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p2-bin', pass, detail }).catch(() => {})
+      const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await tick(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const listed = document.querySelectorAll('.bin__item').length
+        // Real drag-and-drop: bin item → V2 lane at ~12s (past the 10s clips).
+        const item = document.querySelector<HTMLElement>('.bin__item')!
+        const lane = document.querySelector<HTMLElement>('[data-lane-track]')!
+        const laneRect = lane.getBoundingClientRect()
+        const dt = new DataTransfer()
+        item.dispatchEvent(
+          new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }),
+        )
+        const dropX = laneRect.left + 12 * 60 // 12s at 60px/s, scrollLeft 0
+        lane.dispatchEvent(
+          new DragEvent('dragover', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: dt,
+            clientX: dropX,
+            clientY: laneRect.top + 10,
+          }),
+        )
+        lane.dispatchEvent(
+          new DragEvent('drop', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: dt,
+            clientX: dropX,
+            clientY: laneRect.top + 10,
+          }),
+        )
+        await tick()
+        const clipsAfterDrop = st().project.tracks.flatMap((t) => t.clips).length
+        const dropped = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => Math.abs(c.start - 12) < 0.5)
+        // removeMedia: nukes the asset and every clip using it
+        const victim = st().project.media[0]
+        const before = st().project.tracks.flatMap((t) => t.clips).length
+        st().removeMedia(victim.id)
+        const after = st().project.tracks.flatMap((t) => t.clips).length
+        const mediaGone = !st().project.media.some((m) => m.id === victim.id)
+        void report(
+          listed === 2 && clipsAfterDrop === 3 && !!dropped && mediaGone && after < before,
+          `listed=${listed} clipsAfterDrop=${clipsAfterDrop} droppedAt=${dropped?.start} mediaGone=${mediaGone} clips ${before}→${after}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.
