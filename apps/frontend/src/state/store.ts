@@ -31,7 +31,7 @@ export interface ExportSettings {
   width: number
   height: number
   fps: number
-  format: 'mp4' | 'webm' | 'mov'
+  format: 'mp4' | 'hevc' | 'prores' | 'm4a' | 'gif' | 'png'
   quality: number // 1..100
 }
 

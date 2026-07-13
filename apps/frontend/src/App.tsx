@@ -112,12 +112,26 @@ function App() {
     void import('@tauri-apps/api/event').then(({ listen }) => {
       void listen<{ ok: boolean; cancelled?: boolean; error?: string }>('export:done', (e) => {
         const s = useStore.getState()
+        s.dismissToast('export-progress')
         if (e.payload.ok) s.pushToast('success', 'Export finished')
         else if (e.payload.cancelled) s.pushToast('info', 'Export cancelled')
         else s.pushToast('error', `Export failed: ${e.payload.error ?? 'unknown error'}`)
       }).then((f) => {
         if (dead) f()
         else unExp = f
+      })
+      // Background export (foundation, Phase 6): progress survives the panel
+      // being closed, and queued jobs announce themselves.
+      void listen<{ done: number; total: number }>('export:progress', (e) => {
+        const s = useStore.getState()
+        s.pushToast('progress', 'Exporting…', 'export-progress')
+        s.updateToast('export-progress', {
+          progress: e.payload.done / Math.max(1, e.payload.total),
+          text: `Exporting… ${e.payload.done}/${e.payload.total} frames`,
+        })
+      })
+      void listen<{ depth: number }>('export:queued', (e) => {
+        useStore.getState().pushToast('info', `Export queued (${e.payload.depth} waiting)`)
       })
     })
     let unlisten: (() => void) | undefined

@@ -37,6 +37,9 @@ function ExportPanel() {
     }
   }, [])
 
+  const markIn = useStore((s) => s.markIn)
+  const markOut = useStore((s) => s.markOut)
+
   if (!open) return null
 
   const running = progress !== null
@@ -59,9 +62,32 @@ function ExportPanel() {
   }
 
   return (
-    <div className="modal" onPointerDown={() => !running && setExportOpen(false)}>
+    <div className="modal" onPointerDown={() => setExportOpen(false)}>
       <div className="modal__panel" onPointerDown={(e) => e.stopPropagation()}>
         <div className="modal__title">Export</div>
+
+        <div className="modal__section">Export preset</div>
+        <div className="modal__chips">
+          {(
+            [
+              ['YouTube 1080p', 1080, 30, 80, 'mp4'],
+              ['YouTube 4K', 2160, 30, 85, 'hevc'],
+              ['Reel / TikTok', 1920, 30, 75, 'mp4'],
+              ['Square', 1080, 30, 75, 'mp4'],
+              ['GIF clip', 480, 15, 60, 'gif'],
+            ] as [string, number, number, number, typeof settings.format][]
+          ).map(([label, h, pfps, q, fmt]) => (
+            <button
+              key={label}
+              className="chip"
+              disabled={running}
+              title={`${h}p @ ${pfps}fps, quality ${q}, ${fmt}`}
+              onClick={() => setExportSettings({ height: h, fps: pfps, quality: q, format: fmt })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <div className="modal__section">Canvas preset</div>
         <div className="modal__chips">
@@ -132,9 +158,19 @@ function ExportPanel() {
           </label>
           <label className="modal__field">
             <span>Format</span>
-            {/* ponytail: H.264/MP4 is the wired pipeline; other containers when asked for */}
-            <select value="mp4" disabled>
+            <select
+              value={settings.format}
+              disabled={running}
+              onChange={(e) =>
+                setExportSettings({ format: e.target.value as typeof settings.format })
+              }
+            >
               <option value="mp4">MP4 (H.264)</option>
+              <option value="hevc">MP4 (H.265/HEVC)</option>
+              <option value="prores">MOV (ProRes 422)</option>
+              <option value="m4a">M4A (audio only)</option>
+              <option value="gif">GIF (15fps, silent)</option>
+              <option value="png">PNG sequence</option>
             </select>
           </label>
           <label className="modal__field modal__field--wide">
@@ -186,24 +222,31 @@ function ExportPanel() {
           </div>
         )}
 
+        {markIn !== null && markOut !== null && markOut > markIn && (
+          <div className="modal__notice">
+            Export range: {markIn.toFixed(2)}s → {markOut.toFixed(2)}s (timeline in/out marks —
+            ⌥I/⌥O clears)
+          </div>
+        )}
         <div className="modal__actions">
-          {running ? (
+          {running && (
             <button
               className="topbar__btn"
               onClick={() => void invoke('cancel_export').catch(() => {})}
             >
               Cancel export
             </button>
-          ) : (
-            <>
-              <button className="topbar__btn" onClick={() => setExportOpen(false)}>
-                Close
-              </button>
-              <button className="topbar__btn topbar__btn--primary" onClick={() => void begin()}>
-                Export…
-              </button>
-            </>
           )}
+          <button className="topbar__btn" onClick={() => setExportOpen(false)}>
+            {running ? 'Close (keeps running)' : 'Close'}
+          </button>
+          <button
+            className="topbar__btn topbar__btn--primary"
+            onClick={() => void begin()}
+            title={running ? 'Queues behind the running export' : undefined}
+          >
+            {running ? 'Queue export…' : 'Export…'}
+          </button>
         </div>
       </div>
     </div>

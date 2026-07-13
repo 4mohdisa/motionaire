@@ -1410,3 +1410,31 @@ through the (parity-locked) keyframe engine, so all of it keyframes.
      while playing, but clamp them MONOTONIC (backward jitter filtered,
      genuine seeks >0.35s reset). Logged as the clock contract.
 - Bin rows show "· proxy"; progress/success/failure all ride toasts.
+
+## Phase 6 — export completeness
+
+- **Range:** exports honor the timeline in/out marks (both set, out > in);
+  the RANGE math lives entirely frontend-side — audio specs are clamped to
+  the window and re-expressed range-relative (in/out shifted through the
+  clip's speed mapping, volume keyframes shifted, start rebased), so the
+  Rust graph stayed range-ignorant; video just starts its frame loop at
+  settings.start. Verified: a 2s..5s marked range produced exactly 3.00s
+  files with audio.
+- **Presets:** one-click chips (YouTube 1080p / 4K HEVC / Reel / Square /
+  GIF clip) setting height+fps+quality+format. Export dimensions still
+  follow the CANVAS aspect at the preset height — cross-aspect export is
+  a canvas concern (Phase 7's project settings), logged.
+- **Formats:** H.264 mp4 (existing), H.265 (hevc_videotoolbox, hvc1 tag,
+  x265 fallback), ProRes 422 .mov (prores_videotoolbox / prores_ks, PCM
+  audio per convention), M4A audio-only (skips GPU + frame loop entirely —
+  the graph runs against a dummy anullsrc input to keep the 1-based input
+  indexing), GIF (single-pass palettegen/paletteuse at 15fps; break-test
+  found the filter output must be labeled+mapped, not raw 0:v), PNG
+  sequence (image2, name-%05d.png). WebM dropped from the format enum —
+  it was never wired, and a dead option violates the session's own rule.
+- **Background export:** already thread-based; now the panel closes while
+  running (progress continues as a global progress toast), a second export
+  QUEUES in Rust (VecDeque drained by the worker; export:queued toast),
+  and cancel kills only the current job.
+- Verified: f6-export PASS — mp4 3.00s+audio, hevc, gif, m4a 3.00s
+  audio-only, all from a real marked range.

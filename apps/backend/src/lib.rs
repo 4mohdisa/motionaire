@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use compositor::types::SyncProject;
 use compositor::Compositor;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 fn sync_project(state: State<Compositor>, project: SyncProject) {
@@ -336,16 +336,21 @@ fn start_export(
     settings: export::ExportSettings,
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
+    let texts = comp.clone_text_rasters();
+    let job = export::ExportJob { project, texts, audio, settings };
     if exporter.running.swap(true, Ordering::SeqCst) {
-        return Err("An export is already running.".into());
+        // Background queue (foundation, Phase 6): keep working, we'll run it.
+        exporter.queue.lock().unwrap().push_back(job);
+        let depth = exporter.queue.lock().unwrap().len();
+        let _ = app.emit("export:queued", serde_json::json!({ "depth": depth }));
+        return Ok(());
     }
     exporter.cancel.store(false, Ordering::SeqCst);
-    let texts = comp.clone_text_rasters();
     let mgr = exporter.inner().clone();
     let app2 = app.clone();
     std::thread::Builder::new()
         .name("export".into())
-        .spawn(move || export::run_export(app2, mgr, project, texts, audio, settings))
+        .spawn(move || export::run_export(app2, mgr, job))
         .map_err(|e| {
             exporter.running.store(false, Ordering::SeqCst);
             e.to_string()

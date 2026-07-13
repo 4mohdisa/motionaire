@@ -1361,6 +1361,84 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f6_export_test': {
+      // Foundation Phase 6: range export honors in/out marks (duration +
+      // audio window), and hevc/gif/m4a produce valid files. Uses the
+      // p5_export-style scene (video + tone with fade).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f6-export', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const tonePath = await invoke<string>('spike_audio', { pattern: null })
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        // Range 2s..5s via real marks.
+        st().setMarkIn(2)
+        st().setMarkOut(5)
+        const { runExport } = await import('../compositor/exportRunner')
+        const doneOnce = () =>
+          new Promise<boolean>((resolve) => {
+            void import('@tauri-apps/api/event').then(({ listen }) => {
+              void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+                (un) => setTimeout(un, 120000),
+              )
+            })
+          })
+        // 1) mp4 range export
+        st().setExportSettings({ format: 'mp4', height: 720, fps: 30, quality: 70 })
+        let p = doneOnce()
+        await runExport('/tmp/f6-range.mp4')
+        const ok1 = await p
+        const probe1 = await invoke<{ duration: number; hasAudio: boolean }>('probe_media', {
+          path: '/tmp/f6-range.mp4',
+        })
+        // 2) hevc
+        st().setExportSettings({ format: 'hevc' })
+        p = doneOnce()
+        await runExport('/tmp/f6-range-hevc.mp4')
+        const ok2 = await p
+        // 3) gif (silent, 15fps)
+        st().setExportSettings({ format: 'gif' })
+        p = doneOnce()
+        await runExport('/tmp/f6-range.gif')
+        const ok3 = await p
+        // 4) m4a audio-only
+        st().setExportSettings({ format: 'm4a' })
+        p = doneOnce()
+        await runExport('/tmp/f6-range.m4a')
+        const ok4 = await p
+        const probe4 = await invoke<{ duration: number; width: number }>('probe_media', {
+          path: '/tmp/f6-range.m4a',
+        })
+        st().setMarkIn(null)
+        st().setMarkOut(null)
+        st().setExportSettings({ format: 'mp4' })
+        const durOk = Math.abs(probe1.duration - 3) < 0.15
+        const m4aOk = ok4 && probe4.width === 0 && Math.abs(probe4.duration - 3) < 0.25
+        void report(
+          ok1 && ok2 && ok3 && durOk && m4aOk,
+          `mp4=${ok1} dur=${probe1.duration.toFixed(2)}s (want 3) audio=${probe1.hasAudio} hevc=${ok2} gif=${ok3} m4a=${m4aOk} (${probe4.duration.toFixed(2)}s)`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

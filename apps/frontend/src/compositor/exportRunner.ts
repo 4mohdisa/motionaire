@@ -21,7 +21,9 @@ interface AudioClipSpec {
   pan: number
 }
 
-function audioSpecs(project: Project): AudioClipSpec[] {
+// Clamp clips to the export range and re-express them range-relative, so
+// the Rust graph needs no range awareness at all (foundation, Phase 6).
+function audioSpecs(project: Project, rangeStart: number, rangeEnd: number): AudioClipSpec[] {
   const specs: AudioClipSpec[] = []
   for (const track of project.tracks) {
     const anySolo = project.tracks.some((t) => t.kind === track.kind && t.solo)
@@ -37,14 +39,21 @@ function audioSpecs(project: Project): AudioClipSpec[] {
       // Silent-forever clips (e.g. detached video halves) add nothing but
       // an ffmpeg input — skip them.
       if (clip.volume <= 0 && kfs.every(([, v]) => v <= 0)) continue
+      const clipEndT = clip.start + (clip.out - clip.in) / clip.speed
+      if (clipEndT <= rangeStart || clip.start >= rangeEnd) continue
+      const winStart = Math.max(clip.start, rangeStart)
+      const winEnd = Math.min(clipEndT, rangeEnd)
+      const inAdj = clip.in + (winStart - clip.start) * clip.speed
+      const outAdj = clip.in + (winEnd - clip.start) * clip.speed
+      const shift = winStart - clip.start // kf times are clip-relative
       specs.push({
         path: asset.path,
-        in: clip.in,
-        out: clip.out,
+        in: inAdj,
+        out: outAdj,
         speed: clip.speed,
-        start: clip.start,
+        start: winStart - rangeStart,
         volume: clip.volume,
-        volumePoints: kfs,
+        volumePoints: kfs.map(([t, v]) => [t - shift, v] as [number, number]),
         pan: clip.pan ?? 0,
       })
     }
@@ -82,24 +91,34 @@ export async function runExport(outPathOverride?: string): Promise<string | null
     })
     return null
   }
+  const format = s.exportSettings.format
+  const ext =
+    format === 'hevc' ? 'mp4' : format === 'prores' ? 'mov' : format === 'm4a' ? 'm4a' : format
   let outputPath = outPathOverride
   if (!outputPath) {
     const picked = await save({
-      title: 'Export video',
-      defaultPath: 'Export.mp4',
-      filters: [{ name: 'MP4 video', extensions: ['mp4'] }],
+      title: 'Export',
+      defaultPath: `Export.${ext}`,
+      filters: [{ name: format.toUpperCase(), extensions: [ext] }],
     })
     if (!picked) return null
-    outputPath = picked.endsWith('.mp4') ? picked : `${picked}.mp4`
+    outputPath = picked.endsWith(`.${ext}`) ? picked : `${picked}.${ext}`
   }
+  // Export range (foundation, Phase 6): between the timeline in/out marks
+  // when both are set; the whole timeline otherwise.
+  const hasRange = s.markIn !== null && s.markOut !== null && s.markOut > s.markIn
+  const rangeStart = hasRange ? s.markIn! : 0
+  const rangeEnd = hasRange ? s.markOut! : s.project.duration
   await invoke('start_export', {
     project: flatten(s.project, { originals: true }), // export NEVER decodes proxies
-    audio: audioSpecs(s.project),
+    audio: audioSpecs(s.project, rangeStart, rangeEnd),
     settings: {
       outputPath,
-      height: s.project.canvas.height,
-      fps: s.project.canvas.fps,
-      duration: s.project.duration,
+      height: s.exportSettings.height || s.project.canvas.height,
+      fps: s.exportSettings.fps || s.project.canvas.fps,
+      duration: rangeEnd - rangeStart,
+      start: rangeStart,
+      format,
       quality: s.exportSettings.quality,
       masterVolume: s.project.masterVolume ?? 1,
     },

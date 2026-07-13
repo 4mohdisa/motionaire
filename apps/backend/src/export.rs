@@ -27,6 +27,17 @@ pub struct ExportSettings {
     // Project output gain (foundation, Phase 3).
     #[serde(default = "default_master")]
     pub master_volume: f64,
+    // Export range start (foundation, Phase 6): render begins at this
+    // timeline second; audio specs arrive already range-relative.
+    #[serde(default)]
+    pub start: f64,
+    // mp4 (h264) | hevc | prores | m4a | gif | png (foundation, Phase 6)
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+fn default_format() -> String {
+    "mp4".into()
 }
 
 fn default_master() -> f64 {
@@ -52,12 +63,22 @@ pub struct AudioClipSpec {
     pub pan: f64,
 }
 
+pub struct ExportJob {
+    pub project: SyncProject,
+    pub texts: std::collections::HashMap<String, TextRaster>,
+    pub audio: Vec<AudioClipSpec>,
+    pub settings: ExportSettings,
+}
+
 #[derive(Default)]
 pub struct ExportManager {
     pub running: AtomicBool,
     pub cancel: AtomicBool,
     pub done: AtomicU64,
     pub total: AtomicU64,
+    // Background queue (foundation, Phase 6): exports submitted while one
+    // runs wait here; the worker drains it.
+    pub queue: std::sync::Mutex<std::collections::VecDeque<ExportJob>>,
 }
 
 pub type Exporter = Arc<ExportManager>;
@@ -156,32 +177,42 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run_export(
-    app: tauri::AppHandle,
-    mgr: Exporter,
-    project: SyncProject,
-    texts: std::collections::HashMap<String, TextRaster>,
-    audio: Vec<AudioClipSpec>,
-    settings: ExportSettings,
-) {
-    let result = export_inner(&app, &mgr, project, texts, audio, &settings);
-    mgr.running.store(false, Ordering::SeqCst);
-    match result {
-        Ok(()) => {
-            log::info!("export: done → {}", settings.output_path);
-            let _ = app.emit("export:done", serde_json::json!({ "ok": true }));
+pub fn run_export(app: tauri::AppHandle, mgr: Exporter, job: ExportJob) {
+    let mut job = job;
+    loop {
+        let ExportJob { project, texts, audio, settings } = job;
+        let result = export_inner(&app, &mgr, project, texts, audio, &settings);
+        match result {
+            Ok(()) => {
+                log::info!("export: done → {}", settings.output_path);
+                let _ = app.emit(
+                    "export:done",
+                    serde_json::json!({ "ok": true, "path": settings.output_path }),
+                );
+            }
+            Err(e) => {
+                log::error!("export: FAILED: {e}");
+                // Never leave a half-written file behind.
+                let _ = std::fs::remove_file(&settings.output_path);
+                let cancelled = mgr.cancel.load(Ordering::SeqCst);
+                let _ = app.emit(
+                    "export:done",
+                    serde_json::json!({ "ok": false, "cancelled": cancelled, "error": e }),
+                );
+            }
         }
-        Err(e) => {
-            log::error!("export: FAILED: {e}");
-            // Never leave a half-written file behind.
-            let _ = std::fs::remove_file(&settings.output_path);
-            let cancelled = mgr.cancel.load(Ordering::SeqCst);
-            let _ = app.emit(
-                "export:done",
-                serde_json::json!({ "ok": false, "cancelled": cancelled, "error": e }),
-            );
+        // Drain the queue (cancel clears only the current job).
+        mgr.cancel.store(false, Ordering::SeqCst);
+        let next = mgr.queue.lock().unwrap().pop_front();
+        match next {
+            Some(n) => {
+                job = n;
+                let _ = app.emit("export:dequeued", serde_json::json!({}));
+            }
+            None => break,
         }
     }
+    mgr.running.store(false, Ordering::SeqCst);
 }
 
 fn export_inner(
@@ -192,6 +223,9 @@ fn export_inner(
     audio: Vec<AudioClipSpec>,
     settings: &ExportSettings,
 ) -> Result<(), String> {
+    if settings.format == "m4a" {
+        return export_audio_only(mgr, &audio, settings);
+    }
     let canvas_w = project.canvas.width;
     let canvas_h = project.canvas.height;
     // Width follows the canvas aspect at the requested height (logged).
@@ -217,6 +251,8 @@ fn export_inner(
         "-i".into(),
         "pipe:0".into(),
     ];
+    let audio_capable = !matches!(settings.format.as_str(), "gif" | "png");
+    let audio: Vec<AudioClipSpec> = if audio_capable { audio } else { Vec::new() };
     for c in &audio {
         args.push("-i".into());
         args.push(c.path.clone());
@@ -228,41 +264,86 @@ fn export_inner(
         args.push("0:v".into());
         args.push("-map".into());
         args.push("[aout]".into());
-        args.push("-c:a".into());
-        args.push("aac".into());
-        args.push("-b:a".into());
-        args.push("192k".into());
+        if settings.format == "prores" {
+            args.push("-c:a".into());
+            args.push("pcm_s16le".into());
+        } else {
+            args.push("-c:a".into());
+            args.push("aac".into());
+            args.push("-b:a".into());
+            args.push("192k".into());
+        }
     } else {
         args.push("-map".into());
-        args.push("0:v".into());
+        // GIF's palette filter consumes [0:v]; map its labeled output instead.
+        args.push(if settings.format == "gif" { "[gout]".into() } else { "0:v".to_string() });
         args.push("-an".into());
     }
     let q = settings.quality.min(100);
-    if vt {
-        // Bitrate heuristic scaled by pixel count relative to 1080p.
-        let px_scale = (w as f64 * h as f64) / (1920.0 * 1080.0);
-        let kbps = ((3000.0 + q as f64 * 150.0) * px_scale).round() as u64;
-        args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), format!("{kbps}k")]);
-    } else {
-        let crf = (30.0 - q as f64 * 0.16).round().clamp(14.0, 30.0);
-        args.extend([
-            "-c:v".into(),
-            "libx264".into(),
-            "-preset".into(),
-            "veryfast".into(),
-            "-crf".into(),
-            format!("{crf}"),
-        ]);
+    let px_scale = (w as f64 * h as f64) / (1920.0 * 1080.0);
+    let kbps = ((3000.0 + q as f64 * 150.0) * px_scale).round() as u64;
+    let crf = (30.0 - q as f64 * 0.16).round().clamp(14.0, 30.0);
+    match settings.format.as_str() {
+        "hevc" => {
+            if vt {
+                args.extend([
+                    "-c:v".into(), "hevc_videotoolbox".into(),
+                    "-b:v".into(), format!("{kbps}k"),
+                    "-tag:v".into(), "hvc1".into(), // QuickTime compatibility
+                ]);
+            } else {
+                args.extend([
+                    "-c:v".into(), "libx265".into(),
+                    "-preset".into(), "fast".into(),
+                    "-crf".into(), format!("{crf}"),
+                    "-tag:v".into(), "hvc1".into(),
+                ]);
+            }
+            args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+        }
+        "prores" => {
+            // ProRes 422 Standard; VideoToolbox on Apple Silicon, prores_ks fallback.
+            if vt {
+                args.extend(["-c:v".into(), "prores_videotoolbox".into(), "-profile:v".into(), "2".into()]);
+            } else {
+                args.extend(["-c:v".into(), "prores_ks".into(), "-profile:v".into(), "2".into()]);
+            }
+        }
+        "gif" => {
+            // Palette in one pass; GIF caps at 15fps and has no audio.
+            args.extend([
+                "-filter_complex".into(),
+                "[0:v]fps=15,split[ga][gb];[ga]palettegen=stats_mode=diff[p];[gb][p]paletteuse=dither=bayer[gout]".into(),
+            ]);
+        }
+        "png" => {
+            args.extend(["-f".into(), "image2".into()]);
+        }
+        _ => {
+            // mp4 / h264 — the original path.
+            if vt {
+                args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), format!("{kbps}k")]);
+            } else {
+                args.extend([
+                    "-c:v".into(), "libx264".into(),
+                    "-preset".into(), "veryfast".into(),
+                    "-crf".into(), format!("{crf}"),
+                ]);
+            }
+            args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+        }
     }
-    args.extend([
-        "-pix_fmt".into(),
-        "yuv420p".into(),
-        "-t".into(),
-        format!("{:.6}", settings.duration),
-        "-movflags".into(),
-        "+faststart".into(),
-        settings.output_path.clone(),
-    ]);
+    args.extend(["-t".into(), format!("{:.6}", settings.duration)]);
+    if matches!(settings.format.as_str(), "mp4" | "hevc") {
+        args.extend(["-movflags".into(), "+faststart".into()]);
+    }
+    // PNG sequence writes a numbered pattern next to the chosen name.
+    let out_path = if settings.format == "png" {
+        settings.output_path.replace(".png", "-%05d.png")
+    } else {
+        settings.output_path.clone()
+    };
+    args.push(out_path);
 
     log::info!(
         "export: {}x{} @{fps}fps, {total} frames, encoder={}, {} audio clip(s) → {}",
@@ -288,7 +369,7 @@ fn export_inner(
             frame_err = Some("cancelled".into());
             break;
         }
-        let t = n as f64 / fps;
+        let t = settings.start + n as f64 / fps;
         let rgba = gpu.render_at(&project, t, &texts)?;
         if let Err(e) = stdin.write_all(&rgba) {
             frame_err = Some(format!("ffmpeg pipe closed at frame {n}: {e}"));
@@ -369,4 +450,49 @@ mod tests {
         assert_eq!(atempo_chain(4.0), "atempo=2.0,atempo=2.000000");
         assert_eq!(atempo_chain(0.25), "atempo=0.5,atempo=0.500000");
     }
+}
+
+
+// Audio-only export (foundation, Phase 6): the mix graph without the video
+// pipe — no GPU, no frame loop; the mix is effectively instant.
+fn export_audio_only(
+    mgr: &Exporter,
+    audio: &[AudioClipSpec],
+    settings: &ExportSettings,
+) -> Result<(), String> {
+    if audio.is_empty() {
+        return Err("No audible clips in the export range.".into());
+    }
+    mgr.total.store(1, Ordering::SeqCst);
+    mgr.done.store(0, Ordering::SeqCst);
+    let ffmpeg = crate::compositor::decoder::ffmpeg_bin();
+    let mut args: Vec<String> = vec!["-y".into()];
+    for c in audio {
+        args.push("-i".into());
+        args.push(c.path.clone());
+    }
+    // The graph indexes inputs from 1 (video pipe convention); with no video
+    // input, shift by feeding a dummy silent first input.
+    args.splice(1..1, ["-f".into(), "lavfi".into(), "-i".into(), "anullsrc=r=48000:cl=stereo".into()]);
+    args.extend([
+        "-filter_complex".into(),
+        build_audio_graph(audio, settings.master_volume),
+        "-map".into(), "[aout]".into(),
+        "-vn".into(),
+        "-c:a".into(), "aac".into(),
+        "-b:a".into(), "192k".into(),
+        "-t".into(), format!("{:.6}", settings.duration),
+        settings.output_path.clone(),
+    ]);
+    let status = Command::new(&ffmpeg)
+        .args(&args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+    if !status.status.success() {
+        return Err(format!("ffmpeg failed: {}", String::from_utf8_lossy(&status.stderr)));
+    }
+    mgr.done.store(1, Ordering::SeqCst);
+    Ok(())
 }
