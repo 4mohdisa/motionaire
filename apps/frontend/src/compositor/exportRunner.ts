@@ -1,8 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { save, message } from '@tauri-apps/plugin-dialog'
 import { useStore } from '../state/store'
-import type { Project } from '../types/project'
+import type { Clip, Project } from '../types/project'
 import { flatten } from './bridge'
+import { resolveProp } from '../engine/keyframes'
+import { clipDuration } from '../engine/time'
 
 // Export job assembly (session 9, Phase 5). Video structure reuses flatten()
 // — the exact payload the preview compositor renders, per CONTEXT.md §3.1.
@@ -30,9 +32,7 @@ function audioSpecs(project: Project): AudioClipSpec[] {
       // Speed-ramped clips are video-only (time-varying audio tempo is not
       // representable in the filter graph — logged Phase 7 decision).
       if (clip.keyframes.some((k) => k.prop === 'speed')) continue
-      const kfs = clip.keyframes
-        .filter((k) => k.prop === 'volume')
-        .map((k) => [k.t, k.v] as [number, number])
+      const kfs = volumePoints(clip)
       // Silent-forever clips (e.g. detached video halves) add nothing but
       // an ffmpeg input — skip them.
       if (clip.volume <= 0 && kfs.every(([, v]) => v <= 0)) continue
@@ -48,6 +48,27 @@ function audioSpecs(project: Project): AudioClipSpec[] {
     }
   }
   return specs
+}
+
+// Volume keyframes for the FFmpeg piecewise-LINEAR volume expression.
+// Foundation Phase 1 parity fix: preview eases these curves, but a linear
+// expr between raw keyframes ignored easing — export now samples the eased
+// curve (through the parity-locked mirror) at 10Hz across any segment whose
+// left keyframe has a non-linear ease.
+function volumePoints(clip: Clip): [number, number][] {
+  const kfs = clip.keyframes
+    .filter((k) => k.prop === 'volume')
+    .sort((a, b) => a.t - b.t)
+  if (!kfs.length) return []
+  if (kfs.every((k) => k.ease === 'linear')) return kfs.map((k) => [k.t, k.v])
+  const out: [number, number][] = []
+  const end = Math.min(kfs[kfs.length - 1].t, clipDuration(clip))
+  const STEP = 0.1
+  out.push([kfs[0].t, kfs[0].v])
+  for (let t = kfs[0].t + STEP; t < end; t += STEP)
+    out.push([Number(t.toFixed(4)), resolveProp(clip, 'volume', t)])
+  out.push([end, resolveProp(clip, 'volume', end)])
+  return out
 }
 
 export async function runExport(outPathOverride?: string): Promise<string | null> {

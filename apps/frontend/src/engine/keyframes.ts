@@ -1,5 +1,16 @@
 import type { Clip, Ease, Keyframe } from '../types/project'
 
+// ============================================================================
+// DISPLAY-ONLY MIRROR (foundation session, Phase 1).
+// Rust (compositor/keyframes.rs + types.rs source_time) is the single source
+// of truth for anything that RENDERS or EXPORTS. This TypeScript copy exists
+// only for DOM-side consumers that cannot reach Rust per tick: properties-
+// panel readouts, audio-element gain, element pre-seeking, and the browser-
+// mode fallback overlay. It must stay formula-identical; the f1-parity
+// self-test (dev:f1_parity_test) compares both against a torture fixture and
+// fails loudly on drift. Change the formulas in BOTH places or not at all.
+// ============================================================================
+
 // Numeric properties that can carry keyframes. CONTEXT.md §1.2.
 export const KEYFRAMEABLE_PROPS = [
   'transform.x',

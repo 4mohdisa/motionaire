@@ -961,6 +961,124 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f1_parity_test': {
+      // Foundation Phase 1: TS display mirror vs the PRODUCTION Rust resolver
+      // over a torture fixture — every easing, multi-kf curves, statics,
+      // grade, and a speed ramp, sampled densely including out-of-range times.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f1-parity', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        const { resolveProp } = await import('../engine/keyframes')
+        const { sourceTime } = await import('../engine/time')
+        const { flatten } = await import('../compositor/bridge')
+        const vids = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)
+        const cam = vids[0].clips[0]
+        const screen = vids[1].clips[0]
+        // Torture fixture: mutate the FLATTENED payload directly — the probe
+        // consumes the payload and the TS mirror resolves the same payload,
+        // so both sides see byte-identical inputs without fighting the
+        // store's stopwatch semantics.
+        const payload = flatten(st().project)
+        const camL = payload.layers.find((l) => l.id === cam.id)!
+        const scrL = payload.layers.find((l) => l.id === screen.id)!
+        camL.keyframes = [
+          { prop: 'transform.x', t: 0, v: -400, ease: 'linear' },
+          { prop: 'transform.x', t: 3.7, v: 400, ease: 'linear' },
+          { prop: 'transform.y', t: 0.3, v: -200, ease: 'easeIn' },
+          { prop: 'transform.y', t: 5.1, v: 260, ease: 'easeIn' },
+          { prop: 'transform.scale', t: 0, v: 1, ease: 'easeInOut' },
+          { prop: 'transform.scale', t: 1.2, v: 0.1, ease: 'easeInOut' },
+          { prop: 'transform.scale', t: 6.4, v: 0.8, ease: 'easeOut' },
+          { prop: 'transform.rotation', t: 1, v: 0, ease: 'spring' },
+          { prop: 'transform.rotation', t: 8, v: 180, ease: 'spring' },
+          { prop: 'transform.opacity', t: 0, v: 1, ease: 'easeOut' },
+          { prop: 'transform.opacity', t: 9.9, v: 0.2, ease: 'easeOut' },
+          { prop: 'transform.cornerRadius', t: 2, v: 0, ease: 'easeInOut' },
+          { prop: 'transform.cornerRadius', t: 2.01, v: 64, ease: 'easeInOut' },
+          { prop: 'grade.exposure', t: 0, v: -1, ease: 'easeInOut' },
+          { prop: 'grade.exposure', t: 7, v: 1.5, ease: 'easeInOut' },
+          { prop: 'grade.saturation', t: 4, v: 0, ease: 'linear' },
+          { prop: 'grade.saturation', t: 9, v: -1, ease: 'linear' },
+        ]
+        scrL.keyframes = [
+          { prop: 'speed', t: 0, v: 0.5, ease: 'linear' },
+          { prop: 'speed', t: 4, v: 2.5, ease: 'linear' },
+          { prop: 'speed', t: 8, v: 1, ease: 'linear' },
+        ]
+        const times: number[] = []
+        for (let t = -0.5; t <= 12; t += 0.37) times.push(Number(t.toFixed(4)))
+        const samples = await invoke<
+          {
+            id: string
+            t: number
+            x: number
+            y: number
+            scale: number
+            rotation: number
+            opacity: number
+            cornerRadius: number
+            grade: number[]
+            srcT: number
+          }[]
+        >('resolve_parity_probe', { project: payload, times })
+        // TS mirror over the same payload (adapt flattened layer → Clip shape).
+        const asClip = (l: typeof camL) =>
+          ({
+            id: l.id,
+            kind: 'video',
+            start: l.start,
+            in: l.in,
+            out: l.out,
+            speed: l.speed,
+            volume: 1,
+            transform: l.transform,
+            keyframes: l.keyframes,
+            transitions: { in: null, out: null },
+            effects: [],
+            grade: l.grade ?? undefined,
+          }) as unknown as import('../types/project').Clip
+        let worst = 0
+        let worstAt = ''
+        const check = (a: number, b: number, label: string) => {
+          const d = Math.abs(a - b)
+          if (d > worst) {
+            worst = d
+            worstAt = label
+          }
+        }
+        for (const smp of samples) {
+          const l = smp.id === cam.id ? camL : smp.id === screen.id ? scrL : null
+          if (!l) continue
+          const clip = asClip(l)
+          const rel = smp.t - l.start
+          check(smp.x, resolveProp(clip, 'transform.x', rel), `x@${smp.t}`)
+          check(smp.y, resolveProp(clip, 'transform.y', rel), `y@${smp.t}`)
+          check(smp.scale, resolveProp(clip, 'transform.scale', rel), `scale@${smp.t}`)
+          check(smp.rotation, resolveProp(clip, 'transform.rotation', rel), `rot@${smp.t}`)
+          check(smp.opacity, resolveProp(clip, 'transform.opacity', rel), `op@${smp.t}`)
+          check(
+            smp.cornerRadius,
+            resolveProp(clip, 'transform.cornerRadius', rel),
+            `radius@${smp.t}`,
+          )
+          check(smp.grade[0], resolveProp(clip, 'grade.exposure', rel), `exp@${smp.t}`)
+          check(smp.grade[2], resolveProp(clip, 'grade.saturation', rel), `sat@${smp.t}`)
+          check(smp.srcT, sourceTime(clip, smp.t), `srcT@${smp.t}`)
+        }
+        // f32 rounding on the Rust side bounds legitimate deltas; 2e-3 covers
+        // rotation's 180-magnitude values at f32 precision.
+        void report(worst < 2e-3, `worst=${worst.toExponential(2)} at ${worstAt}; samples=${samples.length}`)
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

@@ -1243,3 +1243,29 @@ Work order: FOUNDATION.md. Strong base, no AI surface.
   the effect. This pattern is now the house rule for async listener
   registration in effects.
 - Polish: :focus-visible rings; resizer cursors verified pre-existing.
+
+## Phase 1 — Rust/TS property-resolution dedup
+
+The honest architecture, made explicit and ENFORCED rather than papered
+over: TypeScript cannot be deleted from resolution entirely — audio-element
+gain, element pre-seek, panel readouts, and the browser-mode fallback all
+live in the DOM and tick at rAF rates where per-frame IPC is nonsense. So:
+
+- **Rust is the single source of truth** for everything rendered/exported
+  (was already structurally true; now stated in both file headers as the
+  contract, with the "temporary duplication" language removed).
+- **TS is a display-only mirror** with an explicit header contract listing
+  its four legitimate consumers.
+- **Drift now fails loudly:** new `resolve_parity_probe` command runs the
+  PRODUCTION resolver (resolve_layer + source_time) over any payload;
+  dev:f1_parity_test feeds both sides a byte-identical torture fixture (all
+  five easings, uneven spacing, 3-keyframe curves, statics, grade, clamped
+  out-of-range times, and a 3-point speed ramp) at 68 sample times.
+  Result: worst |Δ| = 8.1e-6 — pure f32 rounding. Tolerance 2e-3.
+- **Real divergence found & fixed by the audit:** the export audio path
+  built its piecewise-linear volume expression from RAW keyframes, so eased
+  volume curves (incl. every fade written by session 9's addFade at ease
+  'linear' — those were fine — but eased user keyframes and ducking ramps)
+  played differently in export than preview. exportRunner now samples any
+  non-linear segment at 10Hz through the parity-locked mirror, so the
+  FFmpeg expression approximates the eased curve within the sample step.

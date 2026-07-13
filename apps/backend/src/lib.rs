@@ -160,6 +160,49 @@ fn probe_media(path: String) -> Result<compositor::decoder::FullMediaInfo, Strin
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ParitySample {
+    id: String,
+    t: f64,
+    x: f32,
+    y: f32,
+    scale: f32,
+    rotation: f32,
+    opacity: f32,
+    corner_radius: f32,
+    grade: [f32; 5],
+    src_t: f64,
+}
+
+// Foundation Phase 1: Rust is the single source of truth for property
+// resolution. This probe runs the PRODUCTION resolver (resolve_layer +
+// source_time — the exact code preview and export render with) over a
+// fixture so the webview can assert its display-only mirror agrees.
+// Any drift fails the f1-parity self-test loudly.
+#[tauri::command]
+fn resolve_parity_probe(project: SyncProject, times: Vec<f64>) -> Vec<ParitySample> {
+    let mut out = Vec::new();
+    for &t in &times {
+        for layer in &project.layers {
+            let r = compositor::keyframes::resolve_layer(layer, t);
+            out.push(ParitySample {
+                id: layer.id.clone(),
+                t,
+                x: r.x,
+                y: r.y,
+                scale: r.scale,
+                rotation: r.rotation_deg,
+                opacity: r.opacity,
+                corner_radius: r.corner_radius,
+                grade: r.grade,
+                src_t: layer.source_time(t),
+            });
+        }
+    }
+    out
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NormalizedMedia {
     path: String,
     was_vfr: bool,
@@ -588,6 +631,7 @@ pub fn run() {
             extract_frame,
             extract_filmstrip,
             probe_media,
+            resolve_parity_probe,
             normalize_media,
             license_status,
             activate_license,

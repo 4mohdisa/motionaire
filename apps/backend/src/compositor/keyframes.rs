@@ -1,10 +1,12 @@
 use super::types::{Kf, Layer, ResolvedLayer};
 
-// Port of apps/frontend/src/engine/keyframes.ts — MUST stay formula-identical.
+// THE single source of truth for property resolution (foundation session,
+// Phase 1): every rendered and exported pixel resolves through this file and
+// types.rs source_time. The TypeScript engine/keyframes.ts is a display-only
+// mirror for DOM-side consumers (panel readouts, audio-element gain, element
+// pre-seek, browser fallback); the f1-parity self-test compares both against
+// a torture fixture via resolve_parity_probe and fails loudly on drift.
 // Keyframe times are clip-relative in TIMELINE seconds (DECISIONS.md session 2).
-// The duplication is temporary: once this compositor owns preview AND export,
-// the Rust side becomes the single source of pixel truth (CONTEXT.md §3.1) and
-// the TS copy only feeds the properties-panel readouts.
 
 fn ease(kind: &str, t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
