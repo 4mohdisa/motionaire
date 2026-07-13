@@ -1303,3 +1303,36 @@ live in the DOM and tick at rAF rates where per-frame IPC is nonsense. So:
   2s][6..10], insert grew the project to 12s, disable dropped a flatten
   layer, one-frame nudge exact, marks set via real keydowns + invalid-order
   guard) + source monitor capture with a live I/O range.
+
+## Phase 3 — audio completeness
+
+- **Architecture:** media elements stay the decoders (session-2 decision
+  intact); each now routes element → StereoPanner → master Gain →
+  destination with per-channel analysers on the master bus. Element
+  .volume (clip volume × track gates) still applies upstream — the graph
+  adds pan, master, metering. One AudioContext, elements attached lazily
+  (createMediaElementSource is once-per-element-for-life).
+- **Meters:** live stereo peaks in the transport row (decay 0.88/frame,
+  hot color >0.92, red clip dot latched 1.5s at ≥0.985). In chrome, not on
+  the frame.
+- **Master volume:** project.masterVolume (persists with the project;
+  slider drags skip undo history — logged); applied per tick in preview
+  and as a post-amix volume node in export.
+- **Pan:** clip.pan (-1..1, not keyframed — logged), StereoPanner in
+  preview; in export a stereo pan matrix with a simple balance law, with
+  aformat=stereo inserted per chain so mono sources pan correctly and amix
+  sees uniform layouts. Unit test pins the generated graph strings.
+- **Normalize:** peak-based (-1 dBFS target, gain capped ×4) from the
+  ALREADY-CACHED waveform peaks — instant, no new decode. Logged: peak,
+  not LUFS.
+- **Break-test finds (2):** (1) one bad tick could kill the playback rAF
+  loop silently — now try/caught with the error surfaced for diagnostics;
+  (2) the real cause of the flaky test: WebKit throttles rAF to ~1Hz when
+  the window is OCCLUDED (exactly the state of an unattended overnight
+  run), so fixed-sleep tests race the slow tick — the self-test now polls
+  for effects. House rule for future audio/visual assertions.
+- Verified: f3-audio PASS (meters read signal, hard-left pan collapses R
+  to 0.00, master 0.15 measured on the bus at 0.02 with gain=0.150
+  confirmed in-graph, normalize gain exactly matches the waveform-derived
+  expectation) + Rust unit test pinning pan/master/aformat in the export
+  graph + capture of meters/master in the transport row.

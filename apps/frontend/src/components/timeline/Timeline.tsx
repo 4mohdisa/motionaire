@@ -552,6 +552,10 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
           { label: 'Fade in (0.5s)', onClick: () => s.addFade(clipId, 'in') },
           { label: 'Fade out (0.5s)', onClick: () => s.addFade(clipId, 'out') },
           {
+            label: 'Normalize (−1 dB peak)',
+            onClick: () => void useStore.getState().normalizeClip(clipId),
+          },
+          {
             label: 'Duck under other audio',
             onClick: () =>
               void import('../../engine/ducking').then((m) => m.duckUnderSpeech(clipId)),

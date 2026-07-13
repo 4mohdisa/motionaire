@@ -112,6 +112,7 @@ export interface Clip {
   adjust?: boolean // adjustment layer: no source; grade applies to all lower z
   shape?: Shape // shape clip: raster overlay, no source media
   disabled?: boolean // excluded from compositing/audio without deleting (foundation, Phase 2)
+  pan?: number // stereo balance -1..1 (foundation, Phase 3); not keyframed
 }
 
 export interface MediaAsset {
@@ -172,6 +173,7 @@ export interface Project {
   transcript: { words: unknown[] }
   fonts?: ProjectFont[]
   markers?: Marker[]
+  masterVolume?: number // project output gain (foundation, Phase 3); default 1
 }
 
 let uidCounter = 0

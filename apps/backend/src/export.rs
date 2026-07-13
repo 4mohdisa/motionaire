@@ -24,6 +24,13 @@ pub struct ExportSettings {
     pub fps: f64,
     pub duration: f64,
     pub quality: u32, // 0..100 from the panel
+    // Project output gain (foundation, Phase 3).
+    #[serde(default = "default_master")]
+    pub master_volume: f64,
+}
+
+fn default_master() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,8 +44,12 @@ pub struct AudioClipSpec {
     pub start: f64,
     pub volume: f64,
     // (clip-relative timeline seconds, value) — linear segments; easing is
-    // approximated linearly for audio (logged).
+    // approximated linearly for audio (logged; the frontend pre-samples eased
+    // curves densely since Foundation Phase 1).
     pub volume_points: Vec<(f64, f64)>,
+    // Stereo balance -1..1 (foundation, Phase 3).
+    #[serde(default)]
+    pub pan: f64,
 }
 
 #[derive(Default)]
@@ -100,15 +111,17 @@ fn atempo_chain(speed: f64) -> String {
     parts.join(",")
 }
 
-fn build_audio_graph(clips: &[AudioClipSpec]) -> String {
+fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
     let mut chains = Vec::new();
     let mut outs = Vec::new();
     for (i, c) in clips.iter().enumerate() {
         let input = i + 1; // input 0 is the rawvideo pipe
         let delay_ms = (c.start * 1000.0).round().max(0.0) as u64;
         let vol = volume_expr(c.volume, &c.volume_points);
+        // aformat first: pan expressions need a stereo layout even for mono
+        // sources, and amix behaves best with uniform layouts.
         let mut chain = format!(
-            "[{input}:a]atrim=start={:.6}:end={:.6},asetpts=PTS-STARTPTS",
+            "[{input}:a]atrim=start={:.6}:end={:.6},asetpts=PTS-STARTPTS,aformat=channel_layouts=stereo",
             c.in_, c.out
         );
         if (c.speed - 1.0).abs() > 1e-6 {
@@ -116,17 +129,29 @@ fn build_audio_graph(clips: &[AudioClipSpec]) -> String {
             chain.push_str(&atempo_chain(c.speed));
         }
         chain.push_str(&format!(",volume=eval=frame:volume='{vol}'"));
+        if c.pan.abs() > 1e-6 {
+            // Simple balance law: attenuate the far channel.
+            let gl = (1.0 - c.pan).min(1.0).max(0.0);
+            let gr = (1.0 + c.pan).min(1.0).max(0.0);
+            chain.push_str(&format!(",pan=stereo|c0={gl:.4}*c0|c1={gr:.4}*c1"));
+        }
         chain.push_str(&format!(",adelay={delay_ms}|{delay_ms}"));
         let tag = format!("[a{i}]");
         chain.push_str(&tag);
         chains.push(chain);
         outs.push(tag);
     }
+    let master_tail = if (master - 1.0).abs() > 1e-6 {
+        format!(",volume={master:.4}")
+    } else {
+        String::new()
+    };
     format!(
-        "{};{}amix=inputs={}:normalize=0[aout]",
+        "{};{}amix=inputs={}:normalize=0{}[aout]",
         chains.join(";"),
         outs.join(""),
-        clips.len()
+        clips.len(),
+        master_tail
     )
 }
 
@@ -198,7 +223,7 @@ fn export_inner(
     }
     if !audio.is_empty() {
         args.push("-filter_complex".into());
-        args.push(build_audio_graph(&audio));
+        args.push(build_audio_graph(&audio, settings.master_volume));
         args.push("-map".into());
         args.push("0:v".into());
         args.push("-map".into());
@@ -302,6 +327,40 @@ mod tests {
         let e = volume_expr(1.0, &[(0.0, 1.0), (2.0, 0.0)]);
         assert!(e.contains("lt(t\\,2.0000)"), "{e}");
         assert!(e.starts_with("if(lt(t\\,0.0000)"), "{e}");
+    }
+
+    #[test]
+    fn graph_includes_pan_stereo_format_and_master() {
+        let clips = vec![AudioClipSpec {
+            path: "x.wav".into(),
+            in_: 0.0,
+            out: 2.0,
+            speed: 1.0,
+            start: 0.0,
+            volume: 1.0,
+            volume_points: vec![],
+            pan: -0.5,
+        }];
+        let g = build_audio_graph(&clips, 0.8);
+        assert!(g.contains("aformat=channel_layouts=stereo"), "{g}");
+        assert!(g.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"), "{g}");
+        assert!(g.contains("normalize=0,volume=0.8000[aout]"), "{g}");
+        // pan 0 / master 1 → no pan node, no master tail
+        let g2 = build_audio_graph(
+            &[AudioClipSpec {
+                path: "x.wav".into(),
+                in_: 0.0,
+                out: 2.0,
+                speed: 1.0,
+                start: 0.0,
+                volume: 1.0,
+                volume_points: vec![],
+                pan: 0.0,
+            }],
+            1.0,
+        );
+        assert!(!g2.contains("pan=stereo|"), "{g2}");
+        assert!(g2.contains("normalize=0[aout]"), "{g2}");
     }
 
     #[test]

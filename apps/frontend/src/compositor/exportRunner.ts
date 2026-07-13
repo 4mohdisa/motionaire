@@ -18,6 +18,7 @@ interface AudioClipSpec {
   start: number
   volume: number
   volumePoints: [number, number][]
+  pan: number
 }
 
 function audioSpecs(project: Project): AudioClipSpec[] {
@@ -44,6 +45,7 @@ function audioSpecs(project: Project): AudioClipSpec[] {
         start: clip.start,
         volume: clip.volume,
         volumePoints: kfs,
+        pan: clip.pan ?? 0,
       })
     }
   }
@@ -99,6 +101,7 @@ export async function runExport(outPathOverride?: string): Promise<string | null
       fps: s.project.canvas.fps,
       duration: s.project.duration,
       quality: s.exportSettings.quality,
+      masterVolume: s.project.masterVolume ?? 1,
     },
   })
   return outputPath

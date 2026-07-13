@@ -102,7 +102,25 @@ function ClipProperties({ clip }: { clip: Clip }) {
           {(clip.kind === 'audio' ||
             (asset?.hasAudio && clip.volume > 0) ||
             clip.kind === 'video') && (
-            <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} />
+            <>
+              <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} />
+              <div className="prow">
+                <span className="prow__label">Pan</span>
+                <input
+                  className="prow__input selectable"
+                  type="range"
+                  min={-1}
+                  max={1}
+                  step={0.05}
+                  value={clip.pan ?? 0}
+                  onChange={(e) =>
+                    useStore.getState().setClipProperty(clip.id, 'pan', Number(e.target.value))
+                  }
+                  title={`Pan ${((clip.pan ?? 0) * 100).toFixed(0)}%`}
+                />
+                <span className="prow__unit">{(clip.pan ?? 0) < 0 ? 'L' : (clip.pan ?? 0) > 0 ? 'R' : 'C'}</span>
+              </div>
+            </>
           )}
         </Section>
       )}

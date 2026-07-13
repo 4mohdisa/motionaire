@@ -181,6 +181,12 @@ export interface StoreState {
   scrubbing: boolean
   setScrubbing: (v: boolean) => void
 
+  // --- audio completeness (foundation session, Phase 3) ---
+  setMasterVolume: (v: number) => void
+  // Peak-normalize a clip to -1 dBFS using the cached waveform (logged: peak,
+  // not LUFS).
+  normalizeClip: (clipId: string) => Promise<void>
+
   // --- audio sugar (session 9, Phase 7) ---
   // Fades write ordinary volume keyframes — preview and export already honor them.
   addFade: (clipId: string, edge: 'in' | 'out', dur?: number) => void
@@ -856,6 +862,7 @@ export const useStore = create<StoreState>()(
           }
 
           if (prop === 'volume' && isNumeric) clip.volume = value
+          else if (prop === 'pan' && isNumeric) clip.pan = Math.min(1, Math.max(-1, value))
           else if (prop.startsWith('transform.')) {
             const key = prop.slice('transform.'.length)
             ;(clip.transform as unknown as Record<string, unknown>)[key] = value
@@ -1181,6 +1188,35 @@ export const useStore = create<StoreState>()(
         set((s) => {
           s.scrubbing = v
         }),
+
+      setMasterVolume: (v) =>
+        mutateProject(
+          (p) => {
+            p.masterVolume = Math.min(1.5, Math.max(0, v))
+          },
+          { history: false }, // slider drags shouldn't spam undo; persisted anyway
+        ),
+
+      normalizeClip: async (clipId) => {
+        const s = get()
+        const clip = s.project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId)
+        const asset = clip?.mediaId ? s.project.media.find((m) => m.id === clip.mediaId) : null
+        if (!clip || !asset) return
+        const { getWaveform } = await import('../engine/waveform')
+        const wf = await getWaveform(asset)
+        if (!wf) return
+        const from = Math.floor(clip.in * wf.pps)
+        const to = Math.min(wf.peaks.length, Math.ceil(clip.out * wf.pps))
+        let peak = 0
+        for (let i = from; i < to; i++) if (wf.peaks[i] > peak) peak = wf.peaks[i]
+        if (peak <= 1e-4) {
+          get().pushToast('info', 'Clip is silent — nothing to normalize')
+          return
+        }
+        const gain = Math.min(4, 0.891 / peak) // -1 dBFS target
+        get().setClipProperty(clipId, 'volume', Number(gain.toFixed(3)))
+        get().pushToast('success', `Normalized to -1 dB (gain ×${gain.toFixed(2)})`)
+      },
 
       addFade: (clipId, edge, dur = 0.5) =>
         mutateProject((p) => {

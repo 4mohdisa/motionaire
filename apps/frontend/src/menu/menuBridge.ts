@@ -1170,6 +1170,89 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f3_audio_test': {
+      // Foundation Phase 3: live meters read signal, pan skews channels,
+      // normalize computes the -1dB gain, master gain scales the bus.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f3-audio', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        const { readPeaks, graphDebug } = await import('../engine/audioGraph')
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const tonePath = await invoke<string>('spike_audio', { pattern: null })
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        const toneClip = () =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.mediaId === tone.id)!
+        st().setPlayhead(1)
+        st().play()
+        // The wav element takes >1s to load+route on first play — poll until
+        // signal actually reaches the master bus before baselining.
+        let base = { l: 0, r: 0 }
+        for (let i = 0; i < 40 && base.l < 0.05; i++) {
+          await wait(150)
+          base = readPeaks()
+        }
+        // The window is often OCCLUDED during unattended runs → WebKit
+        // throttles rAF to ~1Hz and state changes reach the audio graph on a
+        // slow tick. Poll for each effect instead of fixed sleeps.
+        st().setClipProperty(toneClip().id, 'pan', -1)
+        let panned = readPeaks()
+        for (let i = 0; i < 30 && !(panned.l > 0.05 && panned.r < panned.l * 0.35); i++) {
+          await wait(200)
+          panned = readPeaks()
+        }
+        st().setClipProperty(toneClip().id, 'pan', 0)
+        st().setMasterVolume(0.15)
+        let quiet = readPeaks()
+        for (let i = 0; i < 30 && !(quiet.l > 0.001 && quiet.l < base.l * 0.45); i++) {
+          await wait(200)
+          quiet = readPeaks()
+        }
+        const { lastPlaybackError } = await import('../engine/playback')
+        const gainDbg = `mv=${st().project.masterVolume} ${graphDebug()} err=${lastPlaybackError ?? 'none'}`
+        st().setMasterVolume(1)
+        st().pause()
+        // ffmpeg's sine source is ~1/8 full scale — thresholds sized to it.
+        const metersOk = base.l > 0.05 && base.r > 0.05
+        const panOk = panned.l > 0.05 && panned.r < panned.l * 0.35
+        const masterOk = quiet.l < base.l * 0.45
+        // normalize: expected gain derives from the SAME waveform the action
+        // reads — assert the math, not an assumed source amplitude.
+        const { getWaveform } = await import('../engine/waveform')
+        const wf = (await getWaveform(tone))!
+        const tc = toneClip()
+        let peak = 0
+        for (let i = Math.floor(tc.in * wf.pps); i < Math.min(wf.peaks.length, tc.out * wf.pps); i++)
+          if (wf.peaks[i] > peak) peak = wf.peaks[i]
+        await st().normalizeClip(tc.id)
+        const v = toneClip().volume
+        const expected = Math.min(4, 0.891 / Math.max(peak, 1e-4))
+        const normOk = Math.abs(v - expected) < 0.02
+        void report(
+          metersOk && panOk && masterOk && normOk,
+          `meters=${base.l.toFixed(2)}/${base.r.toFixed(2)} panned=${panned.l.toFixed(2)}/${panned.r.toFixed(2)} quiet=${quiet.l.toFixed(2)} normGain=${v.toFixed(3)} (want ${expected.toFixed(3)}, srcPeak=${peak.toFixed(3)}) graph[${gainDbg} | now ${graphDebug()}]`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

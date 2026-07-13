@@ -10,6 +10,7 @@ import {
   transitionTail,
 } from './time'
 import { resolveProp } from './keyframes'
+import { attachElement, resumeGraph, setMasterGain } from './audioGraph'
 import type { Clip, Project } from '../types/project'
 
 // Preview playback: one hidden/visible <video> per active clip (browser decodes,
@@ -21,6 +22,9 @@ const DRIFT_TOLERANCE = 0.15 // s, while playing forward
 const REVERSE_SEEK_INTERVAL = 0.1 // s between seeks when shuttling backwards
 
 export type ElementMap = Map<string, HTMLVideoElement>
+
+// Last swallowed per-tick error, for self-tests/diagnostics.
+export let lastPlaybackError: string | null = null
 
 // Clips whose media elements should be mounted: active now or starting soon
 // (pre-decode upcoming cuts), plus a trailing window so outgoing clips can keep
@@ -113,7 +117,14 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
     let lastStep = 0
     const loop = (now: number) => {
       lastStep = now
-      step(now)
+      // One bad tick must never kill playback (foundation, Phase 3 find:
+      // an exception here froze pan/master updates silently).
+      try {
+        step(now)
+      } catch (e) {
+        lastPlaybackError = String(e instanceof Error ? (e.stack ?? e.message) : e)
+        console.error('playback step failed:', e)
+      }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
@@ -122,7 +133,13 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
     // audio continues correctly in the background. Yields whenever rAF is alive.
     const fallback = window.setInterval(() => {
       const now = performance.now()
-      if (now - lastStep > 400) step(now)
+      if (now - lastStep > 400) {
+        try {
+          step(now)
+        } catch (e) {
+          lastPlaybackError = String(e instanceof Error ? (e.stack ?? e.message) : e)
+        }
+      }
     }, 250)
     return () => {
       cancelAnimationFrame(raf)
@@ -142,6 +159,9 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
   const t = s.playhead
   const forward = s.playing && s.shuttle > 0
   const nowS = performance.now() / 1000
+  // Master output gain + graph wake-up (foundation, Phase 3).
+  setMasterGain(p.masterVolume ?? 1)
+  if (s.playing || s.scrubbing) resumeGraph()
 
   for (const [clipId, el] of map) {
     const found = findClip(p, clipId)
@@ -173,6 +193,8 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
     const vol = resolveProp(clip, 'volume', t - clip.start) * trackGain
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
+    // Route through the Web Audio tail: pan + master + meters.
+    attachElement(el, Math.max(-1, Math.min(1, clip.pan ?? 0)))
     el.playbackRate = Math.min(
       16,
       Math.max(0.0625, clip.speed * Math.max(0.0625, Math.abs(s.shuttle))),

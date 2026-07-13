@@ -1860,3 +1860,65 @@
   padding: 0 12px;
   font-size: 12px;
 }
+
+/* ---------- Audio meters + master (foundation, Phase 3) ---------- */
+
+.transport__audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 10px;
+}
+
+.meters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.meters__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 90px;
+}
+
+.meters__track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+
+.meters__fill {
+  height: 100%;
+  background: var(--success);
+  transition: none;
+}
+
+.meters__fill--hot {
+  background: var(--warning);
+}
+
+.meters__clip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bg-control);
+  flex: none;
+}
+
+.meters__clip--on {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+
+.transport__volicon {
+  color: var(--text-disabled);
+  flex: none;
+}
+
+.transport__master {
+  width: 70px;
+}
