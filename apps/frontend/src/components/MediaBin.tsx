@@ -188,6 +188,7 @@ function MediaBin() {
               <span className="bin__info">
                 {fmtDur(m.duration)}
                 {m.width ? ` · ${m.width}×${m.height}` : ''} · {m.kind}
+                {m.proxyPath ? ' · proxy' : ''}
               </span>
             </div>
           </div>

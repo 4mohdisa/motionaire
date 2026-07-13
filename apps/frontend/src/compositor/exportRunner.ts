@@ -93,7 +93,7 @@ export async function runExport(outPathOverride?: string): Promise<string | null
     outputPath = picked.endsWith('.mp4') ? picked : `${picked}.mp4`
   }
   await invoke('start_export', {
-    project: flatten(s.project),
+    project: flatten(s.project, { originals: true }), // export NEVER decodes proxies
     audio: audioSpecs(s.project),
     settings: {
       outputPath,

@@ -81,6 +81,7 @@ function App() {
   useEffect(() => {
     startCompositorBridge()
     startMenuBridge()
+    void import('./persistence/proxyManager').then((m) => m.startProxyListeners())
   }, [])
   // Project safety plumbing: titlebar edited dot, autosave, close guard.
   useEffect(() => {

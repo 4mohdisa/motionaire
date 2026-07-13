@@ -132,6 +132,7 @@ export async function openProjectPath(path: string): Promise<void> {
     }
     useStore.getState().replaceProject(project, path)
     useStore.getState().setAppView('editor')
+    void import('./proxyManager').then((m) => m.requestMissingProxies())
     // Recovered state is unsaved by definition — saving persists it for real.
     if (recovered) useStore.getState().markDirty()
     if (missing.size > 0) {
@@ -262,6 +263,8 @@ export async function importMediaNative(): Promise<void> {
       const { addMedia, appendMediaClip } = useStore.getState()
       addMedia(asset)
       appendMediaClip(asset.id)
+      const { maybeRequestProxy } = await import('./proxyManager')
+      maybeRequestProxy(asset)
     } catch (e) {
       await message(`Couldn't import ${rawPath}:\n${e}`, { title: 'Import failed', kind: 'error' })
     }

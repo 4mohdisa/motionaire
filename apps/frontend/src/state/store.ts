@@ -91,6 +91,9 @@ export interface StoreState {
   timelineHeight: number
   propsWidth: number
   compositorActive: boolean
+  // Proxies (foundation, Phase 5): force original media in preview.
+  previewOriginal: boolean
+  setPreviewOriginal: (v: boolean) => void
   compositorFps: number
   projectPath: string | null
   previewFull: boolean
@@ -438,6 +441,11 @@ export const useStore = create<StoreState>()(
       timelineHeight: 220,
       propsWidth: 264,
       compositorActive: false,
+      previewOriginal: false,
+      setPreviewOriginal: (v) =>
+        set((s) => {
+          s.previewOriginal = v
+        }),
       compositorFps: 0,
       projectPath: null,
       previewFull: false,

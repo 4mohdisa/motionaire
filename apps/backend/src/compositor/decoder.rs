@@ -344,6 +344,16 @@ impl Decoder {
             return self.ring_get(target);
         }
 
+        // Forward-playback hysteresis (foundation, Phase 5 find): clock
+        // anchor jitter can step the target 1-2 frames BEHIND the decode
+        // position. For 4K footage the byte-capped ring holds ~2 frames, so
+        // every such wiggle became a full ffmpeg respawn (logged as "reverse
+        // chunk refill" storms during forward play). One-to-two frames of
+        // temporal tolerance beats a 300ms respawn stall.
+        if target < self.cur_idx && self.cur_idx - target <= 2 && self.child.is_some() {
+            return Some(&self.frame);
+        }
+
         if target < self.cur_idx {
             // Backward miss: refill a whole chunk ending at `target` with one seek.
             let chunk = self.ring_capacity_frames().min(target + 1);

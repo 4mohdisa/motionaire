@@ -1273,6 +1273,94 @@ async function dispatch(action: string, path?: string) {
       st.setPlayhead(3)
       break
     }
+    case 'dev:f5_proxy_test': {
+      // Foundation Phase 5 — THE verification the plan demands: real 4K
+      // footage (3840×2160, synthesized), TWO stacked streams, proxy
+      // generated in background, preview flatten uses the proxy while export
+      // flatten uses the original, and measured compositor capacity for
+      // original vs proxy decode.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f5-proxy', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        const { flatten } = await import('../compositor/bridge')
+        const { maybeRequestProxy } = await import('../persistence/proxyManager')
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const uhd = await invoke<string>('spike_4k') // may take a while first run
+        const info = await invoke<{ width: number; height: number; duration: number }>(
+          'probe_media',
+          { path: uhd },
+        )
+        // Fresh project with TWO 4K streams: fullscreen + PiP on top.
+        st().replaceProject((await import('../types/project')).createProject(), null)
+        st().setAppView('editor')
+        const asset = {
+          id: mkid('m'),
+          path: uhd,
+          playbackUrl: convertFileSrc(uhd),
+          name: 'uhd.mp4',
+          kind: 'video' as const,
+          duration: info.duration,
+          width: info.width,
+          height: info.height,
+          hasAudio: false,
+        }
+        st().addMedia(asset)
+        const tracks = st().project.tracks.filter((t) => t.kind === 'video')
+        st().insertClipAt(asset.id, tracks[1].id, 0) // V1 fullscreen
+        st().insertClipAt(asset.id, tracks[0].id, 0) // V2 PiP
+        const pip = tracks[0].id
+        const pipClip = st().project.tracks.find((t) => t.id === pip)!.clips[0]
+        st().setClipProperty(pipClip.id, 'transform.scale', 0.3)
+        st().setClipProperty(pipClip.id, 'transform.x', 500)
+        st().setClipProperty(pipClip.id, 'transform.y', -280)
+        // Baseline: ORIGINALS (the choke scenario) — play and sample capacity.
+        st().setPreviewOriginal(true)
+        st().setPlayhead(0.5)
+        st().play()
+        await wait(4000)
+        const fpsOriginal = st().compositorFps
+        st().pause()
+        // Kick the proxy and wait for it to land (cache makes reruns instant).
+        maybeRequestProxy(st().project.media[0])
+        let proxyPath: string | undefined
+        for (let i = 0; i < 240 && !proxyPath; i++) {
+          await wait(500)
+          proxyPath = st().project.media.find((m) => m.path === uhd)?.proxyPath
+        }
+        if (!proxyPath) {
+          void report(false, 'proxy never landed (240 polls)')
+          break
+        }
+        const pInfo = await invoke<{ width: number; height: number }>('probe_media', {
+          path: proxyPath,
+        })
+        // THE RULE, asserted at flatten:
+        const prevPaths = flatten(st().project).layers.map((l) => l.mediaPath)
+        const expPaths = flatten(st().project, { originals: true }).layers.map(
+          (l) => l.mediaPath,
+        )
+        const ruleOk =
+          prevPaths.every((p) => p === proxyPath) && expPaths.every((p) => p === uhd)
+        // Proxy playback capacity.
+        st().setPreviewOriginal(false)
+        st().setPlayhead(0.5)
+        st().play()
+        await wait(4000)
+        const fpsProxy = st().compositorFps
+        st().pause()
+        const heightOk = pInfo.height === 720
+        void report(
+          heightOk && ruleOk && fpsProxy > 0,
+          `src=${info.width}x${info.height} proxy=${pInfo.width}x${pInfo.height} rule(preview=proxy,export=original)=${ruleOk} capacity: originals=${fpsOriginal.toFixed(0)}fps proxies=${fpsProxy.toFixed(0)}fps (2 streams stacked)`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

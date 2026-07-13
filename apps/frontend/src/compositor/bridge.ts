@@ -18,7 +18,7 @@ interface SpikeMedia {
 
 // Only file-backed video clips reach the compositor; blob-URL media (browser
 // file-input imports) stays DOM-only until native import fully replaces it.
-export function flatten(project: Project) {
+export function flatten(project: Project, opts?: { originals?: boolean }) {
   const layers = []
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
@@ -33,7 +33,13 @@ export function flatten(project: Project) {
       layers.push({
         id: clip.id,
         z: track.z,
-        mediaPath: isRaster ? `text:${clip.id}` : (asset?.path ?? ''),
+        // THE proxy rule (foundation, Phase 5): preview decodes proxies,
+        // export decodes originals — never the reverse.
+        mediaPath: isRaster
+          ? `text:${clip.id}`
+          : opts?.originals
+            ? (asset?.path ?? '')
+            : (asset?.proxyPath ?? asset?.path ?? ''),
         adjust: clip.adjust ?? false,
         start: clip.start,
         in: clip.in,
@@ -83,6 +89,7 @@ export function startCompositorBridge() {
   let syncTimer: number | undefined
   let lastProject: Project | null = null
   let lastPlayhead = -1
+  let lastAnchorT = -1
   let lastPlaying = false
   let lastShuttle = 1
 
@@ -94,25 +101,42 @@ export function startCompositorBridge() {
       void import('./textRaster')
         .then((m) => m.syncTextRasters(project))
         .finally(() => {
-          void invoke('sync_project', { project: flatten(project) }).catch((e) =>
+          void invoke('sync_project', {
+            project: flatten(project, { originals: useStore.getState().previewOriginal }),
+          }).catch((e) =>
             console.error('sync_project failed:', e),
           )
         })
     }, 60)
   }
 
+  let lastOriginals = useStore.getState().previewOriginal
   useStore.subscribe((s) => {
-    if (s.project !== lastProject) {
+    if (s.project !== lastProject || s.previewOriginal !== lastOriginals) {
       lastProject = s.project
+      lastOriginals = s.previewOriginal
       syncProject(s.project)
     }
+    // Anchor discipline (foundation, Phase 5 find, round 2). The per-tick
+    // anchor echo is load-bearing: it doubles as the GOVERNOR that paces the
+    // Rust clock to real render capacity on over-budget footage (2×4K) —
+    // removing it entirely sent the free-running clock ahead of the decoder
+    // and spiralled 23fps → 1fps. The actual defect was the BACKWARD jitter
+    // in the echo (wall-clock skew), which stepped decode targets behind the
+    // pipe and forced respawns. Fix: keep per-tick anchors while playing but
+    // clamp them MONOTONIC; real seeks (forward or back > 0.35s) reset.
     if (s.playhead !== lastPlayhead || s.playing !== lastPlaying || s.shuttle !== lastShuttle) {
+      const transportChanged = s.playing !== lastPlaying || s.shuttle !== lastShuttle
+      const bigJump = Math.abs(s.playhead - lastAnchorT) > 0.35
+      let t = s.playhead
+      if (s.playing && !transportChanged && !bigJump && s.shuttle > 0) {
+        t = Math.max(t, lastAnchorT) // forward playback: never anchor backwards
+      }
+      lastAnchorT = t
       lastPlayhead = s.playhead
       lastPlaying = s.playing
       lastShuttle = s.shuttle
-      void invoke('set_playhead', { t: s.playhead, playing: s.playing, rate: s.shuttle }).catch(
-        () => {},
-      )
+      void invoke('set_playhead', { t, playing: s.playing, rate: s.shuttle }).catch(() => {})
     }
   })
 

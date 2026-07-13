@@ -2,6 +2,7 @@ pub mod capture;
 pub mod compositor;
 pub mod export;
 pub mod license;
+pub mod proxy;
 pub mod menu;
 pub mod persistence;
 
@@ -385,6 +386,49 @@ fn set_edited(window: tauri::WebviewWindow, edited: bool) {
 }
 
 #[tauri::command]
+fn request_proxy(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let cache = app.path().app_data_dir().map_err(|e| e.to_string())?.join("proxies");
+    proxy::generate(app.clone(), path, cache);
+    Ok(())
+}
+
+// 4K verification fixture (foundation, Phase 5): the plan demands proxy
+// proof with genuinely large footage — synthesize a 3840x2160 test file.
+#[tauri::command]
+fn spike_4k() -> Result<String, String> {
+    let dir = compositor::demo::spike_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let out = dir.join("uhd.mp4");
+    if !out.exists() {
+        let vt = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("h264_videotoolbox"))
+            .unwrap_or(false);
+        let mut args: Vec<String> = vec![
+            "-v".into(), "error".into(), "-y".into(),
+            "-f".into(), "lavfi".into(),
+            "-i".into(), "testsrc2=size=3840x2160:rate=30".into(),
+            "-t".into(), "20".into(),
+        ];
+        if vt {
+            args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), "30M".into()]);
+        } else {
+            args.extend(["-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(), "-crf".into(), "20".into()]);
+        }
+        args.extend(["-pix_fmt".into(), "yuv420p".into(), out.to_str().ok_or("bad path")?.into()]);
+        let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+            .args(&args)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("4K fixture generation failed".into());
+        }
+    }
+    Ok(out.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let status = std::process::Command::new("open")
         .args(["-R", &path])
@@ -640,6 +684,8 @@ pub fn run() {
             set_setting,
             remove_recent_project,
             reveal_in_finder,
+            request_proxy,
+            spike_4k,
             save_recovery,
             set_edited,
             start_export,

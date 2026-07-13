@@ -36,6 +36,7 @@ function Timeline() {
   const snap = useStore((s) => s.snap)
   const safeZones = useStore((s) => s.safeZones)
   const previewFull = useStore((s) => s.previewFull)
+  const previewOriginal = useStore((s) => s.previewOriginal)
   const selection = useStore((s) => s.selection)
   const editMode = useStore((s) => s.editMode)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -273,6 +274,11 @@ function Timeline() {
             label="Safe zones"
             checked={safeZones}
             onToggle={() => setSafeZones(!safeZones)}
+          />
+          <DropdownCheck
+            label="Use original media (bypass proxies)"
+            checked={previewOriginal}
+            onToggle={() => useStore.getState().setPreviewOriginal(!previewOriginal)}
           />
           <DropdownCheck
             label="Full resolution preview"

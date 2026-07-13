@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { useStore } from '../state/store'
 import { activeTextClips, activeVideoClips, clipEnd, crossTransitionAt } from '../engine/time'
 import { resolveProp } from '../engine/keyframes'
@@ -37,6 +38,7 @@ function Preview() {
   const safeZones = useStore((s) => s.safeZones)
   const compositorActive = useStore((s) => s.compositorActive)
   const sourcePreview = useStore((s) => s.sourcePreview)
+  const previewOriginal = useStore((s) => s.previewOriginal)
 
   // Rust compositor stream → canvas. When frames flow, the canvas is the video
   // surface (real multi-clip composite) and DOM <video> stays for audio only.
@@ -104,13 +106,17 @@ function Preview() {
           {mounted.map((clip) => {
             const asset = project.media.find((m) => m.id === clip.mediaId)
             if (!asset) return null
+            const src =
+              asset.proxyPath && !previewOriginal
+                ? convertFileSrc(asset.proxyPath)
+                : asset.playbackUrl || asset.path
             return (
               <video
                 key={clip.id}
                 ref={registerEl(clip.id)}
                 className="preview__video"
                 style={compositorActive ? { visibility: 'hidden' } : styleFor(clip)}
-                src={asset.playbackUrl || asset.path}
+                src={src}
                 playsInline
                 preload="auto"
               />

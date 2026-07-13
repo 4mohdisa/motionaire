@@ -1374,3 +1374,39 @@ through the (parity-locked) keyframe engine, so all of it keyframes.
   in-app capture proving the store→flatten→compositor round trip (ellipse
   mask + vignette applied via updateClipFx/setClipProperty on the live
   preview).
+
+## Phase 5 — proxies (verified on real 4K, as the plan demands)
+
+- **Pipeline:** request_proxy → Rust worker thread (ONE transcode at a time
+  — a mutex is the whole queue) → scale=-2:720 VideoToolbox (x264 fallback)
+  with aac audio, ffmpeg -progress parsed into proxy:progress events →
+  Phase 0 progress toasts → proxy:done lands proxyPath on the asset
+  (persisted in the bundle; MediaAsset.proxyPath existed in the schema
+  since CONTEXT §1.1). Cache keyed stem+size in app-cache/proxies —
+  re-import of known footage is instant (content hashing multi-GB files
+  costs a full read; logged tradeoff). Eligibility: video taller than
+  1080px, not stills.
+- **THE RULE**, enforced at the single chokepoint (flatten): preview
+  decodes proxies, export decodes originals — exportRunner passes
+  {originals:true}; nothing else can. Hidden preview <video> elements
+  (audio duty) also switch to proxies — a hidden 4K element is the same
+  cost class. View Options gained "Use original media (bypass proxies)".
+- **4K verification** (3840×2160×20s synthesized fixture, TWO streams
+  stacked fullscreen+PiP): proxy generated at 1280×720; flatten paths
+  asserted both directions; measured compositor capacity: RAW ≈5fps
+  (23fps on a warmed run — either way unusable), PROXIES = 60fps, locked
+  to target. The core-use-case footage that would break the app now plays
+  at full rate.
+- **Two real engine bugs found by this phase's break-testing:**
+  1. Forward-playback "reverse chunk refill" respawn storms: clock-anchor
+     jitter stepped decode targets 1-2 frames BEHIND the pipe, and at 4K
+     the byte-capped ring holds ~2 frames, so every wiggle became a
+     ~300ms ffmpeg respawn. Fixed with 2-frame forward hysteresis in
+     frame_at (hold the current frame rather than respawn).
+  2. The per-tick playhead anchor is LOAD-BEARING as a capacity governor:
+     removing it (first fix attempt) let Rust's clock free-run ahead of
+     what 2×4K can decode and spiralled 23fps→1fps (each render forced
+     multi-frame catch-up decodes). Final design: keep per-tick anchors
+     while playing, but clamp them MONOTONIC (backward jitter filtered,
+     genuine seeks >0.35s reset). Logged as the clock contract.
+- Bin rows show "· proxy"; progress/success/failure all ride toasts.
