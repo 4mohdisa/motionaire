@@ -37,6 +37,7 @@ function Timeline() {
   const safeZones = useStore((s) => s.safeZones)
   const previewFull = useStore((s) => s.previewFull)
   const selection = useStore((s) => s.selection)
+  const editMode = useStore((s) => s.editMode)
   const scrollRef = useRef<HTMLDivElement>(null)
   const headersRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -238,6 +239,15 @@ function Timeline() {
           <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
+        <button
+          className="chip chip--mode"
+          title="Drop behavior: Insert pushes clips right; Overwrite replaces what's underneath"
+          onClick={() =>
+            useStore.getState().setEditMode(editMode === 'insert' ? 'overwrite' : 'insert')
+          }
+        >
+          {editMode === 'insert' ? 'Insert' : 'Overwrite'}
+        </button>
         <IconBtn
           icon={Trash2}
           label="Delete selected (⌫)"
@@ -339,7 +349,16 @@ function Timeline() {
                     const id = e.dataTransfer.getData(MEDIA_DND)
                     if (!id) return
                     e.preventDefault()
-                    useStore.getState().insertClipAt(id, t.id, xToTime(e.clientX))
+                    let range: { in: number; out: number } | undefined
+                    const raw = e.dataTransfer.getData('text/motionaire-range')
+                    if (raw) {
+                      try {
+                        range = JSON.parse(raw) as { in: number; out: number }
+                      } catch {
+                        range = undefined
+                      }
+                    }
+                    useStore.getState().insertClipAt(id, t.id, xToTime(e.clientX), range)
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault()
@@ -521,6 +540,10 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     { label: 'Copy', onClick: () => s.copyClips(ids) },
     { label: 'Paste at playhead', onClick: () => s.pasteAtPlayhead(), disabled: !s.clipboard.length },
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
+    {
+      label: clip?.disabled ? 'Enable' : 'Disable',
+      onClick: () => s.setClipDisabled(ids, !clip?.disabled),
+    },
     { label: 'Freeze frame at playhead', onClick: () => void freezeFrame(clipId), disabled: !freezable },
     { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },
     ...(clip?.kind === 'audio' ||
@@ -549,10 +572,12 @@ function Playhead() {
     e.stopPropagation()
     const el = e.currentTarget as HTMLElement
     el.setPointerCapture(e.pointerId)
+    useStore.getState().setScrubbing(true) // audio scrub (foundation, Phase 2)
     const parent = el.parentElement!.getBoundingClientRect()
     const move = (ev: PointerEvent) =>
       useStore.getState().setPlayhead((ev.clientX - parent.left) / useStore.getState().pxPerSec)
     const up = () => {
+      useStore.getState().setScrubbing(false)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
     }

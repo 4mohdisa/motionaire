@@ -23,6 +23,7 @@ export function flatten(project: Project) {
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
+      if (clip.disabled) continue // enable/disable (foundation, Phase 2)
       // Raster layers (text + shapes) share the webview-raster channel.
       const isRaster = (clip.kind === 'text' && !!clip.text) || !!clip.shape
       if (!isRaster && (clip.kind !== 'video' || (!clip.mediaId && !clip.adjust))) continue

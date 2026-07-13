@@ -168,7 +168,8 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
     // (Premiere eye semantics: video only).
     const anySolo = p.tracks.some((tr) => tr.kind === found.track.kind && tr.solo)
     const ramped = clip.keyframes.some((k) => k.prop === 'speed') // ramps are video-only
-    const trackGain = found.track.muted || (anySolo && !found.track.solo) || ramped ? 0 : 1
+    const trackGain =
+      found.track.muted || (anySolo && !found.track.solo) || ramped || clip.disabled ? 0 : 1
     const vol = resolveProp(clip, 'volume', t - clip.start) * trackGain
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
@@ -187,7 +188,13 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
         })
       }
     } else {
-      if (!el.paused) el.pause()
+      // Audio scrubbing (foundation, Phase 2): while the playhead is being
+      // dragged, let audible elements run so the user HEARS the material —
+      // the constant re-seeks below produce the classic scrub chatter.
+      const scrubAudio = s.scrubbing && !s.playing && vol > 0
+      if (scrubAudio) {
+        if (el.paused) void el.play().catch(() => {})
+      } else if (!el.paused) el.pause()
       // Paused: exact frame. Reverse shuttle: throttled seek stepping.
       // ponytail: reverse playback via seeks is choppy by nature; <video> can't
       // play backwards — the native compositor session owns smooth reverse.

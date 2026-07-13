@@ -191,7 +191,7 @@ function ClipBlock({ clip, trackId }: Props) {
 
   return (
     <div
-      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${clip.shape ? ' clip--shape' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}`}
+      className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${clip.shape ? ' clip--shape' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}${clip.disabled ? ' clip--disabled' : ''}`}
       style={{ left: clip.start * pxPerSec, width: widthPx }}
       data-clip-id={clip.id}
       data-track-id={trackId}

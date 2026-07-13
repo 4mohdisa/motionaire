@@ -1735,3 +1735,128 @@
 .tl__empty-action {
   margin-top: 8px;
 }
+
+/* ---------- Editing essentials (foundation, Phase 2) ---------- */
+
+.chip--mode {
+  height: 22px;
+  align-self: center;
+  text-transform: capitalize;
+}
+
+.clip--disabled {
+  opacity: 0.4;
+  filter: saturate(0.4);
+}
+
+.tl__range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent-muted);
+  pointer-events: none;
+}
+
+.tl__mark {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* ---------- Source monitor ---------- */
+
+.srcmon {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+
+.srcmon__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-seam);
+  background: var(--bg-panel);
+}
+
+.srcmon__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srcmon__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-monitor);
+  padding: 12px;
+}
+
+.srcmon__video {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.srcmon__scrub {
+  position: relative;
+  height: 14px;
+  margin: 8px 12px 0;
+  border-radius: 7px;
+  background: var(--bg-control);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.srcmon__iorange {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 7px;
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+
+.srcmon__cursor {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: calc(100% + 4px);
+  background: var(--playhead);
+  pointer-events: none;
+}
+
+.srcmon__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.srcmon__io {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.srcmon__add {
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}

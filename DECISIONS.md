@@ -1269,3 +1269,37 @@ live in the DOM and tick at rAF rates where per-frame IPC is nonsense. So:
   played differently in export than preview. exportRunner now samples any
   non-linear segment at 10Hz through the parity-locked mirror, so the
   FFmpeg expression approximates the eased curve within the sample step.
+
+## Phase 2 — editing essentials
+
+- **Source monitor** (the flagged biggest workflow gap): double-click a bin
+  item (or its context entry) swaps the program monitor for a source view —
+  plain <video> playback with frame-step transport, a scrub bar showing the
+  I/O range, I/O set buttons, a drag chip carrying (mediaId + range) through
+  the existing DnD channel, and "Add at playhead". Insertion honors the
+  range via insertClipAt's new optional {in,out}. Full-view swap, not a
+  second monitor pane — one window, one visible monitor (logged; Premiere's
+  side-by-side twin monitors need horizontal space this layout doesn't
+  have). I/O KEYBOARD keys stay timeline-scoped; the source monitor uses
+  its buttons — predictability over mode-dependent keys (logged).
+- **Timeline in/out:** I / O at the playhead, ⌥ clears, shaded range +
+  edge ticks on the ruler; out ≤ in clears the other mark rather than
+  silently reordering. Feeds Phase 6's export range.
+- **Insert vs Overwrite:** a toolbar chip toggles the drop mode; ALL
+  placements route through one prepareSpan(): overwrite carves the landing
+  range Premiere-style (straddling clip → head + tail split with keyframe
+  redistribution and transition-edge trimming), insert splits at the point
+  and ripples the TARGET track right (multi-track ripple deferred with
+  sync-lock semantics — logged). Placement now lands EXACTLY where dropped
+  instead of nearest-gap nudging.
+- **Clip enable/disable:** context-menu toggle; excluded from flatten
+  (compositor), export audio, playback gain, and DOM fallback; drawn dim.
+- **Nudge:** , / . one frame, shift = 5 (the classic NLE keys; arrows stay
+  on the playhead — logged). Collision rule holds: packed neighbors refuse.
+- **Audio scrubbing:** dragging the ruler or playhead sets a scrubbing
+  flag; paused-but-scrubbing elements keep playing while the constant
+  re-seeks produce the classic scrub chatter. Zero new audio machinery.
+- Verified: f2-edit PASS (overwrite carve produced exactly [0..4][new
+  2s][6..10], insert grew the project to 12s, disable dropped a flatten
+  layer, one-frame nudge exact, marks set via real keydowns + invalid-order
+  guard) + source monitor capture with a live I/O range.

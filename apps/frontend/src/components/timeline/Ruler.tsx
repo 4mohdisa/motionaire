@@ -69,18 +69,33 @@ function Ruler() {
   }, [pxPerSec, scrollEl])
 
   const scrub = (e: React.PointerEvent) => useStore.getState().setPlayhead(xToTime(e.clientX))
+  const markIn = useStore((s) => s.markIn)
+  const markOut = useStore((s) => s.markOut)
 
   return (
     <div
       className="tl__ruler"
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
+        useStore.getState().setScrubbing(true) // audio scrub (foundation, Phase 2)
         scrub(e)
       }}
       onPointerMove={(e) => {
         if (e.buttons & 1) scrub(e)
       }}
+      onPointerUp={() => useStore.getState().setScrubbing(false)}
+      onLostPointerCapture={() => useStore.getState().setScrubbing(false)}
     >
+      {markIn !== null && markOut !== null && (
+        <div
+          className="tl__range"
+          style={{ left: markIn * pxPerSec, width: (markOut - markIn) * pxPerSec }}
+        />
+      )}
+      {markIn !== null && <div className="tl__mark tl__mark--in" style={{ left: markIn * pxPerSec }} />}
+      {markOut !== null && (
+        <div className="tl__mark tl__mark--out" style={{ left: markOut * pxPerSec }} />
+      )}
       <canvas ref={canvasRef} className="tl__ruler-canvas" />
       {(markers ?? []).map((m) => {
         const s = useStore.getState()

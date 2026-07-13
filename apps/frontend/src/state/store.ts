@@ -109,7 +109,12 @@ export interface StoreState {
   // Media bin (session 9, Phase 2)
   binOpen: boolean
   setBinOpen: (v: boolean) => void
-  insertClipAt: (mediaId: string, trackId: string | null, at: number) => void
+  insertClipAt: (
+    mediaId: string,
+    trackId: string | null,
+    at: number,
+    range?: { in: number; out: number },
+  ) => void
   removeMedia: (mediaId: string) => void
   // Freeze frame: add a still asset + a clip on the topmost video track at
   // `at` (nearest gap; end of track if nothing fits).
@@ -157,6 +162,24 @@ export interface StoreState {
   setShuttle: (rate: number) => void
   frameStep: (frames: number) => void
   select: (ids: string[], mode?: 'set' | 'add' | 'toggle') => void
+
+  // --- editing essentials (foundation session, Phase 2) ---
+  // Timeline mark in/out (drives range operations + export range).
+  markIn: number | null
+  markOut: number | null
+  setMarkIn: (t: number | null) => void
+  setMarkOut: (t: number | null) => void
+  // Insert pushes the target track right; overwrite carves out what's under.
+  editMode: 'insert' | 'overwrite'
+  setEditMode: (m: 'insert' | 'overwrite') => void
+  // Source monitor: preview + set in/out on a bin asset BEFORE placing it.
+  sourcePreview: { mediaId: string; in: number | null; out: number | null } | null
+  openSource: (mediaId: string | null) => void
+  setSourceRange: (edge: 'in' | 'out', t: number | null) => void
+  setClipDisabled: (ids: string[], disabled: boolean) => void
+  nudgeSelection: (frames: number) => void
+  scrubbing: boolean
+  setScrubbing: (v: boolean) => void
 
   // --- audio sugar (session 9, Phase 7) ---
   // Fades write ordinary volume keyframes — preview and export already honor them.
@@ -210,6 +233,81 @@ export interface SpikeMediaInput {
 
 function clampPlayhead(t: number, p: Project): number {
   return Math.min(Math.max(0, t), Math.max(p.duration, 0))
+}
+
+// Make room for a clip landing on [start, start+dur) (foundation, Phase 2).
+// insert: split anything straddling `start`, ripple the track right.
+// overwrite: carve the range out of whatever occupies it (Premiere semantics).
+function prepareSpan(
+  track: Track,
+  start: number,
+  dur: number,
+  mode: 'insert' | 'overwrite',
+  fps: number,
+  mkId: () => string,
+) {
+  const end = start + dur
+  const eps = 1e-9
+  const trimRight = (c: Clip, at: number) => {
+    // keep [c.start, at)
+    if (c.mediaId) c.out = c.in + (at - c.start) * c.speed
+    else c.out = (at - c.start) * c.speed
+    c.keyframes = c.keyframes.filter((k) => k.t <= at - c.start + eps)
+    c.transitions = { in: c.transitions.in, out: null }
+  }
+  const trimLeft = (c: Clip, at: number) => {
+    // keep [at, clipEnd)
+    const delta = at - c.start
+    if (c.mediaId) c.in += delta * c.speed
+    else c.out -= delta * c.speed
+    c.start = snapToFrame(at, fps)
+    c.keyframes = c.keyframes.map((k) => ({ ...k, t: k.t - delta })).filter((k) => k.t >= 0)
+    c.transitions = { in: null, out: c.transitions.out }
+  }
+
+  if (mode === 'insert') {
+    for (const c of [...track.clips]) {
+      if (c.start < start - eps && clipEnd(c) > start + eps) {
+        // straddles the insert point: split into head + tail
+        const tail = structuredClone(current(c)) as Clip
+        tail.id = mkId()
+        trimLeft(tail, start)
+        trimRight(c, start)
+        track.clips.push(tail)
+      }
+    }
+    for (const c of track.clips)
+      if (c.start >= start - eps) c.start = snapToFrame(c.start + dur, fps)
+    return
+  }
+
+  // overwrite
+  const survivors: Clip[] = []
+  for (const c of [...track.clips]) {
+    const cs = c.start
+    const ce = clipEnd(c)
+    if (ce <= start + eps || cs >= end - eps) {
+      survivors.push(c)
+      continue
+    }
+    const keepsLeft = cs < start - eps
+    const keepsRight = ce > end + eps
+    if (keepsLeft && keepsRight) {
+      const tail = structuredClone(current(c)) as Clip
+      tail.id = mkId()
+      trimLeft(tail, end)
+      trimRight(c, start)
+      survivors.push(c, tail)
+    } else if (keepsLeft) {
+      trimRight(c, start)
+      survivors.push(c)
+    } else if (keepsRight) {
+      trimLeft(c, end)
+      survivors.push(c)
+    }
+    // fully covered → dropped
+  }
+  track.clips = survivors
 }
 
 export const useStore = create<StoreState>()(
@@ -400,7 +498,7 @@ export const useStore = create<StoreState>()(
           s.binOpen = v
         }),
 
-      insertClipAt: (mediaId, trackId, at) =>
+      insertClipAt: (mediaId, trackId, at, range) =>
         mutateProject((p) => {
           const asset = p.media.find((a) => a.id === mediaId)
           if (!asset) return
@@ -410,22 +508,23 @@ export const useStore = create<StoreState>()(
             track = p.tracks.find((t) => t.kind === asset.kind && !t.locked)
           if (!track) return
           const still = /\.(png|jpe?g)$/i.test(asset.path)
-          const dur = still ? 3 : asset.duration
+          const inPt = range ? Math.max(0, range.in) : 0
+          const outPt = range ? range.out : still ? 3 : asset.duration
+          const dur = outPt - inPt
           if (dur <= 0) return
-          const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
-          const start = clampStartToGaps(
-            siblings,
-            dur,
-            snapToFrame(Math.max(0, at), p.canvas.fps),
+          const start = snapToFrame(Math.max(0, at), p.canvas.fps)
+          // Insert/overwrite semantics (foundation, Phase 2): the clip lands
+          // exactly where dropped; prepareSpan makes the room.
+          prepareSpan(track, start, dur, useStore.getState().editMode, p.canvas.fps, () =>
+            uid('c'),
           )
-          if (start === null) return
           track.clips.push({
             id: uid('c'),
             kind: asset.kind,
             mediaId,
-            start: snapToFrame(start, p.canvas.fps),
-            in: 0,
-            out: dur,
+            start,
+            in: inPt,
+            out: outPt,
             speed: 1,
             volume: 1,
             transform: defaultTransform(),
@@ -1020,6 +1119,67 @@ export const useStore = create<StoreState>()(
               if (i >= 0) s.selection.splice(i, 1)
               else s.selection.push(id)
             }
+        }),
+
+      markIn: null,
+      markOut: null,
+      setMarkIn: (t) =>
+        set((s) => {
+          s.markIn = t === null ? null : snapToFrame(Math.max(0, t), s.project.canvas.fps)
+          if (s.markIn !== null && s.markOut !== null && s.markOut <= s.markIn) s.markOut = null
+        }),
+      setMarkOut: (t) =>
+        set((s) => {
+          s.markOut = t === null ? null : snapToFrame(Math.max(0, t), s.project.canvas.fps)
+          if (s.markIn !== null && s.markOut !== null && s.markOut <= s.markIn) s.markIn = null
+        }),
+
+      editMode: 'overwrite',
+      setEditMode: (m) =>
+        set((s) => {
+          s.editMode = m
+        }),
+
+      sourcePreview: null,
+      openSource: (mediaId) =>
+        set((s) => {
+          s.sourcePreview = mediaId ? { mediaId, in: null, out: null } : null
+        }),
+      setSourceRange: (edge, t) =>
+        set((s) => {
+          if (!s.sourcePreview) return
+          if (edge === 'in') s.sourcePreview.in = t
+          else s.sourcePreview.out = t
+          const sp = s.sourcePreview
+          if (sp.in !== null && sp.out !== null && sp.out <= sp.in) {
+            if (edge === 'in') sp.out = null
+            else sp.in = null
+          }
+        }),
+
+      setClipDisabled: (ids, disabled) =>
+        mutateProject((p) => {
+          for (const tr of p.tracks) {
+            if (tr.locked) continue
+            for (const c of tr.clips) if (ids.includes(c.id)) c.disabled = disabled
+          }
+        }),
+
+      nudgeSelection: (frames) => {
+        const s = get()
+        if (!s.selection.length) return
+        const delta = frames / s.project.canvas.fps
+        const entries = s.project.tracks
+          .flatMap((t) => t.clips)
+          .filter((c) => s.selection.includes(c.id))
+          .map((c) => ({ id: c.id, start: Math.max(0, c.start + delta) }))
+        get().moveClipsTo(entries)
+      },
+
+      scrubbing: false,
+      setScrubbing: (v) =>
+        set((s) => {
+          s.scrubbing = v
         }),
 
       addFade: (clipId, edge, dur = 0.5) =>

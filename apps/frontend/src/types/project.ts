@@ -111,6 +111,7 @@ export interface Clip {
   grade?: Grade // color grade; undefined = no grade pass
   adjust?: boolean // adjustment layer: no source; grade applies to all lower z
   shape?: Shape // shape clip: raster overlay, no source media
+  disabled?: boolean // excluded from compositing/audio without deleting (foundation, Phase 2)
 }
 
 export interface MediaAsset {

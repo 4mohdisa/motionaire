@@ -1079,6 +1079,97 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f2_srcmon': {
+      // Open the source monitor via the REAL bin double-click path and set an
+      // in/out range for the capture.
+      const item = document.querySelector<HTMLElement>('.bin__item')
+      item?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+      await new Promise((r) => setTimeout(r, 400))
+      useStore.getState().setSourceRange('in', 2)
+      useStore.getState().setSourceRange('out', 7)
+      break
+    }
+    case 'dev:f2_edit_test': {
+      // Foundation Phase 2: overwrite carves, insert ripples, source-range
+      // insertion honors in/out, disable drops the layer, nudge moves by
+      // exactly one frame, marks set/clear.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f2-edit', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        const fps = st().project.canvas.fps
+        const cam = st().project.media.find((m) => m.name === 'cam.mp4')!
+        const v1 = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => a.z - b.z)[0]
+        // OVERWRITE a 2s range into the middle of the 10s screen clip → the
+        // track becomes [0..4][4..6 new][6..10], still 3 clips, total 10s.
+        st().setEditMode('overwrite')
+        st().insertClipAt(cam.id, v1.id, 4, { in: 1, out: 3 })
+        const clipsAfterOv = st().project.tracks.find((t) => t.id === v1.id)!.clips
+        const sorted = [...clipsAfterOv].sort((a, b) => a.start - b.start)
+        const ovOk =
+          sorted.length === 3 &&
+          Math.abs(sorted[0].start) < 0.01 &&
+          Math.abs((sorted[0].out - sorted[0].in) / sorted[0].speed - 4) < 0.05 &&
+          Math.abs(sorted[1].start - 4) < 0.01 &&
+          sorted[1].mediaId === cam.id &&
+          Math.abs(sorted[1].in - 1) < 0.01 &&
+          Math.abs(sorted[1].out - 3) < 0.01 &&
+          Math.abs(sorted[2].start - 6) < 0.01 &&
+          Math.abs(st().project.duration - 10) < 0.05
+        // INSERT the same 2s range at t=2 → everything after 2 shifts right
+        // by 2; project grows to 12s.
+        st().setEditMode('insert')
+        st().insertClipAt(cam.id, v1.id, 2, { in: 1, out: 3 })
+        const insOk = Math.abs(st().project.duration - 12) < 0.05
+        // DISABLE: the inserted clip disappears from flatten
+        const { flatten } = await import('../compositor/bridge')
+        const target = [...st().project.tracks.find((t) => t.id === v1.id)!.clips].sort(
+          (a, b) => a.start - b.start,
+        )[1]
+        const layersBefore = flatten(st().project).layers.length
+        st().setClipDisabled([target.id], true)
+        const layersAfter = flatten(st().project).layers.length
+        const disableOk = layersAfter === layersBefore - 1
+        st().setClipDisabled([target.id], false)
+        // NUDGE: exactly one frame right on the LAST clip (open space to its
+        // right — the packed middle correctly refuses, which is the collision
+        // rule doing its job).
+        const lastClip = [...st().project.tracks.find((t) => t.id === v1.id)!.clips].sort(
+          (a, b) => a.start - b.start,
+        )
+        const tail = lastClip[lastClip.length - 1]
+        st().select([tail.id])
+        const s0 = tail.start
+        st().nudgeSelection(1)
+        const afterNudge = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === tail.id)!.start
+        const nudgeOk = Math.abs(afterNudge - (s0 + 1 / fps)) < 1e-6
+        st().nudgeSelection(-1)
+        // MARKS: set via real keydown, out<in rejected
+        st().setPlayhead(3)
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true }))
+        st().setPlayhead(7)
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', bubbles: true }))
+        const marksOk = st().markIn === 3 && st().markOut === 7
+        st().setMarkOut(1) // invalid: out before in → in cleared per contract
+        const marksGuard = st().markIn === null
+        st().setMarkIn(3)
+        st().setMarkOut(7)
+        void report(
+          ovOk && insOk && disableOk && nudgeOk && marksOk && marksGuard,
+          `overwrite=${ovOk} insert=${insOk} disable=${disableOk} nudge=${nudgeOk} marks=${marksOk}/${marksGuard}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

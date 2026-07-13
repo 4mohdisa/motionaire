@@ -63,6 +63,25 @@ export function useShortcuts() {
         case 'M':
           s.addMarkerAtPlayhead()
           break
+        // Timeline mark in/out (foundation, Phase 2); ⌥ clears (Premiere).
+        case 'i':
+        case 'I':
+          if (e.altKey) s.setMarkIn(null)
+          else s.setMarkIn(s.playhead)
+          break
+        case 'o':
+        case 'O':
+          if (e.altKey) s.setMarkOut(null)
+          else s.setMarkOut(s.playhead)
+          break
+        // Nudge selection by frame — comma/period, the classic NLE keys
+        // (arrows stay on the playhead per standard transport behavior).
+        case ',':
+          s.nudgeSelection(e.shiftKey ? -5 : -1)
+          break
+        case '.':
+          s.nudgeSelection(e.shiftKey ? 5 : 1)
+          break
         case 'ArrowLeft':
           e.preventDefault()
           s.frameStep(e.shiftKey ? -10 : -1)

@@ -26,7 +26,7 @@ function audioSpecs(project: Project): AudioClipSpec[] {
     const anySolo = project.tracks.some((t) => t.kind === track.kind && t.solo)
     if (track.muted || (anySolo && !track.solo)) continue
     for (const clip of track.clips) {
-      if (!clip.mediaId) continue
+      if (!clip.mediaId || clip.disabled) continue
       const asset = project.media.find((m) => m.id === clip.mediaId)
       if (!asset?.hasAudio || asset.missing || !asset.path.startsWith('/')) continue
       // Speed-ramped clips are video-only (time-varying audio tempo is not

@@ -6,6 +6,7 @@ import { clipsToMount, usePlaybackEngine, type ElementMap } from '../engine/play
 import { startCompositorClient } from '../compositor/client'
 import type { Clip } from '../types/project'
 import TransportControls from './TransportControls'
+import SourceMonitor from './SourceMonitor'
 
 function Preview() {
   const project = useStore((s) => s.project)
@@ -35,6 +36,7 @@ function Preview() {
   const texts = activeTextClips(project, playhead)
   const safeZones = useStore((s) => s.safeZones)
   const compositorActive = useStore((s) => s.compositorActive)
+  const sourcePreview = useStore((s) => s.sourcePreview)
 
   // Rust compositor stream → canvas. When frames flow, the canvas is the video
   // surface (real multi-clip composite) and DOM <video> stays for audio only.
@@ -87,7 +89,8 @@ function Preview() {
 
   return (
     <div className="preview">
-      <div className="preview__fit">
+      {sourcePreview && <SourceMonitor key={sourcePreview.mediaId} />}
+      <div className="preview__fit" style={sourcePreview ? { display: 'none' } : undefined}>
         <div
           className="preview__stage"
           ref={stageRef}
@@ -135,7 +138,7 @@ function Preview() {
           </div>
         </div>
       </div>
-      <TransportControls />
+      {!sourcePreview && <TransportControls />}
     </div>
   )
 }

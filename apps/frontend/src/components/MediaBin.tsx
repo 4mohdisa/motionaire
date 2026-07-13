@@ -75,6 +75,10 @@ function MediaBin() {
     if (!asset) return []
     return [
       {
+        label: 'Open in source monitor',
+        onClick: () => useStore.getState().openSource(id),
+      },
+      {
         label: 'Add to timeline at playhead',
         onClick: () => {
           const s = useStore.getState()
@@ -168,10 +172,7 @@ function MediaBin() {
               e.dataTransfer.setData(MEDIA_DND, m.id)
               e.dataTransfer.effectAllowed = 'copy'
             }}
-            onDoubleClick={() => {
-              const s = useStore.getState()
-              s.insertClipAt(m.id, null, s.playhead)
-            }}
+            onDoubleClick={() => useStore.getState().openSource(m.id)}
             onContextMenu={(e) => {
               e.preventDefault()
               setMenu({ x: e.clientX, y: e.clientY, id: m.id })

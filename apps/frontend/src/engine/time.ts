@@ -89,7 +89,7 @@ export function activeVideoClips(p: Project, t: number): { clip: Clip; z: number
   for (const tr of p.tracks) {
     if (tr.kind !== 'video') continue
     for (const c of tr.clips)
-      if (c.kind === 'video' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
+      if (c.kind === 'video' && !c.disabled && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
   }
   return out.sort((a, b) => b.z - a.z)
 }
@@ -98,7 +98,7 @@ export function activeAudioClips(p: Project, t: number): Clip[] {
   const out: Clip[] = []
   for (const tr of p.tracks) {
     if (tr.kind !== 'audio') continue
-    for (const c of tr.clips) if (c.kind === 'audio' && isActiveAt(c, t)) out.push(c)
+    for (const c of tr.clips) if (c.kind === 'audio' && !c.disabled && isActiveAt(c, t)) out.push(c)
   }
   return out
 }
@@ -108,7 +108,7 @@ export function activeTextClips(p: Project, t: number): { clip: Clip; z: number 
   for (const tr of p.tracks) {
     if (tr.kind !== 'video') continue
     for (const c of tr.clips)
-      if (c.kind === 'text' && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
+      if (c.kind === 'text' && !c.disabled && isActiveAt(c, t)) out.push({ clip: c, z: tr.z })
   }
   return out.sort((a, b) => a.z - b.z) // render order: lowest first, highest on top
 }
