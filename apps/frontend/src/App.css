@@ -16,6 +16,12 @@
   border-bottom: 1px solid var(--border-seam);
 }
 
+/* Overlay title bar (foundation session): the header row occupies the macOS
+   title-bar region — clear the traffic lights on the left. */
+.topbar--titlebar {
+  padding-left: 84px;
+}
+
 .topbar__brand {
   font-size: 13px;
   font-weight: 600;
@@ -491,15 +497,18 @@
 
 /* ---------- Context menu ---------- */
 
-.menu {
+/* THE floating-panel primitive (foundation session, Phase 0): portal at
+   body, collision-flipped, edge-shifted, scrolls internally when clamped. */
+.popover {
   position: fixed;
   min-width: 180px;
-  background: var(--bg-panel);
+  overflow-y: auto;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 4px;
   box-shadow: var(--shadow-pop);
-  z-index: 200;
+  z-index: 400;
 }
 
 .menu__item {
@@ -835,11 +844,6 @@
 
 /* ---------- Toolbar dropdowns ---------- */
 
-.dropdown {
-  position: relative;
-  display: inline-flex;
-}
-
 .iconbtn--wide {
   width: auto;
   padding: 0 8px;
@@ -849,24 +853,6 @@
 .dropdown__value {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-
-.dropdown__panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 200px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 4px;
-  box-shadow: var(--shadow-pop);
-  z-index: 250;
-}
-
-.dropdown__panel--right {
-  left: auto;
-  right: 0;
 }
 
 .dropdown__check {
@@ -1278,7 +1264,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 28px;
+  padding: 20px 28px 20px 96px;
   border-bottom: 1px solid var(--border-seam);
   background: var(--bg-panel);
 }
@@ -1630,4 +1616,122 @@
 
 .clip--shape {
   background: var(--clip-text);
+}
+
+/* ---------- Transport status (foundation, Phase 0) ---------- */
+
+.transport__status {
+  font-size: 10px;
+  color: var(--text-disabled);
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transport__status--ok {
+  color: var(--text-secondary);
+}
+
+/* ---------- Toasts ---------- */
+
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 500;
+  width: 300px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.toast--error {
+  border-color: var(--danger);
+}
+
+.toast--success .toast__icon {
+  color: var(--success);
+}
+
+.toast--error .toast__icon {
+  color: var(--danger);
+}
+
+.toast--info .toast__icon,
+.toast--progress .toast__icon {
+  color: var(--accent);
+}
+
+.toast__icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toast__text {
+  display: block;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.toast__bar {
+  margin-top: 6px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+
+.toast__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s;
+}
+
+.toast__close {
+  flex: none;
+  display: inline-flex;
+  background: none;
+  border: none;
+  color: var(--text-disabled);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.toast__close:hover {
+  color: var(--text-primary);
+}
+
+/* ---------- Polish (foundation, Phase 0) ---------- */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tl__empty-action {
+  margin-top: 8px;
 }

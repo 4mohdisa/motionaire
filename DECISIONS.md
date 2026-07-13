@@ -1204,3 +1204,42 @@ All 8 phases (0–7) shipped with per-phase commits and evidence. Nothing was
 cut. Next session per the plan: the AI prompt-driven tool layer (CONTEXT.md
 §2), Whisper transcription, and the web/activation server — the app side of
 activation is already waiting behind the LicenseValidator seam.
+
+# Foundation session (session 10)
+
+Work order: FOUNDATION.md. Strong base, no AI surface.
+
+## Phase 0 — UI finishing & bug fixes
+
+- **Popover: the class fix.** One primitive (components/Popover.tsx):
+  portal at document.body (no ancestor overflow can clip, ever), vertical
+  collision flip choosing the roomier side, horizontal viewport shifting,
+  max-height + internal scroll as the last resort. BOTH floating-UI
+  primitives migrated onto it — Dropdown (Add / More / View Options / zoom)
+  and ContextMenu (timeline clips, lanes, media bin) — so every menu in the
+  app inherits the fix; nothing floats via ad-hoc absolute positioning
+  anymore. Audit notes: iconbtn tooltips are 1-line CSS anchored away from
+  their own edge (left as-is), native <select>s position themselves,
+  modals are centered overlays — none are members of the bug class.
+  Verified with REAL events: Add menu at the bottom toolbar flips upward
+  fully in-view with 'Line' reachable (the reported bug); a context menu
+  invoked 12px from the bottom-right corner lands entirely inside the
+  viewport.
+- **Unified title bar:** titleBarStyle Overlay + hiddenTitle; the app's
+  header row IS the title bar (drag region + 84px traffic-light inset), the
+  launcher header and gate screens get drag regions too. One title bar.
+- **Compositor badge** moved out of the frame into the transport row
+  ("ready" / "N fps" / "DOM preview"). The frame shows frames, not chrome.
+- **Toasts:** store-backed stack (info/success/error/progress with bar),
+  bottom-right, auto-dismiss except progress. Routed: export done/cancel/
+  fail (globally, so future background exports surface without the panel
+  open) and VFR-normalization notice on import.
+- **Empty states:** timeline and media bin now offer an Import action
+  instead of sitting inert.
+- **Break-test find:** the global export listener DOUBLED its toasts —
+  StrictMode's immediate cleanup runs before tauri's async listen()
+  resolves, leaking one listener per mount; the window-close handler had
+  the same latent bug (double unsaved prompts). Fixed with a dead-flag in
+  the effect. This pattern is now the house rule for async listener
+  registration in effects.
+- Polish: :focus-visible rings; resizer cursors verified pre-existing.

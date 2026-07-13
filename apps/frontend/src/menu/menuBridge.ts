@@ -881,6 +881,86 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f0_popover_test': {
+      // Foundation Phase 0: the popover CLASS fix. The Add menu (bottom
+      // toolbar) must flip upward fully in-view with its last item (Line)
+      // reachable; a context menu invoked at the bottom-right corner must be
+      // shifted fully into the viewport.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f0-popover', pass, detail }).catch(() => {})
+      const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const btn = document.querySelector<HTMLElement>('.tl__toolbar .iconbtn')!
+        btn.dispatchEvent(
+          new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
+        )
+        await tick()
+        const pop = document.querySelector<HTMLElement>('.popover')
+        if (!pop) {
+          void report(false, 'Add popover did not open')
+          break
+        }
+        const r = pop.getBoundingClientRect()
+        const b = btn.getBoundingClientRect()
+        const inView =
+          r.top >= 0 && r.bottom <= window.innerHeight && r.left >= 0 && r.right <= window.innerWidth
+        const items = Array.from(pop.querySelectorAll('.menu__item')).map(
+          (el) => el.textContent ?? '',
+        )
+        const lineEl = Array.from(pop.querySelectorAll<HTMLElement>('.menu__item')).find(
+          (el) => el.textContent === 'Line',
+        )
+        const lineVisible =
+          !!lineEl &&
+          lineEl.getBoundingClientRect().bottom <= window.innerHeight &&
+          lineEl.getBoundingClientRect().top >= 0
+        const flippedUp = r.bottom <= b.top + 1
+        // capture happens while this menu is open (dev remote follows up)
+        window.setTimeout(() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        }, 6000)
+        void report(
+          inView && lineVisible && flippedUp,
+          `inView=${inView} flippedUp=${flippedUp} lineVisible=${lineVisible} items=${items.length}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:f0_ctx_test': {
+      // Part 2: context menu at the extreme bottom-right corner stays in view.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f0-ctx', pass, detail }).catch(() => {})
+      try {
+        const lane = document.querySelector<HTMLElement>('[data-lane-track]')!
+        lane.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: window.innerWidth - 12,
+            clientY: window.innerHeight - 12,
+          }),
+        )
+        await new Promise((r) => setTimeout(r, 150))
+        const pop = document.querySelector<HTMLElement>('.popover')
+        if (!pop) {
+          void report(false, 'context popover did not open')
+          break
+        }
+        const r = pop.getBoundingClientRect()
+        const inView =
+          r.top >= 0 &&
+          r.bottom <= window.innerHeight &&
+          r.left >= 0 &&
+          r.right <= window.innerWidth
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        void report(inView, `rect=${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)} vp=${window.innerWidth}x${window.innerHeight}`)
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

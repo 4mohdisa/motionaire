@@ -351,7 +351,23 @@ function Timeline() {
                   ))}
                 </div>
               ))}
-              {!hasClips && <div className="tl__empty">Import media to get started</div>}
+              {!hasClips && (
+                <div className="tl__empty">
+                  Drop media here, or import a file to get started
+                  <div className="tl__empty-action">
+                    <button
+                      className="topbar__btn"
+                      onClick={() =>
+                        void import('../../persistence/projectIO').then((m) =>
+                          m.importMediaNative(),
+                        )
+                      }
+                    >
+                      Import media…
+                    </button>
+                  </div>
+                </div>
+              )}
               {marquee && (
                 <div
                   className="tl__marquee"

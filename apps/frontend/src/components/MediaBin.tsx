@@ -150,7 +150,14 @@ function MediaBin() {
       </div>
       <div className="bin__list">
         {media.length === 0 && (
-          <div className="bin__empty">No media yet. Import a file to get started.</div>
+          <div className="bin__empty">
+            No media yet.
+            <div className="tl__empty-action">
+              <button className="topbar__btn" onClick={() => void importMediaNative()}>
+                Import media…
+              </button>
+            </div>
+          </div>
         )}
         {media.map((m) => (
           <div

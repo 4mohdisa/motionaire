@@ -8,11 +8,27 @@ function TransportControls() {
   const playhead = useStore((s) => s.playhead)
   const duration = useStore((s) => s.project.duration)
   const fps = useStore((s) => s.project.canvas.fps)
+  const compositorActive = useStore((s) => s.compositorActive)
+  const compositorFps = useStore((s) => s.compositorFps)
   const { togglePlay, frameStep, setPlayhead } = useStore.getState()
+
+  // Compositor status lives HERE, in chrome — never overlaid on the frame
+  // (foundation session, Phase 0).
+  const status = !compositorActive
+    ? 'DOM preview'
+    : playing && compositorFps > 0
+      ? `${compositorFps.toFixed(0)} fps`
+      : 'ready'
 
   return (
     <div className="transport">
       <span className="transport__time">{formatTimecode(playhead, fps)}</span>
+      <span
+        className={`transport__status${compositorActive ? ' transport__status--ok' : ''}`}
+        title="Compositor status"
+      >
+        {status}
+      </span>
       <div className="transport__buttons">
         <IconBtn icon={SkipBack} label="Go to start (Home)" onClick={() => setPlayhead(0)} />
         <IconBtn icon={StepBack} label="Previous frame (←)" onClick={() => frameStep(-1)} />

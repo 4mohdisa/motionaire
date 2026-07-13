@@ -6,6 +6,7 @@ import Timeline from './components/timeline/Timeline'
 import { Activation, Launcher, Onboarding } from './components/Shell'
 import { useBootFlow } from './hooks/useBootFlow'
 import MediaBin from './components/MediaBin'
+import Toasts from './components/Toasts'
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -100,6 +101,24 @@ function App() {
         }).catch(() => {})
       }
     }, AUTOSAVE_MS)
+    // Global export notifications (works even when the panel is closed —
+    // background export in Phase 6 leans on this).
+    // dead-flag: listen() resolves ASYNC, after StrictMode's immediate
+    // cleanup — without it both mounts' listeners leak (seen as doubled
+    // toasts in the foundation session's own break-test).
+    let dead = false
+    let unExp: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(({ listen }) => {
+      void listen<{ ok: boolean; cancelled?: boolean; error?: string }>('export:done', (e) => {
+        const s = useStore.getState()
+        if (e.payload.ok) s.pushToast('success', 'Export finished')
+        else if (e.payload.cancelled) s.pushToast('info', 'Export cancelled')
+        else s.pushToast('error', `Export failed: ${e.payload.error ?? 'unknown error'}`)
+      }).then((f) => {
+        if (dead) f()
+        else unExp = f
+      })
+    })
     let unlisten: (() => void) | undefined
     void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
       void getCurrentWindow()
@@ -110,13 +129,16 @@ function App() {
           if (await guardDirty()) void getCurrentWindow().destroy()
         })
         .then((f) => {
-          unlisten = f
+          if (dead) f()
+          else unlisten = f
         })
     })
     return () => {
+      dead = true
       unsub()
       window.clearInterval(timer)
       unlisten?.()
+      unExp?.()
     }
   }, [])
   // Panel sizes are user-dragged absolutes; re-clamp them when the window
@@ -172,6 +194,7 @@ function App() {
       </div>
       <ExportPanel />
       <UnsavedPrompt />
+      <Toasts />
     </div>
   )
 }

@@ -52,7 +52,7 @@ export function Activation() {
   }
 
   return (
-    <div className="shell shell--center">
+    <div className="shell shell--center" data-tauri-drag-region>
       <div className="shell__card">
         <Clapperboard size={40} className="shell__logo" />
         <h1 className="shell__title">Activate Motionaire</h1>
@@ -99,7 +99,7 @@ export function Onboarding() {
   const last = step === SLIDES.length - 1
 
   return (
-    <div className="shell shell--center">
+    <div className="shell shell--center" data-tauri-drag-region>
       <div className="shell__card shell__card--wide">
         <button className="shell__skip" onClick={() => void finishOnboarding()}>
           Skip
@@ -181,7 +181,7 @@ export function Launcher() {
 
   return (
     <div className="shell shell--launcher">
-      <header className="launcher__head">
+      <header className="launcher__head" data-tauri-drag-region>
         <div className="launcher__brand">
           <Clapperboard size={22} />
           <span>Motionaire</span>

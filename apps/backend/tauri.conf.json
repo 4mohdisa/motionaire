@@ -6,8 +6,14 @@
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": { "script": "npm run dev", "cwd": "../frontend" },
-    "beforeBuildCommand": { "script": "npm run build", "cwd": "../frontend" }
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../frontend"
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../frontend"
+    }
   },
   "app": {
     "windows": [
@@ -18,14 +24,19 @@
         "minWidth": 960,
         "minHeight": 620,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$TEMP/motionaire-spike/**", "$HOME/**"]
+        "scope": [
+          "$TEMP/motionaire-spike/**",
+          "$HOME/**"
+        ]
       }
     }
   },

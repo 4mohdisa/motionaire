@@ -242,7 +242,10 @@ export async function importMediaNative(): Promise<void> {
         'normalize_media',
         { path: rawPath },
       ).catch(() => ({ path: rawPath, wasVfr: false }))
-      if (wasVfr) console.info(`import: ${rawPath} was VFR — normalized to ${path}`)
+      if (wasVfr)
+        useStore
+          .getState()
+          .pushToast('info', `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`)
       const info = await invoke<ProbeResult>('probe_media', { path })
       const asset: MediaAsset = {
         id: uid('m'),

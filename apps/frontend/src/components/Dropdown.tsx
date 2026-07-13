@@ -1,13 +1,14 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Check } from 'lucide-react'
+import { Popover } from './Popover'
 
 const DropdownCtx = createContext<() => void>(() => {})
 
-// Toolbar dropdown primitive (session 8, Phase 2 density pass): one trigger
-// button, an anchored panel, outside-click/Escape dismissal. Premiere-style
-// consolidation — high-frequency actions stay as bare icons, everything else
-// groups in here.
+// Toolbar dropdown primitive. Since the foundation session the panel renders
+// through the Popover portal, so it can never be clipped by toolbar/timeline
+// overflow and flips upward near the bottom of the window (the Add-menu bug
+// class).
 
 interface DropdownProps {
   icon: LucideIcon
@@ -18,42 +19,30 @@ interface DropdownProps {
 }
 
 export function Dropdown({ icon: Icon, label, value, children, alignRight }: DropdownProps) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [open])
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
 
   return (
-    <div className="dropdown" ref={ref}>
+    <>
       <button
-        className={`iconbtn${open ? ' iconbtn--on' : ''}${value ? ' iconbtn--wide' : ''}`}
+        className={`iconbtn${anchor ? ' iconbtn--on' : ''}${value ? ' iconbtn--wide' : ''}`}
         aria-label={label}
-        data-tip={open ? undefined : label}
-        onClick={() => setOpen(!open)}
+        data-tip={anchor ? undefined : label}
+        onPointerDown={(e) => {
+          // pointerdown (not click): the Popover's outside-pointerdown fires
+          // first on re-click, so click-to-toggle would immediately reopen.
+          e.stopPropagation()
+          setAnchor(anchor ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())
+        }}
       >
         <Icon size={16} strokeWidth={1.75} />
         {value && <span className="dropdown__value">{value}</span>}
       </button>
-      {open && (
-        <div className={`dropdown__panel${alignRight ? ' dropdown__panel--right' : ''}`}>
-          <DropdownCtx.Provider value={() => setOpen(false)}>{children}</DropdownCtx.Provider>
-        </div>
+      {anchor && (
+        <Popover anchorRect={anchor} alignRight={alignRight} onClose={() => setAnchor(null)}>
+          <DropdownCtx.Provider value={() => setAnchor(null)}>{children}</DropdownCtx.Provider>
+        </Popover>
       )}
-    </div>
+    </>
   )
 }
 

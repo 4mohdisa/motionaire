@@ -64,6 +64,17 @@ export interface StoreState {
   appView: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor'
   setAppView: (v: 'boot' | 'activate' | 'onboard' | 'launcher' | 'editor') => void
 
+  // Toasts (foundation session, Phase 0): the app-wide non-blocking notice
+  // channel — errors, completions, and background-job progress.
+  toasts: { id: string; kind: 'info' | 'success' | 'error' | 'progress'; text: string; progress?: number }[]
+  pushToast: (
+    kind: 'info' | 'success' | 'error' | 'progress',
+    text: string,
+    id?: string,
+  ) => string
+  updateToast: (id: string, patch: { text?: string; progress?: number }) => void
+  dismissToast: (id: string) => void
+
   // Project safety (session 9, Phase 6)
   dirty: boolean
   markSaved: () => void
@@ -234,6 +245,30 @@ export const useStore = create<StoreState>()(
       setAppView: (v) =>
         set((s) => {
           s.appView = v
+        }),
+
+      toasts: [],
+      pushToast: (kind, text, id) => {
+        const tid = id ?? uid('toast')
+        set((s) => {
+          const existing = s.toasts.find((t) => t.id === tid)
+          if (existing) {
+            existing.kind = kind
+            existing.text = text
+          } else {
+            s.toasts.push({ id: tid, kind, text })
+          }
+        })
+        return tid
+      },
+      updateToast: (id, patch) =>
+        set((s) => {
+          const t = s.toasts.find((x) => x.id === id)
+          if (t) Object.assign(t, patch)
+        }),
+      dismissToast: (id) =>
+        set((s) => {
+          s.toasts = s.toasts.filter((t) => t.id !== id)
         }),
 
       dirty: false,

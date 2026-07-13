@@ -20,8 +20,10 @@ function TopBar() {
     : 'Untitled'
 
   return (
-    <header className="topbar">
-      <span className="topbar__brand">
+    // The topbar IS the title bar (overlay style, foundation session): it
+    // owns the traffic-light region and doubles as the window drag surface.
+    <header className="topbar topbar--titlebar" data-tauri-drag-region>
+      <span className="topbar__brand" data-tauri-drag-region>
         Motionaire{' '}
         <span className="topbar__project">
           — {projectName}

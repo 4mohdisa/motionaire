@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { Popover } from './Popover'
 
 export interface MenuItem {
   label: string
@@ -15,30 +15,11 @@ interface Props {
   onClose: () => void
 }
 
+// Context menu = the Popover primitive anchored at the cursor. Collision
+// handling (flip/shift/scroll) comes from Popover — no local clamping math.
 function ContextMenu({ x, y, items, onClose }: Props) {
-  useEffect(() => {
-    const dismiss = () => onClose()
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('pointerdown', dismiss)
-    window.addEventListener('keydown', onEsc)
-    window.addEventListener('blur', dismiss)
-    return () => {
-      window.removeEventListener('pointerdown', dismiss)
-      window.removeEventListener('keydown', onEsc)
-      window.removeEventListener('blur', dismiss)
-    }
-  }, [onClose])
-
-  // Keep the menu on-screen.
-  const style: React.CSSProperties = {
-    left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - items.length * 28 - 16),
-  }
-
   return (
-    <div className="menu" style={style} onPointerDown={(e) => e.stopPropagation()}>
+    <Popover point={{ x, y }} onClose={onClose}>
       {items.map((item, i) =>
         item.separator ? (
           <div key={i} className="menu__sep" />
@@ -56,7 +37,7 @@ function ContextMenu({ x, y, items, onClose }: Props) {
           </button>
         ),
       )}
-    </div>
+    </Popover>
   )
 }
 
