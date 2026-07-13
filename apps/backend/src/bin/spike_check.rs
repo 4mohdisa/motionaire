@@ -142,6 +142,71 @@ fn main() {
         println!("dumped {}", p.display());
     }
 
+    // Effects (foundation session, Phase 4): deterministic PNG evidence for
+    // chroma key, blend modes, shape mask, blur, and vignette.
+    {
+        use motionaire_lib::compositor::types::{KeyCfg, MaskCfg};
+        use std::process::Command;
+        // Green-screen fixture: green background with a red box "subject".
+        let dir2 = demo::spike_dir();
+        let gs = dir2.join("greenscreen.mp4");
+        if !gs.exists() {
+            assert!(Command::new(motionaire_lib::compositor::decoder::ffmpeg_bin())
+                .args([
+                    "-v", "error", "-y",
+                    "-f", "lavfi",
+                    "-i", "color=c=0x00FF00:size=1280x720:rate=30,drawbox=x=440:y=200:w=400:h=320:color=red@1.0:t=fill",
+                    "-t", "3", "-pix_fmt", "yuv420p", gs.to_str().unwrap(),
+                ])
+                .status().unwrap().success());
+        }
+        let mut fx = demo::demo_project(&screen.path, &cam.path);
+        fx.layers[1].keyframes.clear();
+        fx.layers[1].media_path = gs.to_string_lossy().into_owned();
+        fx.layers[1].key = Some(KeyCfg {
+            color: "#00FF00".into(),
+            tolerance: 0.15,
+            softness: 0.08,
+            spill: 0.6,
+        });
+        let p = dir.join("check-fx-key-t2.png");
+        gpu.dump_png(&fx, 2.0, &p).expect("key dump");
+        println!("dumped {}", p.display());
+
+        // Blend multiply: cam over screen darkens instead of covering.
+        let mut bl = demo::demo_project(&screen.path, &cam.path);
+        bl.layers[1].keyframes.clear();
+        bl.layers[1].blend = Some("multiply".into());
+        let p = dir.join("check-fx-multiply-t2.png");
+        gpu.dump_png(&bl, 2.0, &p).expect("multiply dump");
+        println!("dumped {}", p.display());
+
+        // Ellipse mask with feather on the fullscreen cam.
+        let mut mk = demo::demo_project(&screen.path, &cam.path);
+        mk.layers[1].keyframes.clear();
+        mk.layers[1].mask = Some(MaskCfg {
+            kind: "ellipse".into(),
+            x: 0.0,
+            y: 0.0,
+            w: 700.0,
+            h: 500.0,
+            feather: 60.0,
+            invert: false,
+        });
+        let p = dir.join("check-fx-mask-t2.png");
+        gpu.dump_png(&mk, 2.0, &p).expect("mask dump");
+        println!("dumped {}", p.display());
+
+        // Blur 24px + vignette 0.8 on the screen layer.
+        let mut bv = demo::demo_project(&screen.path, &cam.path);
+        bv.layers.truncate(1);
+        bv.layers[0].blur = 24.0;
+        bv.layers[0].vignette = 0.8;
+        let p = dir.join("check-fx-blur-vignette-t2.png");
+        gpu.dump_png(&bv, 2.0, &p).expect("blur dump");
+        println!("dumped {}", p.display());
+    }
+
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make
     // this fast (few respawns), correctness checked by timing + no panics.
     let rev_start = Instant::now();

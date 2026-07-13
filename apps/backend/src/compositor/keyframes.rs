@@ -73,6 +73,50 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
                 resolve(kf, "grade.tint", g.tint, t_rel) as f32,
             ]
         },
+        key_tolerance: layer
+            .key
+            .as_ref()
+            .map(|k| resolve(kf, "key.tolerance", k.tolerance, t_rel) as f32)
+            .unwrap_or(0.0),
+        key_softness: layer
+            .key
+            .as_ref()
+            .map(|k| resolve(kf, "key.softness", k.softness, t_rel) as f32)
+            .unwrap_or(0.0),
+        key_spill: layer
+            .key
+            .as_ref()
+            .map(|k| resolve(kf, "key.spill", k.spill, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_x: layer
+            .mask
+            .as_ref()
+            .map(|m| resolve(kf, "mask.x", m.x, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_y: layer
+            .mask
+            .as_ref()
+            .map(|m| resolve(kf, "mask.y", m.y, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_w: layer
+            .mask
+            .as_ref()
+            .map(|m| resolve(kf, "mask.w", m.w, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_h: layer
+            .mask
+            .as_ref()
+            .map(|m| resolve(kf, "mask.h", m.h, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_feather: layer
+            .mask
+            .as_ref()
+            .map(|m| resolve(kf, "mask.feather", m.feather, t_rel) as f32)
+            .unwrap_or(0.0),
+        mask_invert: layer.mask.as_ref().map(|m| m.invert).unwrap_or(false),
+        mask_ellipse: layer.mask.as_ref().map(|m| m.kind == "ellipse").unwrap_or(false),
+        blur: resolve(kf, "blur", layer.blur, t_rel) as f32,
+        vignette: resolve(kf, "vignette", layer.vignette, t_rel) as f32,
     }
 }
 

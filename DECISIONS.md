@@ -1336,3 +1336,41 @@ live in the DOM and tick at rAF rates where per-frame IPC is nonsense. So:
   confirmed in-graph, normalize gain exactly matches the waveform-derived
   expectation) + Rust unit test pinning pan/master/aformat in the export
   graph + capture of meters/master in the transport row.
+
+## Phase 4 — effects (in the per-layer shader, as ordered)
+
+All effects extend the ONE per-layer pass exactly like crop/shadow/grade —
+no second pipeline. Uniform grew by five vec4s; every scalar param resolves
+through the (parity-locked) keyframe engine, so all of it keyframes.
+
+- **Chroma key:** distance in the CbCr plane (stable against luma, unlike
+  RGB distance), smoothstep tolerance→tolerance+softness alpha, spill
+  suppression pulling near-key chroma toward luma. Keyframeable:
+  key.tolerance/softness/spill.
+- **Blend modes:** normal/multiply/screen/add as four pipeline variants of
+  the same shader — the shader premultiplies per mode (multiply lerps
+  toward white by alpha; screen/add premultiply) and fixed-function factors
+  complete the math. OVERLAY OMITTED, logged: not expressible in
+  fixed-function blending; would need dual-source blending or a
+  render-to-texture chain. Shadows always composite normally.
+- **Masks:** rect/ellipse SDF in LAYER-LOCAL space (mask travels with the
+  clip), feathered smoothstep, invertible. Keyframeable x/y/w/h/feather.
+- **Blur/sharpen:** one signed param; 9-tap premultiplied-accumulation blur
+  (keyed per tap so keyed edges blur correctly), negative = unsharp against
+  the same blurred estimate. Honest ceiling logged: 9 taps is a soft
+  approximation at large radii, not a true gaussian.
+- **Vignette:** radial darkening in layer space (≈frame vignette for
+  fullscreen clips).
+- **LUT — DEFERRED, logged with intent.** It is the last item of this
+  phase and the only one needing new GPU plumbing (a second texture
+  binding → bind-group-layout change at every creation site, an identity
+  fallback texture, a .cube parser, and import UI). With proxies —
+  FOUNDATION's own top-priority item — still ahead tonight, spending the
+  next block there is the better trade. Implementation path documented:
+  bake N³ cube → N²×N 2D strip texture, two lookups + lerp in the shader,
+  binding 3 with a 1×1 identity default.
+- Verified: four deterministic spike PNGs (green fully keyed leaving the
+  red subject; multiply darkening; feathered ellipse; blur+vignette) + an
+  in-app capture proving the store→flatten→compositor round trip (ellipse
+  mask + vignette applied via updateClipFx/setClipProperty on the live
+  preview).

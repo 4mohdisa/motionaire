@@ -8,7 +8,7 @@ import IconBtn from './IconBtn'
 // Live stereo peak meters + clip indicator (foundation, Phase 3). Peaks decay
 // smoothly; a red dot latches for 1.5s after any near-full-scale sample.
 function AudioMeters() {
-  const [levels, setLevels] = useState({ l: 0, r: 0 })
+  const [levels, setLevels] = useState({ l: 0, r: 0, clipping: false })
   const clipUntil = useRef(0)
   const decayed = useRef({ l: 0, r: 0 })
   useEffect(() => {
@@ -19,13 +19,13 @@ function AudioMeters() {
       d.l = Math.max(p.l, d.l * 0.88)
       d.r = Math.max(p.r, d.r * 0.88)
       if (p.l >= 0.985 || p.r >= 0.985) clipUntil.current = performance.now() + 1500
-      setLevels({ l: d.l, r: d.r })
+      setLevels({ l: d.l, r: d.r, clipping: performance.now() < clipUntil.current })
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [])
-  const clipping = performance.now() < clipUntil.current
+  const clipping = levels.clipping
   return (
     <div className="meters" title="Output level (red = clipping)">
       <div className="meters__bars">

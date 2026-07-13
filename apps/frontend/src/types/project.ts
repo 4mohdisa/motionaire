@@ -113,6 +113,20 @@ export interface Clip {
   shape?: Shape // shape clip: raster overlay, no source media
   disabled?: boolean // excluded from compositing/audio without deleting (foundation, Phase 2)
   pan?: number // stereo balance -1..1 (foundation, Phase 3); not keyframed
+  // Effects (foundation, Phase 4) — all scalar params keyframeable.
+  key?: { color: string; tolerance: number; softness: number; spill: number }
+  blend?: 'normal' | 'multiply' | 'screen' | 'add'
+  mask?: {
+    kind: 'rect' | 'ellipse'
+    x: number // center offset, layer-local px
+    y: number
+    w: number // full size, layer-local px
+    h: number
+    feather: number
+    invert: boolean
+  }
+  blur?: number // +blur / -sharpen px
+  vignette?: number // 0..1
 }
 
 export interface MediaAsset {

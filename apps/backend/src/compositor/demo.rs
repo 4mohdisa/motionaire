@@ -113,6 +113,11 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                 transitions: Default::default(),
                 grade: None,
                 adjust: false,
+                key: None,
+                blend: None,
+                mask: None,
+                blur: 0.0,
+                vignette: 0.0,
             },
             Layer {
                 id: "spike_cam".into(),
@@ -144,6 +149,11 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
                 transitions: Default::default(),
                 grade: None,
                 adjust: false,
+                key: None,
+                blend: None,
+                mask: None,
+                blur: 0.0,
+                vignette: 0.0,
             },
         ],
     }

@@ -147,6 +147,14 @@ export interface StoreState {
   addTextClip: (content?: string) => void
   addAdjustmentLayer: () => void
   addShapeClip: (kind: 'rect' | 'ellipse' | 'line') => void
+  updateClipFx: (
+    clipId: string,
+    patch: {
+      key?: Clip['key'] | null
+      blend?: Clip['blend'] | null
+      mask?: Clip['mask'] | null
+    },
+  ) => void
   updateShape: (clipId: string, patch: Partial<Shape>) => void
   updateTextClip: (
     clipId: string,
@@ -863,6 +871,12 @@ export const useStore = create<StoreState>()(
 
           if (prop === 'volume' && isNumeric) clip.volume = value
           else if (prop === 'pan' && isNumeric) clip.pan = Math.min(1, Math.max(-1, value))
+          else if (prop === 'blur' && isNumeric) clip.blur = Math.min(40, Math.max(-20, value))
+          else if (prop === 'vignette' && isNumeric) clip.vignette = Math.min(1, Math.max(0, value))
+          else if (prop.startsWith('key.') && isNumeric && clip.key)
+            (clip.key as unknown as Record<string, number>)[prop.slice('key.'.length)] = value
+          else if (prop.startsWith('mask.') && isNumeric && clip.mask)
+            (clip.mask as unknown as Record<string, number>)[prop.slice('mask.'.length)] = value
           else if (prop.startsWith('transform.')) {
             const key = prop.slice('transform.'.length)
             ;(clip.transform as unknown as Record<string, unknown>)[key] = value
@@ -1040,6 +1054,18 @@ export const useStore = create<StoreState>()(
             transitions: { in: null, out: null },
             effects: [],
           })
+        }),
+
+      // Effects (foundation, Phase 4): structured patches; scalar params go
+      // through setClipProperty for stopwatch semantics.
+      updateClipFx: (clipId, patch) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const c = found.clip
+          if ('key' in patch) c.key = patch.key ?? undefined
+          if ('blend' in patch) c.blend = patch.blend ?? undefined
+          if ('mask' in patch) c.mask = patch.mask ?? undefined
         }),
 
       updateShape: (clipId, patch) =>

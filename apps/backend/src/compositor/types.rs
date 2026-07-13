@@ -40,6 +40,38 @@ pub struct Layer {
     // onto every lower-z layer for its span.
     #[serde(default)]
     pub adjust: bool,
+    // Effects (foundation session, Phase 4).
+    #[serde(default)]
+    pub key: Option<KeyCfg>,
+    #[serde(default)]
+    pub blend: Option<String>, // normal | multiply | screen | add
+    #[serde(default)]
+    pub mask: Option<MaskCfg>,
+    #[serde(default)]
+    pub blur: f64, // +blur / -sharpen, px
+    #[serde(default)]
+    pub vignette: f64, // 0..1
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyCfg {
+    pub color: String, // #RRGGBB
+    pub tolerance: f64,
+    pub softness: f64,
+    pub spill: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaskCfg {
+    pub kind: String, // rect | ellipse
+    pub x: f64,       // center offset in layer-local px
+    pub y: f64,
+    pub w: f64, // full size in layer-local px
+    pub h: f64,
+    pub feather: f64,
+    pub invert: bool,
 }
 
 // Color grade (session 8, Phase 3). All zero = identity.
@@ -265,4 +297,17 @@ pub struct ResolvedLayer {
     pub shadow: Option<ShadowCfg>,
     // exposure, contrast, saturation, temperature, tint — all-zero = identity.
     pub grade: [f32; 5],
+    // Effects (foundation, Phase 4), resolved per frame.
+    pub key_tolerance: f32,
+    pub key_softness: f32,
+    pub key_spill: f32,
+    pub mask_x: f32,
+    pub mask_y: f32,
+    pub mask_w: f32,
+    pub mask_h: f32,
+    pub mask_feather: f32,
+    pub mask_invert: bool,
+    pub mask_ellipse: bool,
+    pub blur: f32,
+    pub vignette: f32,
 }

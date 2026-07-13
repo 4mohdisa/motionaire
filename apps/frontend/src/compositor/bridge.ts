@@ -52,6 +52,11 @@ export function flatten(project: Project) {
         keyframes: clip.keyframes,
         transitions: clip.transitions,
         grade: clip.grade ?? null,
+        key: clip.key ?? null,
+        blend: clip.blend ?? null,
+        mask: clip.mask ?? null,
+        blur: clip.blur ?? 0,
+        vignette: clip.vignette ?? 0,
       })
     }
   }

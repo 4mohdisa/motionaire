@@ -94,6 +94,12 @@ function ClipProperties({ clip }: { clip: Clip }) {
         </Section>
       )}
 
+      {clip.kind === 'video' && (
+        <Section label="Effects">
+          <FxEditor clip={clip} />
+        </Section>
+      )}
+
       {clip.mediaId && (
         <Section label="Playback">
           {/* Keyframeable (session 9, Phase 7): armed = speed RAMP remapping
@@ -132,6 +138,119 @@ function ClipProperties({ clip }: { clip: Clip }) {
         </Section>
       )}
     </div>
+  )
+}
+
+// Effects (foundation, Phase 4): chroma key, blend mode, shape mask,
+// blur/sharpen, vignette. Scalars ride NumberRow → keyframeable.
+function FxEditor({ clip }: { clip: Clip }) {
+  const { updateClipFx } = useStore.getState()
+  return (
+    <>
+      <div className="prow">
+        <span className="prow__label">Blend</span>
+        <select
+          className="prow__ease prow__ease--wide"
+          value={clip.blend ?? 'normal'}
+          onChange={(e) =>
+            updateClipFx(clip.id, {
+              blend: e.target.value === 'normal' ? null : (e.target.value as Clip['blend']),
+            })
+          }
+        >
+          {['normal', 'multiply', 'screen', 'add'].map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="prow">
+        <span className="prow__label">Key</span>
+        <input
+          type="checkbox"
+          checked={!!clip.key}
+          onChange={(e) =>
+            updateClipFx(clip.id, {
+              key: e.target.checked
+                ? { color: '#00ff00', tolerance: 0.12, softness: 0.08, spill: 0.5 }
+                : null,
+            })
+          }
+        />
+        {clip.key && (
+          <input
+            className="prow__color"
+            type="color"
+            value={clip.key.color}
+            onChange={(e) =>
+              updateClipFx(clip.id, { key: { ...clip.key!, color: e.target.value } })
+            }
+            title="Key color"
+          />
+        )}
+      </div>
+      {clip.key && (
+        <>
+          <NumberRow clip={clip} prop="key.tolerance" label="Tolerance" step={0.01} min={0} max={0.6} />
+          <NumberRow clip={clip} prop="key.softness" label="Softness" step={0.01} min={0} max={0.5} />
+          <NumberRow clip={clip} prop="key.spill" label="Spill" step={0.05} min={0} max={1} />
+        </>
+      )}
+      <div className="prow">
+        <span className="prow__label">Mask</span>
+        <select
+          className="prow__ease"
+          value={clip.mask?.kind ?? 'none'}
+          onChange={(e) => {
+            const v = e.target.value
+            updateClipFx(clip.id, {
+              mask:
+                v === 'none'
+                  ? null
+                  : {
+                      kind: v as 'rect' | 'ellipse',
+                      x: clip.mask?.x ?? 0,
+                      y: clip.mask?.y ?? 0,
+                      w: clip.mask?.w ?? 400,
+                      h: clip.mask?.h ?? 300,
+                      feather: clip.mask?.feather ?? 24,
+                      invert: clip.mask?.invert ?? false,
+                    },
+            })
+          }}
+        >
+          {['none', 'rect', 'ellipse'].map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        {clip.mask && (
+          <label className="prow__unit selectable" style={{ cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={clip.mask.invert}
+              onChange={(e) =>
+                updateClipFx(clip.id, { mask: { ...clip.mask!, invert: e.target.checked } })
+              }
+            />{' '}
+            inv
+          </label>
+        )}
+      </div>
+      {clip.mask && (
+        <>
+          <NumberRow clip={clip} prop="mask.x" label="Mask X" step={1} />
+          <NumberRow clip={clip} prop="mask.y" label="Mask Y" step={1} />
+          <NumberRow clip={clip} prop="mask.w" label="Mask W" step={1} min={2} />
+          <NumberRow clip={clip} prop="mask.h" label="Mask H" step={1} min={2} />
+          <NumberRow clip={clip} prop="mask.feather" label="Feather" step={1} min={0} max={200} />
+        </>
+      )}
+      <NumberRow clip={clip} prop="blur" label="Blur/Sharp" step={0.5} min={-20} max={40} />
+      <NumberRow clip={clip} prop="vignette" label="Vignette" step={0.02} min={0} max={1} />
+    </>
   )
 }
 

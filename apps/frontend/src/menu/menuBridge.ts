@@ -1253,6 +1253,26 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f4_fx_demo': {
+      // Foundation Phase 4: apply key-less effects through the REAL store
+      // (ellipse mask + vignette + blur on the cam layer, screen blend on it)
+      // so the capture proves the frontend→flatten→compositor round trip.
+      await loadPipDemo()
+      await new Promise((r) => setTimeout(r, 300))
+      const st = useStore.getState()
+      st.pause()
+      const cam = st.project.tracks
+        .filter((t) => t.kind === 'video')
+        .sort((a, b) => b.z - a.z)[0].clips[0]
+      for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
+        st.clearKeyframes(cam.id, prop)
+      st.updateClipFx(cam.id, {
+        mask: { kind: 'ellipse', x: 0, y: 0, w: 800, h: 560, feather: 80, invert: false },
+      })
+      st.setClipProperty(cam.id, 'vignette', 0.6)
+      st.setPlayhead(3)
+      break
+    }
     case 'dev:transition_demo': {
       // Two adjacent clips on ONE track with a dissolve on the cut — the
       // compositor-transition verification scene.

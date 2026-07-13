@@ -26,6 +26,12 @@ struct LayerU {
   canvas:  vec4<f32>, // canvas_w, canvas_h, mode (0 content / 1 shadow), blur px
   grade1:  vec4<f32>, // exposure(stops), contrast, saturation, temperature
   grade2:  vec4<f32>, // tint, _, _, _
+  // Effects (foundation session, Phase 4)
+  key1:    vec4<f32>, // key r, g, b, tolerance
+  key2:    vec4<f32>, // softness, spill, key_enabled, blur px (+blur / -sharpen)
+  mask1:   vec4<f32>, // mask cx, cy, half_w, half_h (layer-local px; half_w<=0 → off)
+  mask2:   vec4<f32>, // feather px, invert, kind (0 rect / 1 ellipse), vignette 0..1
+  fxmode:  vec4<f32>, // blend id (0 normal / 1 multiply / 2 screen / 3 add), _, _, _
 };
 
 @group(0) @binding(0) var<uniform> u: LayerU;
@@ -67,6 +73,27 @@ fn rounded_sd(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
   return length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
+// Sample + chroma key (foundation, Phase 4). Key distance is measured in the
+// CbCr chroma plane — far more stable against luma variation than RGB
+// distance. Spill suppression pulls near-key chroma toward luma.
+fn key_sample(uv: vec2<f32>) -> vec4<f32> {
+  var s = textureSampleLevel(tex, samp, uv, 0.0);
+  if (u.key2.z > 0.5) {
+    let cb  = 0.5 - 0.168736 * s.r - 0.331264 * s.g + 0.5 * s.b;
+    let cr  = 0.5 + 0.5 * s.r - 0.418688 * s.g - 0.081312 * s.b;
+    let kcb = 0.5 - 0.168736 * u.key1.x - 0.331264 * u.key1.y + 0.5 * u.key1.z;
+    let kcr = 0.5 + 0.5 * u.key1.x - 0.418688 * u.key1.y - 0.081312 * u.key1.z;
+    let d = distance(vec2(cb, cr), vec2(kcb, kcr));
+    let tol = u.key1.w;
+    let soft = max(u.key2.x, 0.0001);
+    let a = smoothstep(tol, tol + soft, d);
+    let luma = dot(s.rgb, vec3(0.2126, 0.7152, 0.0722));
+    let spill_w = (1.0 - smoothstep(tol, tol + soft * 2.0, d)) * u.key2.y;
+    s = vec4(mix(s.rgb, vec3(luma, luma, luma), spill_w), s.a * a);
+  }
+  return s;
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let half = u.half_ro.xy;
@@ -81,7 +108,33 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     return vec4(u.shcolor.rgb, a * u.half_ro.w);
   }
   let aa = 1.0 - smoothstep(-0.75, 0.75, sd);
-  let c = textureSample(tex, samp, in.uv);
+
+  // --- sample, with optional 9-tap blur or unsharp sharpen (key applied per
+  // tap so keyed edges blur correctly; taps accumulate premultiplied) ---
+  var c: vec4<f32>;
+  let blur_amt = u.key2.w;
+  if (abs(blur_amt) > 0.01) {
+    let dims = vec2<f32>(textureDimensions(tex));
+    let stp = (abs(blur_amt) * 0.5) / dims;
+    var acc = vec4(0.0, 0.0, 0.0, 0.0);
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        let s = key_sample(in.uv + vec2(f32(dx), f32(dy)) * stp);
+        acc += vec4(s.rgb * s.a, s.a);
+      }
+    }
+    let blurred = vec4(acc.rgb / max(acc.a, 0.0001), acc.a / 9.0);
+    if (blur_amt > 0.0) {
+      c = blurred;
+    } else {
+      let center = key_sample(in.uv);
+      let sharp = center.rgb + (center.rgb - blurred.rgb) * (abs(blur_amt) * 0.15);
+      c = vec4(clamp(sharp, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0)), center.a);
+    }
+  } else {
+    c = key_sample(in.uv);
+  }
+
   // Color grade (identity when all params are zero): exposure in stops,
   // contrast about mid-gray, saturation via Rec.709 luma, temp/tint as
   // channel offsets. Applied pre-blend, per layer.
@@ -91,12 +144,46 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   rgb = mix(vec3(luma, luma, luma), rgb, 1.0 + u.grade1.z);
   rgb = rgb + vec3(u.grade1.w * 0.1, u.grade2.x * 0.1, -u.grade1.w * 0.1);
   rgb = clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));
-  return vec4(rgb, c.a * aa * u.half_ro.w);
+
+  var alpha = c.a * aa * u.half_ro.w;
+
+  // Shape mask (layer-local space; feathered SDF; invertible).
+  if (u.mask1.z > 0.5) {
+    let mp = in.local - u.mask1.xy;
+    var msd: f32;
+    if (u.mask2.z > 0.5) {
+      let k = mp / u.mask1.zw;
+      msd = (length(k) - 1.0) * min(u.mask1.z, u.mask1.w);
+    } else {
+      msd = rounded_sd(mp, u.mask1.zw, 0.0);
+    }
+    let f = max(u.mask2.x, 0.5);
+    var ma = 1.0 - smoothstep(-f * 0.5, f * 0.5, msd);
+    if (u.mask2.y > 0.5) { ma = 1.0 - ma; }
+    alpha = alpha * ma;
+  }
+
+  // Vignette: radial darkening toward the layer's visible edges.
+  if (u.mask2.w > 0.001) {
+    let nd = length(in.local / max(half, vec2(1.0, 1.0)));
+    rgb = rgb * (1.0 - u.mask2.w * smoothstep(0.55, 1.35, nd));
+  }
+
+  // Blend-mode premultiply transforms; the pipeline's fixed-function factors
+  // complete the math (normal keeps straight alpha).
+  let mode = u.fxmode.x;
+  if (mode == 1.0) { // multiply: lerp toward white by alpha, factors (Dst, Zero)
+    return vec4(mix(vec3(1.0, 1.0, 1.0), rgb, alpha), alpha);
+  }
+  if (mode == 2.0 || mode == 3.0) { // screen (One, OneMinusSrc) / add (One, One)
+    return vec4(rgb * alpha, alpha);
+  }
+  return vec4(rgb, alpha);
 }
 "#;
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct LayerUniform {
     rot_t: [f32; 4],
     half_ro: [f32; 4],
@@ -105,6 +192,11 @@ struct LayerUniform {
     canvas: [f32; 4],
     grade1: [f32; 4],
     grade2: [f32; 4],
+    key1: [f32; 4],
+    key2: [f32; 4],
+    mask1: [f32; 4],
+    mask2: [f32; 4],
+    fxmode: [f32; 4],
 }
 
 struct LayerSlot {
@@ -124,7 +216,8 @@ struct LayerSlot {
 pub struct GpuCompositor {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::RenderPipeline,
+    // Indexed by blend id: 0 normal, 1 multiply, 2 screen, 3 add.
+    pipelines: [wgpu::RenderPipeline; 4],
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     target: wgpu::Texture,
@@ -204,42 +297,69 @@ impl GpuCompositor {
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("composite"),
-            layout: Some(&pl),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
+        // Blend modes (foundation, Phase 4): the shader premultiplies per
+        // mode; fixed-function factors complete the math. Overlay is omitted
+        // — it isn't expressible in fixed-function blending (logged).
+        let mk_pipeline = |label: &str, color: wgpu::BlendComponent| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pl),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState {
+                            color,
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let pipelines = [
+            // normal: straight alpha
+            mk_pipeline("blend-normal", wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
             }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+            // multiply: shader outputs lerp(white, rgb, a) → dst * src
+            mk_pipeline("blend-multiply", wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Dst,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            }),
+            // screen: shader outputs rgb*a → src + dst*(1-src)
+            mk_pipeline("blend-screen", wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                operation: wgpu::BlendOperation::Add,
+            }),
+            // add: shader outputs rgb*a → src + dst
+            mk_pipeline("blend-add", wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            }),
+        ];
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
@@ -270,7 +390,7 @@ impl GpuCompositor {
         Ok(Self {
             device,
             queue,
-            pipeline,
+            pipelines,
             bgl,
             sampler,
             target,
@@ -442,7 +562,7 @@ impl GpuCompositor {
             .collect();
 
         // Upload decoded frames + uniforms before encoding the pass.
-        let mut draws: Vec<(String, bool)> = Vec::new(); // (path, has_shadow)
+        let mut draws: Vec<(String, bool, usize)> = Vec::new(); // (path, has_shadow, blend id)
         for layer in &active {
             if layer.adjust {
                 continue; // no pixels of its own
@@ -544,6 +664,26 @@ impl GpuCompositor {
             let tx = r.x + off.0 * cos - off.1 * sin;
             let ty = r.y + off.0 * sin + off.1 * cos;
 
+            // Effects (foundation, Phase 4): key color parsed from hex; the
+            // mask rect is stored center+size in layer-local px.
+            let (key1, key2_xyz) = if let Some(k) = &layer.key {
+                let c = Self::parse_rgba(&k.color, 1.0);
+                ([c[0], c[1], c[2], r.key_tolerance], [r.key_softness, r.key_spill, 1.0])
+            } else {
+                ([0.0; 4], [0.0, 0.0, 0.0])
+            };
+            let (mask1, mask2_xyz) = if layer.mask.is_some() {
+                (
+                    [r.mask_x, r.mask_y, (r.mask_w * 0.5).max(0.0), (r.mask_h * 0.5).max(0.0)],
+                    [
+                        r.mask_feather,
+                        if r.mask_invert { 1.0 } else { 0.0 },
+                        if r.mask_ellipse { 1.0 } else { 0.0 },
+                    ],
+                )
+            } else {
+                ([0.0; 4], [0.0, 0.0, 0.0])
+            };
             let content = LayerUniform {
                 rot_t: [cos, sin, tx, ty],
                 half_ro: [half_w, half_h, r.corner_radius, r.opacity.clamp(0.0, 1.0)],
@@ -552,6 +692,21 @@ impl GpuCompositor {
                 canvas: [cw, ch, 0.0, 0.0],
                 grade1: [r.grade[0], r.grade[1], r.grade[2], r.grade[3]],
                 grade2: [r.grade[4], 0.0, 0.0, 0.0],
+                key1,
+                key2: [key2_xyz[0], key2_xyz[1], key2_xyz[2], r.blur],
+                mask1,
+                mask2: [mask2_xyz[0], mask2_xyz[1], mask2_xyz[2], r.vignette],
+                fxmode: [
+                    match layer.blend.as_deref() {
+                        Some("multiply") => 1.0,
+                        Some("screen") => 2.0,
+                        Some("add") => 3.0,
+                        _ => 0.0,
+                    },
+                    0.0,
+                    0.0,
+                    0.0,
+                ],
             };
             let slot = &self.slots[&layer.media_path];
             self.queue.write_buffer(&slot.uniform, 0, bytemuck::bytes_of(&content));
@@ -575,13 +730,18 @@ impl GpuCompositor {
                         uv_rect: [0.0, 0.0, 1.0, 1.0],
                         shcolor: color,
                         canvas: [cw, ch, 1.0, (sh.blur as f32).max(0.0)],
-                        grade1: [0.0; 4],
-                        grade2: [0.0; 4],
+                        ..Default::default()
                     };
                     self.queue.write_buffer(&slot.uniform_shadow, 0, bytemuck::bytes_of(&shadow_u));
                 }
             }
-            draws.push((layer.media_path.clone(), has_shadow));
+            let blend = match layer.blend.as_deref() {
+                Some("multiply") => 1,
+                Some("screen") => 2,
+                Some("add") => 3,
+                _ => 0,
+            };
+            draws.push((layer.media_path.clone(), has_shadow, blend));
         }
 
         let view = self.target.create_view(&Default::default());
@@ -601,13 +761,15 @@ impl GpuCompositor {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipeline);
-            for (path, has_shadow) in &draws {
+            for (path, has_shadow, blend) in &draws {
                 let slot = &self.slots[path];
                 if *has_shadow {
+                    // Shadows always composite normally.
+                    pass.set_pipeline(&self.pipelines[0]);
                     pass.set_bind_group(0, &slot.bind_group_shadow, &[]);
                     pass.draw(0..6, 0..1);
                 }
+                pass.set_pipeline(&self.pipelines[*blend]);
                 pass.set_bind_group(0, &slot.bind_group, &[]);
                 pass.draw(0..6, 0..1);
             }

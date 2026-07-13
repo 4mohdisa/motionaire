@@ -50,6 +50,16 @@ export function staticValue(clip: Clip, prop: string): number {
     const g = clip.grade as Record<string, number> | undefined
     return g?.[prop.slice('grade.'.length)] ?? 0
   }
+  if (prop.startsWith('key.')) {
+    const k = clip.key as unknown as Record<string, number> | undefined
+    return k?.[prop.slice('key.'.length)] ?? 0
+  }
+  if (prop.startsWith('mask.')) {
+    const m = clip.mask as unknown as Record<string, number> | undefined
+    return m?.[prop.slice('mask.'.length)] ?? 0
+  }
+  if (prop === 'blur') return clip.blur ?? 0
+  if (prop === 'vignette') return clip.vignette ?? 0
   return 0
 }
 
