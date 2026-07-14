@@ -270,3 +270,37 @@ export async function importMediaNative(): Promise<void> {
     }
   }
 }
+
+// Consolidate media (foundation, Phase 7): copy outside sources into the
+// bundle's media/ dir and rewrite asset paths. Shared by the File menu and
+// the self-test.
+export async function consolidateMedia(): Promise<number> {
+  const s = useStore.getState()
+  if (!s.projectPath) {
+    s.pushToast('info', 'Save the project first — consolidation copies media into its bundle')
+    return 0
+  }
+  const outside = [
+    ...new Set(
+      s.project.media
+        .filter((m) => m.path.startsWith('/') && !m.missing && !m.path.startsWith(s.projectPath!))
+        .map((m) => m.path),
+    ),
+  ]
+  if (!outside.length) {
+    s.pushToast('info', 'All media already lives inside the project bundle')
+    return 0
+  }
+  const moved = await invoke<{ oldPath: string; newPath: string }[]>('consolidate_media', {
+    bundlePath: s.projectPath,
+    files: outside,
+  })
+  const st = useStore.getState()
+  for (const m of moved)
+    for (const asset of st.project.media)
+      if (asset.path === m.oldPath)
+        st.updateMedia(asset.id, { path: m.newPath, playbackUrl: convertFileSrc(m.newPath) })
+  await saveProject()
+  useStore.getState().pushToast('success', `Consolidated ${moved.length} file(s) into the bundle`)
+  return moved.length
+}

@@ -1438,3 +1438,27 @@ through the (parity-locked) keyframe engine, so all of it keyframes.
   and cancel kills only the current job.
 - Verified: f6-export PASS — mp4 3.00s+audio, hevc, gif, m4a 3.00s
   audio-only, all from a real marked range.
+
+## Phase 7 — project & workflow
+
+- **Project settings dialog** (File ▸ Project Settings…): canvas preset /
+  size / fps editable AFTER creation — the existing setCanvasPreset/
+  setCanvasFps actions finally got a front door; the creation-time lock
+  trap is gone.
+- **Consolidate media** (File ▸ Consolidate Media…): consolidate_media
+  copies outside sources into bundle/media/ (same-name-different-file gets
+  a numeric suffix; already-copied files detected by size and skipped),
+  paths+playbackUrls rewritten, project saved. Offline media stays offline
+  for relink. Flow extracted to projectIO so the menu and the self-test
+  run the same code. Proxies survive (cache key is stem+size — unchanged
+  by the copy).
+- **Preferences** (⌘, — app menu Settings…): autosave interval (the Phase 6
+  timer now honors it), auto-proxy toggle (proxyManager checks it), and
+  license deactivation (returns to the activation gate). Stored as one
+  JSON blob in the SQLite settings table, loaded at boot.
+- **Shortcut cheat sheet** (⌘/): two-column overlay of every real binding.
+- Verified: f7-workflow PASS (consolidate moved 2 files, all asset paths
+  inside the bundle, files re-probe as real media, project clean after
+  the auto-save; prefs JSON round-trips; ⌘/ keydown opens the sheet) +
+  captures of the Settings dialog (driven via the real ⌘, menu event) and
+  the cheat sheet.

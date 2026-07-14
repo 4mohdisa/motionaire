@@ -27,6 +27,7 @@ export function proxyEligible(asset: MediaAsset): boolean {
 }
 
 export function maybeRequestProxy(asset: MediaAsset): void {
+  if (!useStore.getState().prefs.autoProxy) return // preference (Phase 7)
   if (!proxyEligible(asset) || asset.proxyPath || requested.has(asset.path)) return
   requested.add(asset.path)
   useStore

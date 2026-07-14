@@ -4,6 +4,7 @@ import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import Timeline from './components/timeline/Timeline'
 import { Activation, Launcher, Onboarding } from './components/Shell'
+import { WorkflowDialogs } from './components/WorkflowDialogs'
 import { useBootFlow } from './hooks/useBootFlow'
 import MediaBin from './components/MediaBin'
 import Toasts from './components/Toasts'
@@ -72,7 +73,6 @@ function UnsavedPrompt() {
   )
 }
 
-const AUTOSAVE_MS = 30_000
 
 function App() {
   useShortcuts()
@@ -93,15 +93,19 @@ function App() {
         void invoke('set_edited', { edited: s.dirty }).catch(() => {})
       }
     })
+    let lastAutosave = 0
     const timer = window.setInterval(() => {
       const s = useStore.getState()
+      // Interval honors the preference (foundation, Phase 7).
+      if (Date.now() - lastAutosave < s.prefs.autosaveSecs * 1000) return
       if (s.dirty && s.projectPath && s.appView === 'editor') {
+        lastAutosave = Date.now()
         void invoke('save_recovery', {
           bundlePath: s.projectPath,
           projectJson: serializeProject(s.project),
         }).catch(() => {})
       }
-    }, AUTOSAVE_MS)
+    }, 5000)
     // Global export notifications (works even when the panel is closed —
     // background export in Phase 6 leans on this).
     // dead-flag: listen() resolves ASYNC, after StrictMode's immediate
@@ -209,6 +213,7 @@ function App() {
       </div>
       <ExportPanel />
       <UnsavedPrompt />
+      <WorkflowDialogs />
       <Toasts />
     </div>
   )

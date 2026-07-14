@@ -433,6 +433,55 @@ fn spike_4k() -> Result<String, String> {
     Ok(out.to_string_lossy().into_owned())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsolidatedFile {
+    old_path: String,
+    new_path: String,
+}
+
+// Consolidate media (foundation, Phase 7): copy every referenced source into
+// the bundle's media/ dir so the project becomes fully portable — the
+// counterpart to offline/relink handling.
+#[tauri::command]
+fn consolidate_media(
+    bundle_path: String,
+    files: Vec<String>,
+) -> Result<Vec<ConsolidatedFile>, String> {
+    let media_dir = std::path::Path::new(&bundle_path).join("media");
+    std::fs::create_dir_all(&media_dir).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for f in files {
+        let src = std::path::Path::new(&f);
+        if !src.exists() {
+            continue; // offline media stays offline; relink handles it
+        }
+        let name = src.file_name().and_then(|n| n.to_str()).unwrap_or("media");
+        let mut dest = media_dir.join(name);
+        // Same-name different-file: disambiguate with a numeric suffix.
+        let mut n = 1;
+        while dest.exists() {
+            let same = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0)
+                == std::fs::metadata(src).map(|m| m.len()).unwrap_or(1);
+            if same {
+                break; // already consolidated
+            }
+            let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("media");
+            let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("dat");
+            dest = media_dir.join(format!("{stem}-{n}.{ext}"));
+            n += 1;
+        }
+        if !dest.exists() {
+            std::fs::copy(src, &dest).map_err(|e| format!("copy {name}: {e}"))?;
+        }
+        out.push(ConsolidatedFile {
+            old_path: f,
+            new_path: dest.to_string_lossy().into_owned(),
+        });
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let status = std::process::Command::new("open")
@@ -689,6 +738,7 @@ pub fn run() {
             set_setting,
             remove_recent_project,
             reveal_in_finder,
+            consolidate_media,
             request_proxy,
             spike_4k,
             save_recovery,

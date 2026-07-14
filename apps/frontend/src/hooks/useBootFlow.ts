@@ -13,6 +13,12 @@ export function useBootFlow() {
         st.setAppView('editor') // browser dev: no gate to talk to
         return
       }
+      // App prefs (foundation, Phase 7) load once at boot.
+      void invoke<string | null>('get_setting', { key: 'prefs' })
+        .then((raw) => {
+          if (raw) st.setPrefs(JSON.parse(raw) as Partial<{ autosaveSecs: number; autoProxy: boolean }>)
+        })
+        .catch(() => {})
       const activated = await invoke<boolean>('license_status').catch(() => false)
       if (!activated) {
         st.setAppView('activate')

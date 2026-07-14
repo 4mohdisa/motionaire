@@ -94,6 +94,11 @@ export interface StoreState {
   // Proxies (foundation, Phase 5): force original media in preview.
   previewOriginal: boolean
   setPreviewOriginal: (v: boolean) => void
+  // Workflow dialogs + app prefs (foundation, Phase 7)
+  dialog: 'projectSettings' | 'preferences' | 'shortcuts' | null
+  setDialog: (d: 'projectSettings' | 'preferences' | 'shortcuts' | null) => void
+  prefs: { autosaveSecs: number; autoProxy: boolean }
+  setPrefs: (patch: Partial<{ autosaveSecs: number; autoProxy: boolean }>) => void
   compositorFps: number
   projectPath: string | null
   previewFull: boolean
@@ -445,6 +450,16 @@ export const useStore = create<StoreState>()(
       setPreviewOriginal: (v) =>
         set((s) => {
           s.previewOriginal = v
+        }),
+      dialog: null,
+      setDialog: (d) =>
+        set((s) => {
+          s.dialog = d
+        }),
+      prefs: { autosaveSecs: 30, autoProxy: true },
+      setPrefs: (patch) =>
+        set((s) => {
+          Object.assign(s.prefs, patch)
         }),
       compositorFps: 0,
       projectPath: null,

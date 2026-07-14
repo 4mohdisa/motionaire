@@ -1922,3 +1922,34 @@
 .transport__master {
   width: 70px;
 }
+
+/* ---------- Shortcut sheet (foundation, Phase 7) ---------- */
+
+.modal__panel--wide {
+  width: 560px;
+}
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+}
+
+.shortcuts__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+.shortcuts__keys {
+  flex: 0 0 104px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.shortcuts__what {
+  color: var(--text-secondary);
+}

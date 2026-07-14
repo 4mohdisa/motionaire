@@ -64,6 +64,21 @@ async function dispatch(action: string, path?: string) {
     case 'file:import':
       await importMediaNative()
       break
+    case 'app:settings':
+      s.setDialog('preferences')
+      break
+    case 'file:project_settings':
+      s.setDialog('projectSettings')
+      break
+    case 'file:consolidate': {
+      const { consolidateMedia } = await import('../persistence/projectIO')
+      try {
+        await consolidateMedia()
+      } catch (e) {
+        useStore.getState().pushToast('error', `Consolidate failed: ${e}`)
+      }
+      break
+    }
     case 'file:import_font': {
       const { importFontFlow } = await import('../persistence/fontManager')
       await importFontFlow()
@@ -1433,6 +1448,55 @@ async function dispatch(action: string, path?: string) {
         void report(
           ok1 && ok2 && ok3 && durOk && m4aOk,
           `mp4=${ok1} dur=${probe1.duration.toFixed(2)}s (want 3) audio=${probe1.hasAudio} hevc=${ok2} gif=${ok3} m4a=${m4aOk} (${probe4.duration.toFixed(2)}s)`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:f7_test': {
+      // Foundation Phase 7: consolidate copies + rewrites + saves; prefs
+      // persist through SQLite; shortcut sheet opens via real ⌘/ keydown.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f7-workflow', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const spike = st().project.media[0].path
+        const dir = spike.slice(0, spike.lastIndexOf('/'))
+        const bundle = `${dir}/f7-e2e.motionaire`
+        st().setProjectPath(bundle)
+        const { saveProject, consolidateMedia } = await import('../persistence/projectIO')
+        await saveProject()
+        const movedCount = await consolidateMedia()
+        const allInside = st().project.media.every((m) => m.path.startsWith(bundle))
+        const probed = await invoke<{ duration: number }>('probe_media', {
+          path: st().project.media[0].path,
+        })
+        const filesReal = probed.duration > 1
+        const cleanAfter = !st().dirty // consolidate ends with a save
+        // prefs round-trip
+        st().setPrefs({ autosaveSecs: 60 })
+        await invoke('set_setting', {
+          key: 'prefs',
+          value: JSON.stringify(st().prefs),
+        })
+        const raw = await invoke<string | null>('get_setting', { key: 'prefs' })
+        const prefsOk = !!raw && (JSON.parse(raw) as { autosaveSecs: number }).autosaveSecs === 60
+        st().setPrefs({ autosaveSecs: 30 })
+        await invoke('set_setting', { key: 'prefs', value: JSON.stringify(st().prefs) })
+        // ⌘/ opens the sheet
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: '/', metaKey: true, bubbles: true }),
+        )
+        await wait(200)
+        const sheetOpen = !!document.querySelector('.shortcuts')
+        void report(
+          movedCount === 2 && allInside && filesReal && cleanAfter && prefsOk && sheetOpen,
+          `moved=${movedCount} allInside=${allInside} filesReal=${filesReal} clean=${cleanAfter} prefs=${prefsOk} sheet=${sheetOpen}`,
         )
       } catch (e) {
         void report(false, String(e))

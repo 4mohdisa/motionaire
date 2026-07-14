@@ -31,6 +31,11 @@ export function useShortcuts() {
         else s.undo()
         return
       }
+      if (mod && e.key === '/') {
+        e.preventDefault()
+        s.setDialog(s.dialog === 'shortcuts' ? null : 'shortcuts')
+        return
+      }
       if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         for (const id of s.selection) s.duplicateClip(id)
