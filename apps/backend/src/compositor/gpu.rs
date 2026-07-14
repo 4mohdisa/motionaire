@@ -187,15 +187,19 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 // pass. Straight alpha in/out; blur premultiplies internally per tap.
 const CHAIN_SHADER: &str = r#"
 struct FxU {
-  op: vec4<f32>,     // x: 1 key, 2 grade, 3 blur, 4 mask, 5 vignette
+  op: vec4<f32>,     // x: 1 key, 2 grade, 3 blur, 4 mask, 5 vignette,
+                     //    6 wheels, 7 curves, 8 lut3d (y = N for lut3d)
   p0: vec4<f32>,
   p1: vec4<f32>,
+  p2: vec4<f32>,
   kcolor: vec4<f32>, // chroma key rgb
   geom: vec4<f32>,   // xy = drawn half-size (layer-local px)
 }
 @group(0) @binding(0) var<uniform> u: FxU;
 @group(0) @binding(1) var tex: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
+@group(0) @binding(3) var lut_tex: texture_2d<f32>;
+@group(0) @binding(4) var lut_samp: sampler;
 
 struct VOut {
   @builtin(position) pos: vec4<f32>,
@@ -288,7 +292,50 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let rgb = c.rgb * (1.0 - u.p0.x * smoothstep(0.55, 1.35, nd));
     return vec4(rgb, c.a);
   }
+  if (op == 6.0) { // color wheels: lift/gamma/gain per channel
+    let lift = vec3(u.p0.x, u.p0.y, u.p0.z);
+    let gamma = vec3(u.p0.w, u.p1.x, u.p1.y);
+    let gain = vec3(u.p1.z, u.p1.w, u.p2.x);
+    var rgb = c.rgb * (vec3(1.0, 1.0, 1.0) + gain) + lift * (vec3(1.0, 1.0, 1.0) - c.rgb);
+    rgb = clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));
+    let g = vec3(1.0, 1.0, 1.0) / max(vec3(1.0, 1.0, 1.0) + gamma, vec3(0.05, 0.05, 0.05));
+    rgb = pow(rgb, g);
+    return vec4(clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0)), c.a);
+  }
+  if (op == 7.0) { // RGB curves: 256x4 rows R,G,B,master (channel, then master)
+    var rgb = vec3(
+      fn_curve(c.r, 0.0),
+      fn_curve(c.g, 1.0),
+      fn_curve(c.b, 2.0),
+    );
+    rgb = vec3(fn_curve(rgb.r, 3.0), fn_curve(rgb.g, 3.0), fn_curve(rgb.b, 3.0));
+    return vec4(rgb, c.a);
+  }
+  if (op == 8.0) { // 3D LUT via 2D strip (width N*N, height N; slice = blue)
+    let n = u.op.y;
+    let bpos = clamp(c.b, 0.0, 1.0) * (n - 1.0);
+    let s0 = floor(bpos);
+    let s1 = min(s0 + 1.0, n - 1.0);
+    let f = bpos - s0;
+    let rr = clamp(c.r, 0.0, 1.0) * (n - 1.0);
+    let gg = clamp(c.g, 0.0, 1.0) * (n - 1.0);
+    let u0 = (s0 * n + rr + 0.5) / (n * n);
+    let u1 = (s1 * n + rr + 0.5) / (n * n);
+    let vv = (gg + 0.5) / n;
+    let a = textureSampleLevel(lut_tex, lut_samp, vec2(u0, vv), 0.0).rgb;
+    let b = textureSampleLevel(lut_tex, lut_samp, vec2(u1, vv), 0.0).rgb;
+    return vec4(mix(a, b, f), c.a);
+  }
   return c;
+}
+
+fn fn_curve(v: f32, row: f32) -> f32 {
+  // Row centers: (row + 0.5) / 4.
+  return textureSampleLevel(
+    lut_tex, lut_samp,
+    vec2(clamp(v, 0.0, 1.0) * (255.0 / 256.0) + 0.5 / 256.0, (row + 0.5) / 4.0),
+    0.0,
+  ).r;
 }
 "#;
 
@@ -298,6 +345,7 @@ struct FxUniform {
     op: [f32; 4],
     p0: [f32; 4],
     p1: [f32; 4],
+    p2: [f32; 4],
     kcolor: [f32; 4],
     geom: [f32; 4],
 }
@@ -346,6 +394,9 @@ pub struct GpuCompositor {
     // Indexed by blend id: 0 normal, 1 multiply, 2 screen, 3 add.
     pipelines: [wgpu::RenderPipeline; 4],
     chain_pipeline: wgpu::RenderPipeline,
+    chain_bgl: wgpu::BindGroupLayout,
+    identity_lut: wgpu::Texture,
+    lut_cache: HashMap<u64, wgpu::Texture>,
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     target: wgpu::Texture,
@@ -498,15 +549,92 @@ impl GpuCompositor {
             ..Default::default()
         });
 
-        // Effect-chain pipeline (Phase 2): same bind-group shape as the
-        // composite pass, no blending — each pass fully rewrites its target.
+        // Effect-chain pipeline (Phase 2; binding 3/4 = color LUT strip +
+        // its sampler, Phase 5): no blending — each pass rewrites its target.
         let chain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fx-chain"),
             source: wgpu::ShaderSource::Wgsl(CHAIN_SHADER.into()),
         });
+        let chain_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fx-chain"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let chain_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fx-chain"),
+            bind_group_layouts: &[&chain_bgl],
+            push_constant_ranges: &[],
+        });
+        let identity_lut = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("identity-lut"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &identity_lut,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255u8, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
         let chain_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("fx-chain"),
-            layout: Some(&pl),
+            layout: Some(&chain_pl),
             vertex: wgpu::VertexState {
                 module: &chain_shader,
                 entry_point: Some("vs_main"),
@@ -555,6 +683,9 @@ impl GpuCompositor {
             queue,
             pipelines,
             chain_pipeline,
+            chain_bgl,
+            identity_lut,
+            lut_cache: HashMap::new(),
             bgl,
             sampler,
             target,
@@ -731,7 +862,7 @@ impl GpuCompositor {
         let mut draws: Vec<(String, bool, usize)> = Vec::new(); // (path, has_shadow, blend id)
         // Effect chains this frame: (path, pass count). The composite pass for
         // a chained layer binds the chain's final output instead of the source.
-        let mut chain_jobs: Vec<(String, usize)> = Vec::new();
+        let mut chain_jobs: Vec<(String, usize, Vec<Option<u64>>)> = Vec::new();
         let mut chained_bg: std::collections::HashMap<String, wgpu::BindGroup> =
             std::collections::HashMap::new();
         for layer in &active {
@@ -866,9 +997,11 @@ impl GpuCompositor {
                 let ubuf = slot.chain_uniforms.as_ref().unwrap();
                 for (i, opc) in r.chain.iter().take(n).enumerate() {
                     let u = FxUniform {
-                        op: [opc.op as f32, 0.0, 0.0, 0.0],
+                        // op.y carries the 3D LUT's N (slice count).
+                        op: [opc.op as f32, opc.p[0], 0.0, 0.0],
                         p0: [opc.p[0], opc.p[1], opc.p[2], opc.p[3]],
                         p1: [opc.p[4], opc.p[5], opc.p[6], opc.p[7]],
+                        p2: [opc.p[8], opc.p[9], opc.p[10], opc.p[11]],
                         kcolor: [opc.color[0], opc.color[1], opc.color[2], 0.0],
                         geom: [dw * 0.5, dh * 0.5, 0.0, 0.0],
                     };
@@ -877,6 +1010,49 @@ impl GpuCompositor {
                         i as u64 * FX_UNIFORM_STRIDE,
                         bytemuck::bytes_of(&u),
                     );
+                    // Color data (curves rows / 3D LUT strip): upload once per
+                    // revision; the cache key is the resolver-computed rev.
+                    if let Some(lut) = &opc.lut {
+                        if !self.lut_cache.contains_key(&lut.rev) {
+                            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some("fx-lut"),
+                                size: wgpu::Extent3d {
+                                    width: lut.w,
+                                    height: lut.h,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            });
+                            self.queue.write_texture(
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: &tex,
+                                    mip_level: 0,
+                                    origin: wgpu::Origin3d::ZERO,
+                                    aspect: wgpu::TextureAspect::All,
+                                },
+                                &lut.rgba,
+                                wgpu::TexelCopyBufferLayout {
+                                    offset: 0,
+                                    bytes_per_row: Some(lut.w * 4),
+                                    rows_per_image: Some(lut.h),
+                                },
+                                wgpu::Extent3d {
+                                    width: lut.w,
+                                    height: lut.h,
+                                    depth_or_array_layers: 1,
+                                },
+                            );
+                            // ponytail: unbounded cache; evict-on-count if LUT
+                            // churn ever becomes real.
+                            self.lut_cache.insert(lut.rev, tex);
+                        }
+                    }
                 }
                 // Composite bind group pointing at the chain's final output.
                 let final_tex = &slot.chain_tex.as_ref().unwrap()[(n - 1) % 2];
@@ -902,7 +1078,11 @@ impl GpuCompositor {
                         ],
                     }),
                 );
-                chain_jobs.push((layer.media_path.clone(), n));
+                chain_jobs.push((
+                    layer.media_path.clone(),
+                    n,
+                    r.chain.iter().take(n).map(|o| o.lut.as_ref().map(|l| l.rev)).collect(),
+                ));
             }
 
             // Crop cuts pixels away from the fitted rect (Premiere semantics):
@@ -989,7 +1169,7 @@ impl GpuCompositor {
         let mut enc = self.device.create_command_encoder(&Default::default());
         // Chain passes first: each writes chain_tex[i%2] reading the source
         // (pass 0) or the other ping-pong texture.
-        for (path, n) in &chain_jobs {
+        for (path, n, lut_revs) in &chain_jobs {
             let slot = &self.slots[path];
             let texs = slot.chain_tex.as_ref().unwrap();
             let ubuf = slot.chain_uniforms.as_ref().unwrap();
@@ -999,9 +1179,13 @@ impl GpuCompositor {
                 } else {
                     texs[(i - 1) % 2].create_view(&Default::default())
                 };
+                let lut_view = lut_revs[i]
+                    .and_then(|rev| self.lut_cache.get(&rev))
+                    .unwrap_or(&self.identity_lut)
+                    .create_view(&Default::default());
                 let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("chain-pass"),
-                    layout: &self.bgl,
+                    layout: &self.chain_bgl,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -1019,6 +1203,14 @@ impl GpuCompositor {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&lut_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
                             resource: wgpu::BindingResource::Sampler(&self.sampler),
                         },
                     ],

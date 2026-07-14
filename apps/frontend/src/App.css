@@ -2365,3 +2365,125 @@
 .th__btn--target {
   color: var(--accent);
 }
+
+/* ---- Video scopes (pro-editor session, Phase 5) ---- */
+
+.scopes {
+  position: fixed;
+  right: 16px;
+  top: 60px;
+  z-index: 60;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-seam);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  user-select: none;
+}
+
+.scopes__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.scopes__mode {
+  font-size: 11px;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  border: 1px solid var(--border-seam);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.scopes__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.scopes__canvas {
+  display: block;
+  border-radius: 4px;
+}
+
+/* ---- Color wheels + curves (pro-editor session, Phase 5) ---- */
+
+.wheels {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  justify-content: center;
+}
+
+.wheel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.wheel__pad {
+  position: relative;
+  border-radius: 50%;
+  border: 1px solid var(--border-seam);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.09), transparent 70%),
+    conic-gradient(#b66 0deg, #bb6 60deg, #6b6 120deg, #6bb 180deg, #66b 240deg, #b6b 300deg, #b66 360deg);
+  background-blend-mode: overlay;
+  opacity: 0.9;
+  cursor: crosshair;
+}
+
+.wheel__dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.wheel__label {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.curves {
+  padding: 4px 0;
+}
+
+.curves__tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.curves__tab {
+  font-size: 10px;
+  padding: 1px 7px;
+  background: var(--bg-control);
+  border: 1px solid var(--border-seam);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.curves__tab--on {
+  border-color: currentColor;
+}
+
+.curves__svg {
+  background: var(--bg-control);
+  border-radius: 6px;
+  display: block;
+  margin: 0 auto;
+}
+
+.curves__grid {
+  stroke: var(--border-seam);
+  stroke-width: 1;
+}

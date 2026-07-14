@@ -329,10 +329,23 @@ pub struct ResolvedLayer {
     pub chain: Vec<ChainOp>,
 }
 
-// One resolved chain pass. op: 1 chromaKey, 2 grade, 3 blur, 4 mask, 5 vignette.
-#[derive(Debug, Clone, Copy)]
+// One resolved chain pass. op: 1 chromaKey, 2 grade, 3 blur, 4 mask,
+// 5 vignette, 6 color wheels (lift/gamma/gain), 7 curves, 8 3D LUT.
+#[derive(Debug, Clone)]
 pub struct ChainOp {
     pub op: u32,
-    pub p: [f32; 8],
+    pub p: [f32; 12],
     pub color: [f32; 3], // key color for chromaKey
+    // Sampled color data for curves (256x4 rows R,G,B,master) and 3D LUTs
+    // (N*N x N strip). rev keys the GPU texture cache — re-uploads happen
+    // only when the underlying points/file actually change.
+    pub lut: Option<LutData>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LutData {
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+    pub rev: u64,
 }

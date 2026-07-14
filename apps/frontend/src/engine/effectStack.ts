@@ -12,12 +12,29 @@ import { uid } from '../types/project'
 
 export type { Effect, EffectType } from '../types/project'
 
-export const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boolean>> = {
+const IDENTITY_POINTS: [number, number][] = [
+  [0, 0],
+  [1, 1],
+]
+
+export const EFFECT_DEFAULTS: Record<EffectType, Record<string, import('../types/project').EffectParam>> = {
   chromaKey: { color: '#00ff00', tolerance: 0.3, softness: 0.1, spill: 0.5 },
   grade: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0 },
   blur: { amount: 0 },
   mask: { kind: 'rect', x: 0, y: 0, w: 400, h: 300, feather: 20, invert: false },
   vignette: { amount: 0.3 },
+  wheels: {
+    liftR: 0, liftG: 0, liftB: 0,
+    gammaR: 0, gammaG: 0, gammaB: 0,
+    gainR: 0, gainG: 0, gainB: 0,
+  },
+  curves: {
+    pointsR: IDENTITY_POINTS,
+    pointsG: IDENTITY_POINTS,
+    pointsB: IDENTITY_POINTS,
+    pointsM: IDENTITY_POINTS,
+  },
+  lut: { path: '' },
 }
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
@@ -26,19 +43,25 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   blur: 'Blur / sharpen',
   mask: 'Mask',
   vignette: 'Vignette',
+  wheels: 'Color wheels',
+  curves: 'RGB curves',
+  lut: '3D LUT (.cube)',
 }
 
-// Scalar params that can carry keyframes (strings/bools cannot).
+// Scalar params that can carry keyframes (strings/bools/arrays cannot).
 export const EFFECT_SCALAR_PARAMS: Record<EffectType, string[]> = {
   chromaKey: ['tolerance', 'softness', 'spill'],
   grade: ['exposure', 'contrast', 'saturation', 'temperature', 'tint'],
   blur: ['amount'],
   mask: ['x', 'y', 'w', 'h', 'feather'],
   vignette: ['amount'],
+  wheels: ['liftR', 'liftG', 'liftB', 'gammaR', 'gammaG', 'gammaB', 'gainR', 'gainG', 'gainB'],
+  curves: [],
+  lut: [],
 }
 
 export function mkEffect(type: EffectType): Effect {
-  return { id: uid('fx'), type, enabled: true, params: { ...EFFECT_DEFAULTS[type] } }
+  return { id: uid('fx'), type, enabled: true, params: structuredClone(EFFECT_DEFAULTS[type]) }
 }
 
 export function effectsOf(clip: Clip): Effect[] {

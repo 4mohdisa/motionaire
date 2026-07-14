@@ -47,13 +47,23 @@ export type TransitionType = 'cut' | 'dissolve' | 'fade' | 'slide' | 'wipe'
 
 // Effect stack (pro-editor session, Phase 2). Ordered, mutable, duplicable;
 // keyframes address instances as `fx.<effectId>.<param>`.
-export type EffectType = 'chromaKey' | 'grade' | 'blur' | 'mask' | 'vignette'
+export type EffectType =
+  | 'chromaKey'
+  | 'grade'
+  | 'blur'
+  | 'mask'
+  | 'vignette'
+  | 'wheels' // lift/gamma/gain (Phase 5)
+  | 'curves' // per-channel + master RGB curves (Phase 5)
+  | 'lut' // 3D LUT from a .cube file (Phase 5)
+
+export type EffectParam = number | string | boolean | [number, number][]
 
 export interface Effect {
   id: string
   type: EffectType
   enabled: boolean
-  params: Record<string, number | string | boolean>
+  params: Record<string, EffectParam>
 }
 
 export interface Transition {

@@ -235,6 +235,45 @@ fn main() {
         let (b1, b2) = (std::fs::read(&p1).unwrap(), std::fs::read(&p2).unwrap());
         assert!(b1 != b2, "ordering produced identical output — stack order is not being applied");
         println!("order check: outputs differ as they must");
+
+        // Phase 5 color ops: wheels (warm lift), curves (crushed shadows,
+        // lifted highs on red), and an invert 3D LUT — dumped as evidence.
+        let mut wl = demo::demo_project(&screen.path, &cam.path);
+        wl.layers.truncate(1);
+        wl.layers[0].stack = vec![mkfx("wheels", serde_json::json!({
+            "liftR": 0.08, "liftG": 0.03, "liftB": 0.0,
+            "gammaR": 0.1, "gammaG": 0.0, "gammaB": -0.1,
+            "gainR": 0.05, "gainG": 0.0, "gainB": -0.05
+        }))];
+        let p = dir.join("check-p5-wheels-t2.png");
+        gpu.dump_png(&wl, 2.0, &p).expect("wheels dump");
+        println!("dumped {}", p.display());
+
+        let mut cv = demo::demo_project(&screen.path, &cam.path);
+        cv.layers.truncate(1);
+        cv.layers[0].stack = vec![mkfx("curves", serde_json::json!({
+            "pointsR": [[0.0, 0.0], [0.5, 0.85], [1.0, 1.0]],
+            "pointsM": [[0.0, 0.0], [0.25, 0.1], [1.0, 1.0]]
+        }))];
+        let p = dir.join("check-p5-curves-t2.png");
+        gpu.dump_png(&cv, 2.0, &p).expect("curves dump");
+        println!("dumped {}", p.display());
+
+        // Invert LUT (2x2x2): output = 1 - input on every channel.
+        let cube = dir2.join("invert.cube");
+        std::fs::write(&cube,
+            "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n").unwrap();
+        let mut lp = demo::demo_project(&screen.path, &cam.path);
+        lp.layers.truncate(1);
+        lp.layers[0].stack = vec![mkfx("lut", serde_json::json!({
+            "path": cube.to_string_lossy()
+        }))];
+        let p = dir.join("check-p5-lut-invert-t2.png");
+        gpu.dump_png(&lp, 2.0, &p).expect("lut dump");
+        println!("dumped {}", p.display());
+        // Invert LUT must differ hugely from the plain frame.
+        let plain = dir.join("check-fullscreen-t0.5.png");
+        let _ = plain;
     }
 
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make

@@ -1795,3 +1795,50 @@ visual = SUITE GREEN.
   edge; roll silently no-ops on a body drag (as designed). House rule:
   after any store write that reshapes the DOM, settle before measuring.
 - Gate: 83 unit + 24 cargo + 24/24 e2e + visual GREEN.
+
+## Phase 5 — professional color
+
+- **Scopes read the compositor's ACTUAL output** — client.ts already holds
+  every delivered frame (lastImage, kept for occlusion repaint); scopes
+  read that same RGBA via getLastFrame(). Not a re-render, not a DOM
+  approximation: the pixels the preview shows are the pixels the scopes
+  measure. Four modes — luma waveform, RGB parade, vectorscope (CbCr,
+  same constants as the chroma key), histogram — 10Hz, every-4th-pixel
+  sampling, draggable panel, graticules. Verified: e2e reads the scope
+  canvas back and asserts real signal while playing.
+- **Three new stack effect types** (they are effects, not special cases —
+  the Phase 2 architecture pays off exactly as intended):
+  - **wheels** (op 6): lift/gamma/gain, 9 keyframeable scalars; shader
+    v' = pow(clamp(v·(1+gain) + lift·(1−v)), 1/(1+gamma)) per channel.
+    Panel: three drag pads (x = warm/cool, y = luma, double-click resets);
+    fine control stays available per scalar in the graph editor.
+  - **curves** (op 7): per-channel + master control points → Rust bakes
+    256×4 rows with Catmull-Rom. FEATURE BUG CAUGHT BY THE BAKE TEST:
+    duplicated endpoints zero the end tangents, bending an identity
+    2-point curve into a smoothstep (identity ramp read 52 at index 64) —
+    fixed with mirrored virtual endpoints (2·p1−p2), which make 2-point
+    curves exactly linear. Panel: SVG editor, channel tabs, click-to-add,
+    drag, double-click-remove.
+  - **lut** (op 8): .cube parser (cached per path) baked to a 2D strip
+    (width N², height N, slice = blue) sampled with two bilinear taps +
+    slice mix — the exact implementation path documented at the F4
+    deferral. Identity fallback on parse failure. Rust test pins strip
+    LAYOUT texel-by-texel on a 2×2×2 cube; the spike renders an
+    invert.cube and the PNG shows every test bar mapped to its exact
+    complement.
+- **Chain infrastructure grew a color-data binding**: chain passes now
+  have their own bind-group layout with binding 3 = LUT/curves texture
+  (+sampler); textures cache by a resolver-computed rev (curves: hash of
+  the point data; lut: path hash) so re-uploads happen only on real
+  edits. FxUniform gained p2 (wheels needs 9 scalars). Identity 1×1
+  texture binds when a pass has no color data.
+- Perf unchanged: spike sustained 352 fps with color ops in the chain.
+- e2e split, logged: wheels/curves/scopes verified in-app (p5-color);
+  3D LUT correctness at the Rust level (unit + spike PNG) — the webview
+  has no file-write path for fixture .cubes, and inventing a dev-only
+  write command for one test wasn't worth the surface.
+- Visual baselines refreshed after the intentional chrome additions
+  (tool chips, track target/sync icons, scopes button) — drift was
+  0.9915, still passing but heading toward the threshold; the re-baseline
+  policy is "refresh after intentional change, never to make red green".
+- Gate: 83 unit + 26 cargo + 25/25 e2e + visual GREEN.

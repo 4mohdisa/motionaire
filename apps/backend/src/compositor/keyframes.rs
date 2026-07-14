@@ -123,7 +123,7 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
                 let rp = |name: &str| {
                     resolve(kf, &format!("fx.{}.{}", fx.id, name), fx.num(name), t_rel) as f32
                 };
-                let mut op = ChainOp { op: 0, p: [0.0; 8], color: [0.0; 3] };
+                let mut op = ChainOp { op: 0, p: [0.0; 12], color: [0.0; 3], lut: None };
                 match fx.kind.as_str() {
                     "chromaKey" => {
                         op.op = 1;
@@ -162,6 +162,33 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
                         op.p[0] = rp("amount");
                         if op.p[0] <= 0.001 {
                             return None;
+                        }
+                    }
+                    "wheels" => {
+                        // Lift / gamma / gain, per channel (Phase 5).
+                        op.op = 6;
+                        for (i, name) in [
+                            "liftR", "liftG", "liftB", "gammaR", "gammaG", "gammaB", "gainR",
+                            "gainG", "gainB",
+                        ]
+                        .iter()
+                        .enumerate()
+                        {
+                            op.p[i] = rp(name);
+                        }
+                    }
+                    "curves" => {
+                        op.op = 7;
+                        op.lut = Some(bake_curves(fx));
+                    }
+                    "lut" => {
+                        op.op = 8;
+                        match load_cube(fx.text("path")) {
+                            Some(l) => {
+                                op.p[0] = l.h as f32; // N (slice count)
+                                op.lut = Some(l);
+                            }
+                            None => return None, // unreadable LUT = identity
                         }
                     }
                     _ => return None,
@@ -312,6 +339,52 @@ mod tests {
     }
 
     #[test]
+    fn curves_bake_identity_and_shape() {
+        // Identity points → identity ramp; a lifted midpoint bends row R only.
+        let fx_id: super::super::types::EffectCfg = serde_json::from_str(
+            r#"{"id":"c","type":"curves","enabled":true,"params":{}}"#,
+        )
+        .unwrap();
+        let lut = bake_curves(&fx_id);
+        assert_eq!((lut.w, lut.h), (256, 4));
+        for i in [0usize, 64, 128, 200, 255] {
+            assert_eq!(lut.rgba[i * 4], i as u8, "identity ramp at {i}");
+        }
+        let fx_bent: super::super::types::EffectCfg = serde_json::from_str(
+            r#"{"id":"c","type":"curves","enabled":true,
+                "params":{"pointsR":[[0,0],[0.5,0.8],[1,1]]}}"#,
+        )
+        .unwrap();
+        let bent = bake_curves(&fx_bent);
+        assert!(bent.rgba[128 * 4] > 190, "lifted R mid: {}", bent.rgba[128 * 4]);
+        assert_eq!(bent.rgba[(256 + 128) * 4], 128, "G row stays identity");
+        assert_ne!(bent.rev, lut.rev, "rev must change with the points");
+    }
+
+    #[test]
+    fn cube_parse_and_strip_layout() {
+        // 2x2x2 identity-ish cube: corners map to themselves.
+        let dir = std::env::temp_dir().join(format!("mo-cube-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.cube");
+        std::fs::write(
+            &p,
+            "TITLE \"t\"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n",
+        )
+        .unwrap();
+        let lut = load_cube(p.to_str().unwrap()).expect("parse");
+        assert_eq!((lut.w, lut.h), (4, 2)); // strip: width n*n, height n
+        // texel (x=0,y=0) = r0 g0 b0 → black; (x=1,y=0) = r1 g0 b0 → red
+        assert_eq!(&lut.rgba[0..3], &[0, 0, 0]);
+        assert_eq!(&lut.rgba[4..7], &[255, 0, 0]);
+        // slice 1 (blue=1) starts at x=2: (x=2,y=0) → blue
+        assert_eq!(&lut.rgba[8..11], &[0, 0, 255]);
+        // garbage refuses cleanly
+        std::fs::write(dir.join("bad.cube"), "LUT_3D_SIZE 3\n0 0 0\n").unwrap();
+        assert!(load_cube(dir.join("bad.cube").to_str().unwrap()).is_none());
+    }
+
+    #[test]
     fn adjust_layer_folds_stack_grades() {
         let layer: Layer = serde_json::from_str(
             r##"{
@@ -325,4 +398,157 @@ mod tests {
         let r = resolve_layer(&layer, 1.0);
         assert!((r.grade[2] - (-1.0)).abs() < 1e-9);
     }
+}
+
+// ---- Curves baking (Phase 5) ----
+// Control points per channel from params (JSON [[x,y],...], 0..1), Catmull-
+// Rom through the points, clamped — baked to a 256x4 strip (rows R,G,B,
+// master). rev hashes the point data so the GPU texture cache only refreshes
+// on real edits.
+fn bake_curves(fx: &super::types::EffectCfg) -> super::types::LutData {
+    use std::hash::{Hash, Hasher};
+    let channel = |key: &str| -> Vec<(f64, f64)> {
+        let mut pts: Vec<(f64, f64)> = fx
+            .params
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|p| {
+                        let p = p.as_array()?;
+                        Some((p.first()?.as_f64()?, p.get(1)?.as_f64()?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if pts.len() < 2 {
+            pts = vec![(0.0, 0.0), (1.0, 1.0)];
+        }
+        pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        pts
+    };
+    let mut rgba = vec![0u8; 256 * 4 * 4];
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (row, key) in ["pointsR", "pointsG", "pointsB", "pointsM"].iter().enumerate() {
+        let pts = channel(key);
+        for (x, y) in &pts {
+            x.to_bits().hash(&mut hasher);
+            y.to_bits().hash(&mut hasher);
+        }
+        for i in 0..256 {
+            let x = i as f64 / 255.0;
+            let y = catmull_eval(&pts, x).clamp(0.0, 1.0);
+            let px = ((row * 256 + i) * 4) as usize;
+            let v = (y * 255.0).round() as u8;
+            rgba[px] = v;
+            rgba[px + 1] = v;
+            rgba[px + 2] = v;
+            rgba[px + 3] = 255;
+        }
+    }
+    use std::hash::Hasher as _;
+    super::types::LutData { w: 256, h: 4, rgba, rev: hasher.finish() }
+}
+
+fn catmull_eval(pts: &[(f64, f64)], x: f64) -> f64 {
+    if x <= pts[0].0 {
+        return pts[0].1;
+    }
+    if x >= pts[pts.len() - 1].0 {
+        return pts[pts.len() - 1].1;
+    }
+    let mut i = 0;
+    while i + 1 < pts.len() && pts[i + 1].0 < x {
+        i += 1;
+    }
+    let p1 = pts[i];
+    let p2 = pts[i + 1];
+    // Virtual endpoints MIRROR the edge segment (2·p1−p2 / 2·p2−p1):
+    // duplicated endpoints would zero the end tangents and bend an identity
+    // 2-point curve into a smoothstep (caught by the bake unit test).
+    let p0 = if i == 0 {
+        (2.0 * p1.0 - p2.0, 2.0 * p1.1 - p2.1)
+    } else {
+        pts[i - 1]
+    };
+    let p3 = if i + 2 < pts.len() {
+        pts[i + 2]
+    } else {
+        (2.0 * p2.0 - p1.0, 2.0 * p2.1 - p1.1)
+    };
+    let span = (p2.0 - p1.0).max(1e-9);
+    let t = (x - p1.0) / span;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    // Standard Catmull-Rom on y with uniform parameterization (clamped later).
+    0.5 * ((2.0 * p1.1)
+        + (-p0.1 + p2.1) * t
+        + (2.0 * p0.1 - 5.0 * p1.1 + 4.0 * p2.1 - p3.1) * t2
+        + (-p0.1 + 3.0 * p1.1 - 3.0 * p2.1 + p3.1) * t3)
+}
+
+// ---- .cube 3D LUT loading (Phase 5; DECISIONS' documented path: 2D-strip
+// bake, dedicated binding, identity fallback). Parsed once per path. ----
+static CUBE_CACHE: std::sync::Mutex<
+    Option<std::collections::HashMap<String, std::sync::Arc<super::types::LutData>>>,
+> = std::sync::Mutex::new(None);
+
+fn load_cube(path: &str) -> Option<super::types::LutData> {
+    if path.is_empty() {
+        return None;
+    }
+    let mut guard = CUBE_CACHE.lock().ok()?;
+    let cache = guard.get_or_insert_with(Default::default);
+    if let Some(hit) = cache.get(path) {
+        return Some((**hit).clone());
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut n = 0usize;
+    let mut data: Vec<f32> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("TITLE") {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("LUT_3D_SIZE") {
+            n = rest.trim().parse().ok()?;
+            continue;
+        }
+        if line.starts_with("DOMAIN_") || line.starts_with("LUT_1D") {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        if let (Some(r), Some(g), Some(b)) = (it.next(), it.next(), it.next()) {
+            if let (Ok(r), Ok(g), Ok(b)) = (r.parse::<f32>(), g.parse::<f32>(), b.parse::<f32>()) {
+                data.extend([r, g, b]);
+            }
+        }
+    }
+    if n < 2 || data.len() != n * n * n * 3 {
+        log::warn!("cube parse failed for {path}: n={n}, {} floats", data.len());
+        return None;
+    }
+    // Bake to a 2D strip: width n*n (slice-major), height n. .cube order is
+    // r fastest, then g, then b — slice index = b.
+    let mut rgba = vec![0u8; n * n * n * 4];
+    for b in 0..n {
+        for g in 0..n {
+            for r in 0..n {
+                let src = ((b * n + g) * n + r) * 3;
+                let dstx = b * n + r;
+                let dsty = g;
+                let dst = (dsty * n * n + dstx) * 4;
+                rgba[dst] = (data[src].clamp(0.0, 1.0) * 255.0).round() as u8;
+                rgba[dst + 1] = (data[src + 1].clamp(0.0, 1.0) * 255.0).round() as u8;
+                rgba[dst + 2] = (data[src + 2].clamp(0.0, 1.0) * 255.0).round() as u8;
+                rgba[dst + 3] = 255;
+            }
+        }
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    let lut = super::types::LutData { w: (n * n) as u32, h: n as u32, rgba, rev: h.finish() };
+    cache.insert(path.to_string(), std::sync::Arc::new(lut.clone()));
+    Some(lut)
 }

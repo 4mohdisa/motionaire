@@ -2040,6 +2040,72 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p5_color_test': {
+      // Pro-editor Phase 5: wheels + curves run live through the chain (the
+      // compositor keeps producing frames), the panel renders their editors,
+      // and the scopes draw non-empty signal from REAL compositor output.
+      // (3D LUT correctness is pinned at the Rust level: cube_parse test +
+      // the invert-LUT spike PNG.)
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p5-color', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        const cam = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        st().addEffect(cam.id, 'wheels')
+        st().addEffect(cam.id, 'curves')
+        const fx = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === cam.id)!.effects
+        st().updateEffectParams(cam.id, fx[0].id, { liftR: 0.15, gainB: -0.1 })
+        st().updateEffectParams(cam.id, fx[1].id, {
+          pointsM: [
+            [0, 0],
+            [0.3, 0.12],
+            [1, 1],
+          ],
+        })
+        st().setPlayhead(1)
+        st().play()
+        const live = await until(() => st().compositorActive && st().compositorFps > 5, 6000)
+        // Panel editors render.
+        st().select([cam.id])
+        await wait(300)
+        const wheelPads = document.querySelectorAll('.wheel__pad').length
+        const curveSvg = !!document.querySelector('.curves__svg')
+        // Scopes read the real frame stream and draw signal.
+        st().setScopesOpen(true)
+        await wait(600)
+        const scopeCanvas = document.querySelector<HTMLCanvasElement>('.scopes__canvas')
+        let scopeSignal = false
+        if (scopeCanvas) {
+          const ctx = scopeCanvas.getContext('2d')!
+          const d = ctx.getImageData(0, 0, scopeCanvas.width, scopeCanvas.height).data
+          let lum = 0
+          for (let i = 0; i < d.length; i += 40) lum += d[i] + d[i + 1] + d[i + 2]
+          scopeSignal = lum > 5000
+        }
+        st().pause()
+        // scopes stay open for the evidence capture
+        const pass = live && wheelPads === 3 && curveSvg && scopeSignal
+        void report(
+          pass,
+          `live=${live} wheelPads=${wheelPads} curveSvg=${curveSvg} scopeSignal=${scopeSignal}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

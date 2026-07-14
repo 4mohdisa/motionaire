@@ -207,7 +207,7 @@ export interface StoreState {
   updateEffectParams: (
     clipId: string,
     effectId: string,
-    patch: Record<string, number | string | boolean>,
+    patch: Record<string, import('../types/project').EffectParam>,
   ) => void
   setClipBlend: (clipId: string, blend: Clip['blend']) => void
   // Copy/paste attributes (transform + stack + blend) across clips.
@@ -290,6 +290,8 @@ export interface StoreState {
   setExportOpen: (v: boolean) => void
   mixerOpen: boolean
   setMixerOpen: (v: boolean) => void
+  scopesOpen: boolean
+  setScopesOpen: (v: boolean) => void
   setExportSettings: (patch: Partial<ExportSettings>) => void
   setTimelineHeight: (h: number) => void
   setPropsWidth: (w: number) => void
@@ -2076,6 +2078,12 @@ export const useStore = create<StoreState>()(
       setMixerOpen: (v) =>
         set((s) => {
           s.mixerOpen = v
+        }),
+
+      scopesOpen: false,
+      setScopesOpen: (v) =>
+        set((s) => {
+          s.scopesOpen = v
         }),
 
       setExportSettings: (patch) =>

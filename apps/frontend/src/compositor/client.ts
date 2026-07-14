@@ -12,6 +12,13 @@ const MAGIC = 0x4d4f544e
 // ~0.4x when the window is occluded and rAF starves; Rust never does).
 export const compositorClock = { t: NaN, at: 0 }
 
+// Scopes (pro-editor session, Phase 5) read the compositor's ACTUAL output
+// frames from here — not a re-render, the same RGBA the preview shows.
+let lastFrameRef: ImageData | null = null
+export function getLastFrame(): ImageData | null {
+  return lastFrameRef
+}
+
 export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
   let ws: WebSocket | null = null
   let stopped = false
@@ -102,6 +109,8 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
       frameBuf.data.set(new Uint8ClampedArray(buf, 16))
       ctx.putImageData(frameBuf, 0, 0)
       lastImage = frameBuf
+
+      lastFrameRef = lastImage
       lastFresh = performance.now()
       setActive(true, receivedFps())
       // No frames for a while (e.g. paused with no changes) still means active;

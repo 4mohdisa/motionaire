@@ -7,6 +7,7 @@ import { Activation, Launcher, Onboarding } from './components/Shell'
 import { WorkflowDialogs } from './components/WorkflowDialogs'
 import Mixer from './components/Mixer'
 import GraphEditor from './components/GraphEditor'
+import Scopes from './components/Scopes'
 import { useBootFlow } from './hooks/useBootFlow'
 import MediaBin from './components/MediaBin'
 import Toasts from './components/Toasts'
@@ -82,6 +83,7 @@ function App() {
   const appView = useStore((s) => s.appView)
   const mixerOpen = useStore((s) => s.mixerOpen)
   const graphOpen = useStore((s) => s.graphOpen)
+  const scopesOpen = useStore((s) => s.scopesOpen)
   useEffect(() => {
     startCompositorBridge()
     startMenuBridge()
@@ -227,6 +229,7 @@ function App() {
       <UnsavedPrompt />
       <WorkflowDialogs />
       {mixerOpen && <Mixer />}
+      {scopesOpen && <Scopes />}
       <Toasts />
     </div>
   )

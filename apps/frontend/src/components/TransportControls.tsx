@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Pause, Play, SkipBack, StepBack, StepForward, Volume2, SlidersVertical } from 'lucide-react'
+import { Pause, Play, SkipBack, StepBack, StepForward, Volume2, SlidersVertical, Activity } from 'lucide-react'
 import { useStore } from '../state/store'
 import { formatTimecode } from '../engine/time'
 import { meterFrac, readPeaks } from '../engine/audioGraph'
@@ -81,6 +81,7 @@ function TransportControls() {
   const compositorFps = useStore((s) => s.compositorFps)
   const masterVolume = useStore((s) => s.project.masterVolume ?? 1)
   const mixerOpen = useStore((s) => s.mixerOpen)
+  const scopesOpen = useStore((s) => s.scopesOpen)
   const { togglePlay, frameStep, setPlayhead } = useStore.getState()
 
   // Compositor status lives HERE, in chrome — never overlaid on the frame
@@ -112,6 +113,12 @@ function TransportControls() {
       </div>
       <div className="transport__audio">
         <AudioMeters />
+        <IconBtn
+          icon={Activity}
+          label="Video scopes"
+          active={scopesOpen}
+          onClick={() => useStore.getState().setScopesOpen(!scopesOpen)}
+        />
         <IconBtn
           icon={SlidersVertical}
           label="Audio mixer"

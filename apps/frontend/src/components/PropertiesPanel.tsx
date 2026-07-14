@@ -265,6 +265,55 @@ function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
     )
   if (fx.type === 'blur')
     return <NumberRow clip={clip} prop={p('amount')} label="Blur/Sharp" step={0.5} min={-20} max={40} />
+  if (fx.type === 'wheels')
+    return (
+      <div className="wheels">
+        {(
+          [
+            ['Lift', 'liftR', 'liftG', 'liftB', 0.35],
+            ['Gamma', 'gammaR', 'gammaG', 'gammaB', 0.6],
+            ['Gain', 'gainR', 'gainG', 'gainB', 0.5],
+          ] as const
+        ).map(([label, rk, gk, bk, range]) => (
+          <ColorWheel
+            key={label}
+            label={label}
+            r={Number(fx.params[rk] ?? 0)}
+            g={Number(fx.params[gk] ?? 0)}
+            b={Number(fx.params[bk] ?? 0)}
+            range={range}
+            onChange={(r, g, b) =>
+              s.updateEffectParams(clip.id, fx.id, { [rk]: r, [gk]: g, [bk]: b })
+            }
+          />
+        ))}
+      </div>
+    )
+  if (fx.type === 'curves') return <CurveEditor clip={clip} fx={fx} />
+  if (fx.type === 'lut')
+    return (
+      <div className="prow">
+        <span className="prow__label">File</span>
+        <button
+          className="topbar__btn"
+          onClick={() => {
+            void import('@tauri-apps/plugin-dialog').then(async ({ open }) => {
+              const picked = await open({
+                title: 'Load .cube LUT',
+                filters: [{ name: 'Cube LUT', extensions: ['cube'] }],
+                multiple: false,
+              })
+              if (typeof picked === 'string')
+                s.updateEffectParams(clip.id, fx.id, { path: picked })
+            })
+          }}
+        >
+          {typeof fx.params.path === 'string' && fx.params.path
+            ? (fx.params.path.split('/').pop() ?? 'Load .cube…')
+            : 'Load .cube…'}
+        </button>
+      </div>
+    )
   if (fx.type === 'vignette')
     return <NumberRow clip={clip} prop={p('amount')} label="Amount" step={0.02} min={0} max={1} />
   // mask
@@ -925,6 +974,170 @@ function ShadowEditor({ clip }: { clip: Clip }) {
 
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000
+}
+
+// Color wheel pad (Phase 5): drag maps x → warm/cool (R vs B) and y → luma
+// (all channels); the 9 underlying scalars stay keyframeable via the graph
+// editor (fx.<id>.liftR …). Double-click resets the band.
+function ColorWheel({
+  label,
+  r,
+  g,
+  b,
+  range,
+  onChange,
+}: {
+  label: string
+  r: number
+  g: number
+  b: number
+  range: number
+  onChange: (r: number, g: number, b: number) => void
+}) {
+  const SIZE = 64
+  // Display position back-projected from rgb (x = (r-b)/2, y = -(r+g+b)/3).
+  const x = ((r - b) / 2 / range) * (SIZE / 2)
+  const y = (-(r + g + b) / 3 / range) * (SIZE / 2)
+  const startDrag = (e: React.PointerEvent) => {
+    const el = e.currentTarget as HTMLElement
+    const rect = el.getBoundingClientRect()
+    const apply = (ev: { clientX: number; clientY: number }) => {
+      const px = Math.max(-1, Math.min(1, ((ev.clientX - rect.left) / SIZE) * 2 - 1))
+      const py = Math.max(-1, Math.min(1, ((ev.clientY - rect.top) / SIZE) * 2 - 1))
+      const warm = px * range
+      const luma = -py * range
+      onChange(luma + warm / 2, luma, luma - warm / 2)
+    }
+    apply(e)
+    const onMove = (ev: PointerEvent) => apply(ev)
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+  return (
+    <div className="wheel">
+      <div
+        className="wheel__pad"
+        style={{ width: SIZE, height: SIZE }}
+        onPointerDown={startDrag}
+        onDoubleClick={() => onChange(0, 0, 0)}
+        title={`${label} — drag: x warm/cool, y brightness; double-click resets`}
+      >
+        <div
+          className="wheel__dot"
+          style={{ left: SIZE / 2 + x - 3, top: SIZE / 2 + y - 3 }}
+        />
+      </div>
+      <span className="wheel__label">{label}</span>
+    </div>
+  )
+}
+
+// RGB curve editor (Phase 5): channel tabs, draggable points, click empty
+// space to add, double-click a point to remove. Rust bakes the same points
+// with mirrored-endpoint Catmull-Rom — this SVG is a preview only.
+function CurveEditor({ clip, fx }: { clip: Clip; fx: Effect }) {
+  const s = useStore.getState()
+  const [chan, setChan] = useState<'R' | 'G' | 'B' | 'M'>('M')
+  const SIZE = 150
+  const key = `points${chan}`
+  const pts = (fx.params[key] as [number, number][] | undefined) ?? [
+    [0, 0],
+    [1, 1],
+  ]
+  const write = (next: [number, number][]) =>
+    s.updateEffectParams(clip.id, fx.id, {
+      [key]: [...next].sort((a, b) => a[0] - b[0]),
+    })
+  const toPx = (p: [number, number]) => [p[0] * SIZE, (1 - p[1]) * SIZE]
+  const fromEvent = (e: { clientX: number; clientY: number }, rect: DOMRect): [number, number] => [
+    Math.max(0, Math.min(1, (e.clientX - rect.left) / SIZE)),
+    Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / SIZE)),
+  ]
+  const dragPoint = (e: React.PointerEvent, idx: number) => {
+    e.stopPropagation()
+    const rect = (e.currentTarget as SVGElement).ownerSVGElement!.getBoundingClientRect()
+    const onMove = (ev: PointerEvent) => {
+      const np = fromEvent(ev, rect)
+      const next = pts.map((p, i) => (i === idx ? np : p)) as [number, number][]
+      write(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+  // Preview polyline via dense sampling of a simple monotone-ish interp
+  // (display only — the compositor's bake is the authority).
+  const path = Array.from({ length: 51 }, (_, i) => {
+    const x = i / 50
+    let j = 0
+    while (j + 1 < pts.length && pts[j + 1][0] < x) j++
+    const a = pts[j]
+    const bz = pts[Math.min(j + 1, pts.length - 1)]
+    const t = bz[0] > a[0] ? (x - a[0]) / (bz[0] - a[0]) : 0
+    const y = a[1] + (bz[1] - a[1]) * Math.max(0, Math.min(1, t))
+    const [px, py] = toPx([x, y])
+    return `${px.toFixed(1)},${py.toFixed(1)}`
+  }).join(' ')
+  const colors = { R: '#ff6b6b', G: '#51d88a', B: '#6b9bff', M: '#dddddd' }
+  return (
+    <div className="curves">
+      <div className="curves__tabs">
+        {(['R', 'G', 'B', 'M'] as const).map((c) => (
+          <button
+            key={c}
+            className={`curves__tab${chan === c ? ' curves__tab--on' : ''}`}
+            style={{ color: colors[c] }}
+            onClick={() => setChan(c)}
+          >
+            {c === 'M' ? 'Master' : c}
+          </button>
+        ))}
+      </div>
+      <svg
+        width={SIZE}
+        height={SIZE}
+        className="curves__svg"
+        onPointerDown={(e) => {
+          const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
+          const np = fromEvent(e, rect)
+          write([...pts, np])
+        }}
+      >
+        {[0.25, 0.5, 0.75].map((f) => (
+          <g key={f}>
+            <line x1={f * SIZE} x2={f * SIZE} y1={0} y2={SIZE} className="curves__grid" />
+            <line y1={f * SIZE} y2={f * SIZE} x1={0} x2={SIZE} className="curves__grid" />
+          </g>
+        ))}
+        <polyline points={path} fill="none" stroke={colors[chan]} strokeWidth={1.5} />
+        {pts.map((p, i) => {
+          const [px, py] = toPx(p)
+          return (
+            <circle
+              key={i}
+              cx={px}
+              cy={py}
+              r={4}
+              fill={colors[chan]}
+              style={{ cursor: 'move' }}
+              onPointerDown={(e) => dragPoint(e, i)}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                if (pts.length > 2) write(pts.filter((_, j) => j !== i))
+              }}
+            />
+          )
+        })}
+      </svg>
+    </div>
+  )
 }
 
 function staticDisplay(clip: Clip, prop: string): number | undefined {
