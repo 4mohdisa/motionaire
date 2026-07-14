@@ -77,7 +77,14 @@ export function usePlaybackEngine(elements: React.RefObject<ElementMap>) {
         const compClock =
           s.compositorActive &&
           Number.isFinite(compositorClock.t) &&
-          performance.now() - compositorClock.at < 600
+          performance.now() - compositorClock.at < 600 &&
+          // `at` is RECEIPT time: the paused 1Hz keepalive rebroadcasts the
+          // last frame, so after a reconnect (or around a big seek) a fresh
+          // `at` can carry an ancient `t` — adopting it teleported playback
+          // to end-of-media and instant-paused (pro-editor session, Phase 0
+          // find). A frame wildly off the store playhead is stale, not
+          // authoritative — same rule as the element-master guard below.
+          Math.abs(compositorClock.t - s.playhead) < 1.0
         if (compClock) {
           // The compositor's frame header is the authoritative clock: immune
           // to rAF starvation (occluded windows crawled at ~0.4x otherwise).

@@ -101,6 +101,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn validation_edges() {
+        let v = TestValidator;
+        assert!(v.validate(TEST_KEY).is_ok());
+        assert!(v.validate(&TEST_KEY.to_lowercase()).is_ok()); // case-insensitive
+        assert!(v.validate(&format!("  {TEST_KEY}  ")).is_ok()); // trimmed
+        assert!(v.validate("MOTIONAIRE-TEST-0000-0001").is_err());
+        assert!(v.validate("").is_err());
+        // The remote validator refuses everything until the server exists.
+        assert!(RemoteValidator.validate(TEST_KEY).is_err());
+    }
+
+    #[test]
     fn test_key_round_trip() {
         assert!(TestValidator.validate(TEST_KEY).is_ok());
         assert!(TestValidator.validate(" motionaire-test-0000-0000 ").is_ok());

@@ -1516,3 +1516,102 @@ through the (parity-locked) keyframe engine, so all of it keyframes.
   DOM click on the banner → editor, dirty, path-less) + captures of the
   three templates compositing over video and the launcher banner after a
   simulated crash-restart.
+
+# Pro-editor session (session 11)
+
+Work order: PRO_EDITOR_PLAN.md. Read-first check: git log ends at Foundation
+Phase 8 — NO AI-layer session ran between sessions 10 and 11; built from that
+actual state. Also found DECISIONS.md/CONTEXT.md deleted from the working
+tree (present in HEAD) — restored both (they are ground truth and this log),
+committed removal of the two COMPLETED work orders (FOUNDATION.md,
+OVERNIGHT_PLAN.md) as deliberate cleanup.
+
+## Phase 0 — test infrastructure (the gate for everything after)
+
+- **Frontend unit: vitest, node environment.** The store and its entire
+  import graph (types, engine/time, engine/keyframes, engine/textPresets)
+  were already tauri-free and DOM-free, so no jsdom, no mocks — 55 tests run
+  in ~130ms. One feature-side change earned its keep: the dev-only
+  `window.__motionaire` handle in store.ts needed a `typeof window` guard to
+  load under node. Covered: split/trim source math + keyframe ownership,
+  move clamp-vs-atomic-reject semantics (moveClip clamps like a drag;
+  moveClipsTo refuses whole), insert/overwrite carve + ripple, ripple delete
+  per-track shift, detach-audio linkage + volume-keyframe handover,
+  undo/redo transactions + gesture coalescing, marks, clipboard, fades,
+  toggleKeyframe, tracks/lock, templates, canvas, markers, fx patch — plus
+  the resolveProp mirror contract and easing monotonicity, and sourceTime
+  ramp integration. View-state setters (dialogs, toasts, panel sizes)
+  deliberately untested: no semantics.
+- **Test-quality traps hit immediately, both mine:** (a) importing a
+  *.test.ts for its fixture helper re-registers that file's tests in every
+  importer — fixtures now live in engine/testUtils.ts (house rule #4);
+  (b) snapToFrame(1.016, 30) = 1.0, not 1.033 — 30.48 rounds DOWN; my
+  expectation was wrong, the code was right.
+- **Backend unit: 15 → 22.** Added: proxy cache-key contract (stem+size
+  dedupes copies, size change re-keys, no panic on missing file), an easing
+  parity table pinning the Rust curves to the exact TS formulas (unit-level
+  drift alarm in front of the e2e parity probe), left-keyframe-easing-wins,
+  resolve_layer effect-scalar resolution (blur keyframes, mask fields,
+  static vignette), volume_expr input-order independence, multi-clip graph
+  1-based input indexing + adelay ms, atempo boundary/clamp cases, license
+  validation edges (case/trim/reject) — found and fixed a splice bug of my
+  own that had silently detached #[test] from test_key_round_trip (a test
+  that stops RUNNING is worse than one that fails).
+- **e2e: formalized dev-remote, NOT tauri-driver.** Decisive fact: the
+  official Tauri v2 WebDriver path does not support macOS (WKWebView has no
+  WebDriver endpoint), so the plan's "evaluate it" resolves to no. The
+  proven file-trigger pattern became scripts/e2e.sh: boots (or reuses) the
+  real app, fires each dev:* case, polls the log for WEBVIEW-TEST lines
+  (never sleeps blind), per-test 240s ceiling, summary + nonzero exit on any
+  failure. 19 cases: the new smoke plus the p2..p7 and f0..f8 regression
+  tests from sessions 9-10.
+- **Smoke (dev:smoke): the critical path as one test** — real import via
+  loadPipDemo → clips placed → play with compositorActive && fps>5 asserted
+  by polling → blend+vignette applied → text added → 2s range export →
+  ffprobe duration within ±0.2s. If this passes, the app fundamentally
+  works.
+- **Visual regression: self-capture + ffmpeg SSIM.** scripts/visual.sh
+  drives dev:vr_scene (fixed 1280×800 window, deterministic fixtures, fixed
+  playhead, toasts force-dismissed — transient chrome is nondeterminism) and
+  dev:vr_sheet, captures via the WKWebView snapshot, compares against
+  committed baselines in tests/visual/ with SSIM ≥ 0.97 (ffmpeg is already a
+  hard dependency; no new tooling). --update re-baselines. Launcher screen
+  deliberately excluded: the recents grid reflects machine SQLite state.
+- **TESTING.md** documents the four layers, the gate rule, and five house
+  rules (playhead clamp, poll-don't-sleep, dead-flag listeners, fixtures
+  outside test files, derive-positions-from-state).
+- npm wiring: `npm test` = the whole suite; test:unit / test:e2e /
+  test:visual for the layers.
+
+### Phase 0 gate: what the suite caught on its first day
+
+The first full run was RED (13/19 e2e) — and everything it caught was real:
+
+1. **Cross-test contamination.** The dev cases were written against fresh
+   boot state; run in sequence they saw each other's media (f7's consolidate
+   moved 4 files, not its own 2). Fix: the runner reloads the webview before
+   EVERY test (~5s/test, buys honest results). This immediately exposed the
+   opposite class too — f0_popover/f0_ctx only ever passed because SOMEONE
+   ELSE had mounted the editor first; they now build their own scene.
+2. **A real product bug in the clock contract** (the session's best find,
+   would never have surfaced without suite sequencing): compositorClock's
+   600ms freshness check uses RECEIPT time, but the paused 1Hz keepalive
+   rebroadcasts the LAST frame — so after a webview reload (or around a big
+   seek) a fresh `at` carries an ancient `t`. First rAF step after play()
+   adopted the stale end-of-media t → enginePlayhead(duration) → instant
+   auto-pause. Symptom chain diagnosed via graphDebug element forensics
+   (elements paused at t=10.0 = media end; then attached=3 with els[] empty
+   = engine never saw an active clip). For a user: open project → press
+   play → nothing happens (racy; deterministic under test sequencing). Fix
+   at the same seam as the element-master guard: a compositor tick wildly
+   off the store playhead (>1s) is stale, not authoritative — skip it and
+   free-run; the store push re-anchors Rust and real frames converge.
+3. **The first visual baselines were contaminated** (captured post-sequence:
+   six media entries, wrong title, Insert mode). visual.sh now reloads
+   before the scene shot (vr_sheet deliberately stacks on the settled scene),
+   re-baselined clean. Stability: two cold boots → SSIM 1.000000 on both
+   screens — the scenes are fully deterministic, so the 0.97 threshold has
+   real headroom.
+
+Final gate: full cold `npm test` → 55 vitest + 22 cargo + 19/19 e2e + 2/2
+visual = SUITE GREEN.

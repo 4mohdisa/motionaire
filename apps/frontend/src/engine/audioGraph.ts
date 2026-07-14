@@ -14,9 +14,20 @@ let bufR: Uint8Array<ArrayBuffer> | null = null
 
 const panners = new WeakMap<HTMLMediaElement, StereoPannerNode>()
 let attachedCount = 0
+// Debug roster of attached elements (test forensics — see graphDebug).
+const attachedEls: WeakRef<HTMLMediaElement>[] = []
 
 export function graphDebug(): string {
-  return `ctx=${ctx?.state ?? 'none'} attached=${attachedCount} gain=${master?.gain.value.toFixed(3) ?? 'n/a'} set=${lastSetGain}`
+  const els = attachedEls
+    .map((r) => r.deref())
+    .filter((e): e is HTMLMediaElement => !!e)
+    .map((e) => {
+      const src = (e.currentSrc || e.src).split('/').pop()?.slice(-24) ?? '?'
+      const err = e.error ? ` ERR${e.error.code}` : ''
+      return `${src}:rs${e.readyState},${e.paused ? 'paused' : 'playing'},t${e.currentTime.toFixed(1)},v${e.volume.toFixed(2)}${e.muted ? ',MUTED' : ''}${err}`
+    })
+    .join(' | ')
+  return `ctx=${ctx?.state ?? 'none'} attached=${attachedCount} gain=${master?.gain.value.toFixed(3) ?? 'n/a'} set=${lastSetGain} els[${els}]`
 }
 
 export function ensureGraph(): boolean {
@@ -54,6 +65,7 @@ export function attachElement(el: HTMLMediaElement, pan: number) {
       panner.connect(master)
       panners.set(el, panner)
       attachedCount++
+      attachedEls.push(new WeakRef(el))
     } catch {
       return // already claimed by a dead graph (shouldn't happen — one ctx)
     }

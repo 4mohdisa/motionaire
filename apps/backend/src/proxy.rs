@@ -120,3 +120,39 @@ fn run(app: &tauri::AppHandle, src: &str, cache_dir: &Path) -> Result<String, St
     std::fs::rename(&tmp, &out).map_err(|e| e.to_string())?;
     Ok(out_str)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_key_is_stem_plus_size() {
+        let dir = std::env::temp_dir().join(format!("mo-proxy-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        let f1 = dir.join("a/clip.mp4");
+        let f2 = dir.join("b/clip.mp4");
+        std::fs::write(&f1, vec![0u8; 100]).unwrap();
+        std::fs::write(&f2, vec![0u8; 100]).unwrap();
+        let cache = dir.join("cache");
+        // Same stem + same size → same key (dedupe across copies).
+        assert_eq!(
+            cache_path(f1.to_str().unwrap(), &cache),
+            cache_path(f2.to_str().unwrap(), &cache)
+        );
+        // Same stem, different size → different key.
+        std::fs::write(&f2, vec![0u8; 200]).unwrap();
+        assert_ne!(
+            cache_path(f1.to_str().unwrap(), &cache),
+            cache_path(f2.to_str().unwrap(), &cache)
+        );
+        // Key always lands inside the cache dir, .mp4 suffixed.
+        let p = cache_path(f1.to_str().unwrap(), &cache);
+        assert!(p.starts_with(&cache));
+        assert!(p.to_string_lossy().ends_with("-proxy.mp4"));
+        // Nonexistent source still yields a stable path (size 0), no panic.
+        let ghost = cache_path("/nope/ghost.mp4", &cache);
+        assert!(ghost.to_string_lossy().contains("ghost-0-proxy"));
+    }
+}

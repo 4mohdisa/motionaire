@@ -909,6 +909,10 @@ async function dispatch(action: string, path?: string) {
         invoke('report_test', { name: 'f0-popover', pass, detail }).catch(() => {})
       const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms))
       try {
+        // Fresh-boot isolation: the editor must be mounted before its DOM
+        // can be poked (the suite reloads the webview per test).
+        await loadPipDemo()
+        await tick(400)
         const btn = document.querySelector<HTMLElement>('.tl__toolbar .iconbtn')!
         btn.dispatchEvent(
           new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
@@ -952,6 +956,9 @@ async function dispatch(action: string, path?: string) {
       const report = (pass: boolean, detail: string) =>
         invoke('report_test', { name: 'f0-ctx', pass, detail }).catch(() => {})
       try {
+        // Fresh-boot isolation: mount the editor first (suite reloads per test).
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 400))
         const lane = document.querySelector<HTMLElement>('[data-lane-track]')!
         lane.dispatchEvent(
           new MouseEvent('contextmenu', {
@@ -1455,6 +1462,118 @@ async function dispatch(action: string, path?: string) {
         )
       } catch (e) {
         void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:vr_scene': {
+      // Visual-regression scene (Phase 0): fixed window size, deterministic
+      // fixture content, fixed playhead, no transient chrome. Reports
+      // vr-scene PASS when settled so scripts/visual.sh knows when to shoot.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'vr-scene', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+        await getCurrentWindow().setSize(new LogicalSize(1280, 800))
+        const st = () => useStore.getState()
+        await loadPipDemo()
+        st().pause()
+        st().setDialog(null)
+        st().select([])
+        st().setPlayhead(1)
+        st().addTextClip('Visual baseline')
+        st().setPlayhead(1.5)
+        st().select([])
+        const live = await until(() => st().compositorActive, 8000)
+        // Transient chrome is nondeterministic — clear it.
+        for (const t of [...st().toasts]) st().dismissToast(t.id)
+        await until(() => st().toasts.length === 0, 3000)
+        await wait(1200) // text raster + filmstrip settle
+        void report(live, `compositor=${live}`)
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:vr_sheet': {
+      useStore.getState().setDialog('shortcuts')
+      await new Promise((r) => setTimeout(r, 300))
+      void invoke('report_test', { name: 'vr-sheet', pass: true, detail: 'open' }).catch(() => {})
+      break
+    }
+    case 'dev:smoke': {
+      // THE critical path as one test (pro-editor session, Phase 0): new
+      // project -> import media -> place clips -> play (real compositor
+      // frames) -> apply an effect -> add text -> export -> ffprobe verify.
+      // If this passes, the app fundamentally works.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'smoke', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        const st = () => useStore.getState()
+        // 1. new project + import + place (loadPipDemo = real native import
+        //    of two generated fixtures + placement on two tracks)
+        await loadPipDemo()
+        await wait(300)
+        const placed = st().project.tracks.reduce((n, t) => n + t.clips.length, 0)
+        // 2. play: the compositor must produce real frames and the clock must
+        //    advance. Poll — never sleep-and-hope (house rule).
+        st().setPlayhead(0.5)
+        st().play()
+        const advanced = await until(() => st().playhead > 1.0, 8000)
+        const fpsLive = await until(
+          () => st().compositorActive && st().compositorFps > 5,
+          4000,
+        )
+        st().pause()
+        // 3. apply an effect + add text
+        const vid = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .flatMap((t) => t.clips)
+          .find((c) => c.kind === 'video')!
+        st().updateClipFx(vid.id, { blend: 'multiply' })
+        st().setClipProperty(vid.id, 'vignette', 0.4)
+        st().setPlayhead(1)
+        st().addTextClip('Smoke test')
+        const hasText = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .some((c) => c.kind === 'text')
+        // 4. export 2s and verify the file with ffprobe
+        st().setMarkIn(0.5)
+        st().setMarkOut(2.5)
+        st().setExportSettings({ format: 'mp4', height: 720, fps: 30, quality: 70 })
+        const done = new Promise<boolean>((resolve) => {
+          void import('@tauri-apps/api/event').then(({ listen }) => {
+            void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+              (un) => setTimeout(un, 120000),
+            )
+          })
+        })
+        const { runExport } = await import('../compositor/exportRunner')
+        await runExport('/tmp/smoke.mp4')
+        const exportOk = await done
+        const probe = await invoke<{ duration: number; hasAudio: boolean }>('probe_media', {
+          path: '/tmp/smoke.mp4',
+        })
+        const durOk = Math.abs(probe.duration - 2.0) < 0.2
+        const pass =
+          placed >= 2 && advanced && fpsLive && hasText && exportOk && durOk
+        void report(
+          pass,
+          `placed=${placed} advanced=${advanced} fpsLive=${fpsLive} hasText=${hasText} exportOk=${exportOk} exportDur=${probe.duration.toFixed(2)}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
       }
       break
     }

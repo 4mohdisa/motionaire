@@ -445,10 +445,43 @@ mod tests {
     }
 
     #[test]
+    fn volume_expr_sorts_unsorted_points() {
+        // Callers pass keyframes in storage order; the expr must be built in
+        // time order or every window boundary is wrong.
+        let a = volume_expr(1.0, &[(2.0, 0.0), (0.0, 1.0)]);
+        let b = volume_expr(1.0, &[(0.0, 1.0), (2.0, 0.0)]);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn multi_clip_graph_indexing_and_delay() {
+        let mk = |start: f64| AudioClipSpec {
+            path: "x.wav".into(),
+            in_: 0.0,
+            out: 1.0,
+            speed: 1.0,
+            start,
+            volume: 1.0,
+            volume_points: vec![],
+            pan: 0.0,
+        };
+        let g = build_audio_graph(&[mk(0.0), mk(2.5)], 1.0);
+        // Input 0 is the rawvideo pipe: audio inputs are 1-based.
+        assert!(g.contains("[1:a]"), "{g}");
+        assert!(g.contains("[2:a]"), "{g}");
+        assert!(g.contains("adelay=2500|2500"), "{g}");
+        assert!(g.contains("amix=inputs=2:normalize=0"), "{g}");
+    }
+
+    #[test]
     fn atempo_chains() {
         assert_eq!(atempo_chain(1.5), "atempo=1.500000");
         assert_eq!(atempo_chain(4.0), "atempo=2.0,atempo=2.000000");
         assert_eq!(atempo_chain(0.25), "atempo=0.5,atempo=0.500000");
+        // Boundaries: exactly 2.0 needs no chain; absurd speeds clamp.
+        assert_eq!(atempo_chain(2.0), "atempo=2.000000");
+        assert!(atempo_chain(0.001).starts_with("atempo=0.5")); // clamped at 0.0625
+        assert!(!atempo_chain(100.0).contains("atempo=6")); // clamped at 16
     }
 }
 

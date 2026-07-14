@@ -144,4 +144,60 @@ mod tests {
         // No keyframes → static value.
         assert_eq!(resolve(&[], "transform.scale", 0.7, 0.5), 0.7);
     }
+
+    // Drift alarm for the TS mirror (engine/keyframes.ts): the two easing
+    // tables must stay formula-identical. The e2e parity probe compares live
+    // resolution; this pins the raw curves so a unit run catches it first.
+    #[test]
+    fn easing_table_matches_ts_mirror() {
+        let curve = |ease: &str, x: f64| {
+            let kfs = vec![
+                Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: ease.into() },
+                Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "linear".into() },
+            ];
+            resolve(&kfs, "v", 0.0, x)
+        };
+        assert!((curve("linear", 0.5) - 0.5).abs() < 1e-12);
+        assert!((curve("easeIn", 0.5) - 0.125).abs() < 1e-12); // t³
+        assert!((curve("easeOut", 0.5) - 0.875).abs() < 1e-12); // 1-(1-t)³
+        assert!((curve("easeInOut", 0.25) - 0.0625).abs() < 1e-12); // 4t³ below ½
+        // spring: damped cosine approximation, 1 - e^{-6t}·cos(12t)
+        let s = curve("spring", 0.5);
+        let expect = 1.0 - (-3.0f64).exp() * (6.0f64).cos();
+        assert!((s - expect).abs() < 1e-9, "spring(0.5) = {s}, want {expect}");
+    }
+
+    #[test]
+    fn left_keyframe_easing_wins() {
+        let kfs = vec![
+            Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: "linear".into() },
+            Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "easeIn".into() }, // must be ignored
+        ];
+        assert!((resolve(&kfs, "v", 0.0, 0.5) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn resolve_layer_covers_effect_scalars() {
+        let layer: Layer = serde_json::from_str(
+            r##"{
+              "id":"c1","z":0,"mediaPath":"/x.mp4","start":0,"in":0,"out":10,"speed":1,
+              "transform":{"x":0,"y":0,"scale":1,"rotation":0,"opacity":1,"cornerRadius":0},
+              "keyframes":[
+                {"prop":"blur","t":0,"v":0,"ease":"linear"},
+                {"prop":"blur","t":2,"v":8,"ease":"linear"},
+                {"prop":"mask.x","t":0,"v":-100,"ease":"linear"},
+                {"prop":"mask.x","t":2,"v":100,"ease":"linear"}
+              ],
+              "mask":{"kind":"ellipse","x":0,"y":0,"w":400,"h":300,"feather":20,"invert":false},
+              "blur":0,"vignette":0.4
+            }"##,
+        )
+        .unwrap();
+        let mid = resolve_layer(&layer, 1.0);
+        assert!((mid.blur - 4.0).abs() < 1e-9, "blur mid {}", mid.blur);
+        assert!((mid.vignette - 0.4).abs() < 1e-9); // static, no keyframes
+        assert!((mid.mask_x - 0.0).abs() < 1e-9, "mask.x mid {}", mid.mask_x);
+        assert!((mid.mask_w - 400.0).abs() < 1e-9);
+        assert!(mid.mask_ellipse);
+    }
 }

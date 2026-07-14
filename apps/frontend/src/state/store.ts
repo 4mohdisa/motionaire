@@ -1691,7 +1691,7 @@ export const useStore = create<StoreState>()(
 )
 
 // Dev-only handle so scripted browser tests can drive the real store.
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && typeof window !== 'undefined') {
   const w = window as unknown as { __motionaire?: Record<string, unknown> }
   w.__motionaire = { ...w.__motionaire, store: useStore }
 }
