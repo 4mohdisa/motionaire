@@ -181,6 +181,10 @@ function TextOverlay({ clip, t }: { clip: Clip; t: number }) {
   const opacity = resolveProp(clip, 'transform.opacity', rel)
   const st = clip.text
   if (!st) return null
+  // Gradient uses the background-clip:text trick, which collides with a real
+  // background box — when both are set the DOM shows the solid color and the
+  // compositor raster (the authority) shows the true result.
+  const domGradient = st.gradient && !st.background
   return (
     <div
       className="preview__text"
@@ -190,11 +194,19 @@ function TextOverlay({ clip, t }: { clip: Clip; t: number }) {
         fontFamily: `${st.font}, system-ui, sans-serif`,
         fontSize: st.size,
         fontWeight: st.weight,
-        color: st.color,
+        color: domGradient ? 'transparent' : st.color,
         textAlign: st.align,
         maxWidth: st.maxWidth,
+        letterSpacing: st.letterSpacing ?? 0,
+        lineHeight: st.lineHeight ?? 1.4,
+        textShadow: st.shadow
+          ? `${st.shadow.x}px ${st.shadow.y}px ${st.shadow.blur}px ${st.shadow.color}`
+          : undefined,
         WebkitTextStroke: st.stroke ? `${st.stroke.width}px ${st.stroke.color}` : undefined,
-        background: st.background?.color,
+        background: domGradient
+          ? `linear-gradient(${st.gradient!.from}, ${st.gradient!.to})`
+          : st.background?.color,
+        WebkitBackgroundClip: domGradient ? 'text' : undefined,
         padding: st.background?.padding,
         borderRadius: st.background?.radius,
       }}

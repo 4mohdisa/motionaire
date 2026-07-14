@@ -64,6 +64,7 @@ export function serializeProject(p: Project): string {
 
 export async function saveProject(saveAs = false): Promise<boolean> {
   const s = useStore.getState()
+  const wasUntitled = !s.projectPath
   let path = s.projectPath
   if (!path || saveAs) {
     const picked = await save({
@@ -83,6 +84,8 @@ export async function saveProject(saveAs = false): Promise<boolean> {
     await persistFonts(path)
     useStore.getState().setProjectPath(path)
     useStore.getState().markSaved()
+    // The project has a bundle now; its untitled crash copy is stale.
+    if (wasUntitled) void invoke('clear_untitled_recovery').catch(() => {})
     return true
   } catch (e) {
     await message(`Couldn't save project:\n${e}`, { title: 'Save failed', kind: 'error' })

@@ -26,6 +26,8 @@ export function rasterizeText(st: TextStyle): { b64: string; w: number; h: numbe
   if (!ctx) return null
   const font = `${st.weight} ${st.size * SS}px ${st.font}, system-ui, sans-serif`
   ctx.font = font
+  // letterSpacing affects measureText too — set before any measuring.
+  ctx.letterSpacing = `${(st.letterSpacing ?? 0) * SS}px`
   const maxW = Math.max(8, st.maxWidth * SS)
   const lines: string[] = []
   for (const para of st.content.split('\n')) {
@@ -44,14 +46,19 @@ export function rasterizeText(st: TextStyle): { b64: string; w: number; h: numbe
   if (!lines.some((l) => l.length)) return null
 
   const pad = (st.background?.padding ?? 0) * SS
-  const lineH = st.size * 1.4 * SS
-  const strokePad = (st.stroke?.width ?? 0) * SS
+  const lineH = st.size * (st.lineHeight ?? 1.4) * SS
+  // Margin absorbs everything that paints outside the glyph box: stroke
+  // overshoot and the drop shadow's blur + offset.
+  const sh = st.shadow
+  const shadowPad = sh ? (sh.blur + Math.max(Math.abs(sh.x), Math.abs(sh.y))) * SS : 0
+  const margin = (st.stroke?.width ?? 0) * SS + shadowPad
   const textW = Math.min(Math.max(...lines.map((l) => ctx.measureText(l).width)), maxW)
-  const w = Math.ceil(textW + pad * 2 + strokePad * 2)
-  const h = Math.ceil(lines.length * lineH + pad * 2 + strokePad * 2)
+  const w = Math.ceil(textW + pad * 2 + margin * 2)
+  const h = Math.ceil(lines.length * lineH + pad * 2 + margin * 2)
   canvas.width = w
   canvas.height = h
   ctx.font = font // canvas resize resets state
+  ctx.letterSpacing = `${(st.letterSpacing ?? 0) * SS}px`
   ctx.textBaseline = 'middle'
 
   if (st.background) {
@@ -60,24 +67,42 @@ export function rasterizeText(st: TextStyle): { b64: string; w: number; h: numbe
     ctx.roundRect(0, 0, w, h, st.background.radius * SS)
     ctx.fill()
   }
+  // Vertical gradient spans the whole text block, not each line.
+  let fill: string | CanvasGradient = st.color
+  if (st.gradient) {
+    const g = ctx.createLinearGradient(0, pad + margin, 0, pad + margin + lines.length * lineH)
+    g.addColorStop(0, st.gradient.from)
+    g.addColorStop(1, st.gradient.to)
+    fill = g
+  }
   lines.forEach((line, i) => {
     if (!line) return
     const lw = ctx.measureText(line).width
     const x =
       st.align === 'left'
-        ? pad + strokePad
+        ? pad + margin
         : st.align === 'right'
-          ? w - pad - strokePad - lw
+          ? w - pad - margin - lw
           : (w - lw) / 2
-    const y = pad + strokePad + (i + 0.5) * lineH
+    const y = pad + margin + (i + 0.5) * lineH
+    // Shadow rides the first paint op only (stroke silhouettes if present);
+    // shadowing both passes would double-darken.
+    if (sh) {
+      ctx.shadowColor = sh.color
+      ctx.shadowBlur = sh.blur * SS
+      ctx.shadowOffsetX = sh.x * SS
+      ctx.shadowOffsetY = sh.y * SS
+    }
     if (st.stroke && st.stroke.width > 0) {
       ctx.strokeStyle = st.stroke.color
       ctx.lineWidth = st.stroke.width * 2 * SS
       ctx.lineJoin = 'round'
       ctx.strokeText(line, x, y)
+      ctx.shadowColor = 'transparent'
     }
-    ctx.fillStyle = st.color
+    ctx.fillStyle = fill
     ctx.fillText(line, x, y)
+    ctx.shadowColor = 'transparent'
   })
   const b64 = canvas.toDataURL('image/png').split(',')[1]
   return b64 ? { b64, w, h } : null

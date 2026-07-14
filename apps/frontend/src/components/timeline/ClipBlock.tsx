@@ -78,7 +78,10 @@ function ClipBlock({ clip, trackId }: Props) {
     let lanes: LaneRect[] = []
     let snapTargets: number[] = []
     // Multi-select drag: all selected clips move together, offsets preserved.
-    let group: { id: string; start: number }[] | null = null
+    // Since the foundation session the drag is 2D: vertical movement shifts
+    // every member by the same DISPLAY-lane delta (all-or-nothing).
+    let group: { id: string; start: number; trackId: string; laneIdx: number }[] | null = null
+    let anchorLaneIdx = -1
     const startX = e.clientX
 
     const begin = () => {
@@ -88,10 +91,18 @@ function ClipBlock({ clip, trackId }: Props) {
       const p = useStore.getState().project
       const sel = useStore.getState().selection
       if (mode === 'move' && sel.length > 1 && sel.includes(clip.id)) {
-        group = p.tracks
-          .flatMap((t) => t.clips)
-          .filter((c) => sel.includes(c.id))
-          .map((c) => ({ id: c.id, start: c.start }))
+        const laneIdxByTrack = new Map(lanes.map((l, i) => [l.trackId, i]))
+        group = []
+        for (const t of p.tracks)
+          for (const c of t.clips)
+            if (sel.includes(c.id))
+              group.push({
+                id: c.id,
+                start: c.start,
+                trackId: t.id,
+                laneIdx: laneIdxByTrack.get(t.id) ?? -1,
+              })
+        anchorLaneIdx = laneIdxByTrack.get(trackId) ?? -1
       }
       const moving = new Set(group ? group.map((g) => g.id) : [clip.id])
       snapTargets = [0, useStore.getState().playhead]
@@ -116,15 +127,34 @@ function ClipBlock({ clip, trackId }: Props) {
           else if (snappedEnd !== desired + dur) desired = snappedEnd - dur
         }
         if (group) {
-          // ponytail: group drag is horizontal-only; cross-track group moves
-          // when a real need shows up.
           const anchor = group.find((g) => g.id === clip.id)!
           const delta = Math.max(
             desired - anchor.start,
             -Math.min(...group.map((g) => g.start)),
           )
+          // Vertical: shift all members by the pointer's display-lane delta;
+          // any invalid target (edge, kind mismatch via lane kind) keeps the
+          // whole move horizontal for this frame (store re-validates anyway).
+          const pointerLane = lanes.findIndex(
+            (l) => ev.clientY >= l.top && ev.clientY <= l.bottom,
+          )
+          let laneDelta = pointerLane >= 0 && anchorLaneIdx >= 0 ? pointerLane - anchorLaneIdx : 0
+          if (laneDelta !== 0) {
+            for (const g of group) {
+              const target = lanes[g.laneIdx + laneDelta]
+              const own = lanes[g.laneIdx]
+              if (g.laneIdx < 0 || !target || !own || target.kind !== own.kind) {
+                laneDelta = 0
+                break
+              }
+            }
+          }
           s.moveClipsTo(
-            group.map((g) => ({ id: g.id, start: g.start + delta })),
+            group.map((g) => ({
+              id: g.id,
+              start: g.start + delta,
+              trackId: laneDelta !== 0 ? lanes[g.laneIdx + laneDelta].trackId : g.trackId,
+            })),
             true,
           )
         } else {

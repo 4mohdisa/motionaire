@@ -55,6 +55,11 @@ export interface TextStyle {
   stroke: { color: string; width: number } | null
   background: { color: string; padding: number; radius: number } | null
   maxWidth: number
+  // Text polish (foundation, Phase 8) — all optional so old projects load.
+  letterSpacing?: number // px at 1x
+  lineHeight?: number // multiplier; default 1.4
+  shadow?: { color: string; blur: number; x: number; y: number } | null
+  gradient?: { from: string; to: string } | null // vertical fill gradient
 }
 
 export type TextAnimationPreset = 'fade' | 'fadeUp' | 'popIn' | 'slideLeft' | 'none'

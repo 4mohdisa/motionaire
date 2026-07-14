@@ -130,9 +130,13 @@ export interface StoreState {
 
   // --- clip editing ---
   moveClip: (clipId: string, start: number, trackId?: string, transient?: boolean) => void
-  // Group drag: set several clips' starts atomically; the whole move is
-  // rejected if any clip would overlap a clip outside the group.
-  moveClipsTo: (entries: { id: string; start: number }[], transient?: boolean) => void
+  // Group drag: set several clips' starts (and optionally tracks) atomically;
+  // the whole move is rejected if any clip would overlap a clip outside the
+  // group, land on a locked/missing track, or cross kinds.
+  moveClipsTo: (
+    entries: { id: string; start: number; trackId?: string }[],
+    transient?: boolean,
+  ) => void
   trimClip: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
   splitClip: (clipId: string, at: number) => void
   splitAtPlayhead: () => void
@@ -155,6 +159,9 @@ export interface StoreState {
   addTextClip: (content?: string) => void
   addAdjustmentLayer: () => void
   addShapeClip: (kind: 'rect' | 'ellipse' | 'line') => void
+  // Title templates (foundation, Phase 8): composed from existing text/shape
+  // primitives — no new render paths.
+  addTitleTemplate: (kind: 'lowerThird' | 'centered' | 'caption') => void
   updateClipFx: (
     clipId: string,
     patch: {
@@ -636,26 +643,43 @@ export const useStore = create<StoreState>()(
         mutateProject(
           (p) => {
             const ids = new Set(entries.map((e) => e.id))
-            const moves: { clip: Clip; track: Track; start: number }[] = []
-            const newStart = new Map<string, number>()
+            const moves: { clip: Clip; from: Track; to: Track; start: number }[] = []
             for (const e of entries) {
               const found = findClip(p, e.id)
               if (!found || found.track.locked) return
-              const s = snapToFrame(Math.max(0, e.start), p.canvas.fps)
-              moves.push({ clip: found.clip, track: found.track, start: s })
-              newStart.set(e.id, s)
+              const to = e.trackId ? p.tracks.find((t) => t.id === e.trackId) : found.track
+              if (!to || to.locked) return
+              const kind = found.clip.kind === 'audio' ? 'audio' : 'video'
+              if (to.kind !== kind) return
+              moves.push({
+                clip: found.clip,
+                from: found.track,
+                to,
+                start: snapToFrame(Math.max(0, e.start), p.canvas.fps),
+              })
             }
-            // All-or-nothing: any collision with a clip outside the group (or a
-            // scrambled in-group pair on the same track) rejects the whole move.
+            // All-or-nothing: collisions are checked on each clip's TARGET
+            // track against outsiders + group members landing there too.
             for (const m of moves) {
               const end = m.start + clipDuration(m.clip)
-              for (const c of m.track.clips) {
-                if (c.id === m.clip.id) continue
-                const cs = ids.has(c.id) ? newStart.get(c.id)! : c.start
-                if (m.start < cs + clipDuration(c) - 1e-6 && end > cs + 1e-6) return
+              const occupants = [
+                ...m.to.clips
+                  .filter((c) => !ids.has(c.id))
+                  .map((c) => ({ s: c.start, e: clipEnd(c) })),
+                ...moves
+                  .filter((o) => o.clip.id !== m.clip.id && o.to.id === m.to.id)
+                  .map((o) => ({ s: o.start, e: o.start + clipDuration(o.clip) })),
+              ]
+              if (occupants.some((o) => m.start < o.e - 1e-6 && end > o.s + 1e-6)) return
+            }
+            for (const m of moves) {
+              m.clip.start = m.start
+              if (m.to.id !== m.from.id) {
+                const i = m.from.clips.indexOf(m.clip)
+                if (i >= 0) m.from.clips.splice(i, 1)
+                m.to.clips.push(m.clip)
               }
             }
-            for (const m of moves) m.clip.start = m.start
           },
           { history: transient ? false : true },
         ),
@@ -1077,6 +1101,130 @@ export const useStore = create<StoreState>()(
             transitions: { in: null, out: null },
             effects: [],
           })
+        }),
+
+      addTitleTemplate: (kind) =>
+        mutateProject((p) => {
+          const fps = p.canvas.fps
+          const W = p.canvas.width
+          const H = p.canvas.height
+          const start = snapToFrame(useStore.getState().playhead, fps)
+          const duration = 4
+          const free = (t: Track) =>
+            !t.clips.some((c) => start < clipEnd(c) && start + duration > c.start)
+          const newTop = (): Track => {
+            const vids = p.tracks.filter((t) => t.kind === 'video')
+            const track: Track = {
+              id: uid('t'),
+              kind: 'video',
+              z: Math.max(...vids.map((t) => t.z)) + 1,
+              name: `V${vids.length + 1}`,
+              clips: [],
+            }
+            p.tracks.unshift(track)
+            return track
+          }
+          const vids = () => p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)
+          if (!vids().length) return
+
+          const baseClip = () => ({
+            id: uid('c'),
+            start,
+            in: 0,
+            out: duration,
+            speed: 1,
+            volume: 0,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null as Transition | null, out: null as Transition | null },
+            effects: [],
+          })
+          const baseText = {
+            font: 'Inter',
+            weight: 700,
+            color: '#FFFFFF',
+            stroke: null,
+            background: null,
+            maxWidth: Math.round(W * 0.8),
+          }
+
+          if (kind === 'lowerThird') {
+            // Accent bar + two-line name block, anchored lower-left. The bar
+            // and text overlap in time, so they need separate tracks.
+            const barTrack = free(vids()[0]) ? vids()[0] : newTop()
+            const bar: Clip = {
+              ...baseClip(),
+              kind: 'video',
+              shape: {
+                kind: 'rect',
+                fill: '#1f6feb',
+                stroke: null,
+                strokeWidth: 0,
+                width: Math.round(W * 0.34),
+                height: Math.round(H * 0.115),
+              },
+            }
+            bar.transform.x = Math.round(-W * 0.24)
+            bar.transform.y = Math.round(H * 0.3)
+            barTrack.clips.push(bar)
+            const textTrack = vids().find((t) => t.z > barTrack.z && free(t)) ?? newTop()
+            const text: Clip = {
+              ...baseClip(),
+              kind: 'text',
+              text: {
+                ...baseText,
+                content: 'Name Here\nTitle or role',
+                size: Math.round(H * 0.037),
+                align: 'left',
+                lineHeight: 1.25,
+                maxWidth: Math.round(W * 0.3),
+              },
+              animation: { in: 'slideLeft', out: 'fade', duration: 0.3 },
+            }
+            text.transform.x = bar.transform.x
+            text.transform.y = bar.transform.y
+            expandTextAnimation(text)
+            textTrack.clips.push(text)
+          } else if (kind === 'centered') {
+            const track = free(vids()[0]) ? vids()[0] : newTop()
+            const text: Clip = {
+              ...baseClip(),
+              kind: 'text',
+              text: {
+                ...baseText,
+                content: 'Title',
+                size: Math.round(H * 0.09),
+                weight: 800,
+                align: 'center',
+                letterSpacing: 1,
+                shadow: { color: '#000000', blur: 12, x: 0, y: 4 },
+              },
+              animation: { in: 'popIn', out: 'fade', duration: 0.35 },
+            }
+            expandTextAnimation(text)
+            track.clips.push(text)
+          } else {
+            // Caption bar: single text clip with a padded background box,
+            // parked in the lower quarter.
+            const track = free(vids()[0]) ? vids()[0] : newTop()
+            const text: Clip = {
+              ...baseClip(),
+              kind: 'text',
+              text: {
+                ...baseText,
+                content: 'Caption text',
+                size: Math.round(H * 0.033),
+                weight: 600,
+                align: 'center',
+                background: { color: '#000000', padding: 14, radius: 8 },
+              },
+              animation: { in: 'fade', out: 'fade', duration: 0.25 },
+            }
+            text.transform.y = Math.round(H * 0.38)
+            text.transform.opacity = 0.95
+            expandTextAnimation(text)
+            track.clips.push(text)
+          }
         }),
 
       // Effects (foundation, Phase 4): structured patches; scalar params go

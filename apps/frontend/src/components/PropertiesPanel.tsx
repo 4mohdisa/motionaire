@@ -426,6 +426,127 @@ function TextEditor({ clip }: { clip: Clip }) {
           ))}
         </div>
       </div>
+      <div className="prow">
+        <span className="prow__label">Spacing</span>
+        <input
+          className="prow__input"
+          type="number"
+          step={0.5}
+          min={-10}
+          max={50}
+          value={st.letterSpacing ?? 0}
+          title="Letter spacing (px)"
+          onChange={(e) =>
+            updateTextClip(clip.id, { style: { letterSpacing: Number(e.target.value) || 0 } })
+          }
+        />
+        <input
+          className="prow__input"
+          type="number"
+          step={0.1}
+          min={0.8}
+          max={3}
+          value={st.lineHeight ?? 1.4}
+          title="Line height (multiplier)"
+          onChange={(e) =>
+            updateTextClip(clip.id, { style: { lineHeight: Number(e.target.value) || 1.4 } })
+          }
+        />
+      </div>
+      <div className="prow">
+        <span className="prow__label">
+          <label className="prow__toggle">
+            <input
+              type="checkbox"
+              checked={!!st.shadow}
+              onChange={(e) =>
+                updateTextClip(clip.id, {
+                  style: {
+                    shadow: e.target.checked ? { color: '#000000', blur: 8, x: 0, y: 2 } : null,
+                  },
+                })
+              }
+            />
+            Shadow
+          </label>
+        </span>
+        {st.shadow && (
+          <>
+            <input
+              className="prow__color"
+              type="color"
+              value={st.shadow.color}
+              onChange={(e) =>
+                updateTextClip(clip.id, { style: { shadow: { ...st.shadow!, color: e.target.value } } })
+              }
+            />
+            <input
+              className="prow__input"
+              type="number"
+              min={0}
+              max={64}
+              value={st.shadow.blur}
+              title="Blur"
+              onChange={(e) =>
+                updateTextClip(clip.id, {
+                  style: { shadow: { ...st.shadow!, blur: Number(e.target.value) || 0 } },
+                })
+              }
+            />
+            <input
+              className="prow__input"
+              type="number"
+              min={-64}
+              max={64}
+              value={st.shadow.y}
+              title="Offset Y"
+              onChange={(e) =>
+                updateTextClip(clip.id, {
+                  style: { shadow: { ...st.shadow!, y: Number(e.target.value) || 0 } },
+                })
+              }
+            />
+          </>
+        )}
+      </div>
+      <div className="prow">
+        <span className="prow__label">
+          <label className="prow__toggle">
+            <input
+              type="checkbox"
+              checked={!!st.gradient}
+              onChange={(e) =>
+                updateTextClip(clip.id, {
+                  style: { gradient: e.target.checked ? { from: st.color, to: '#888888' } : null },
+                })
+              }
+            />
+            Gradient
+          </label>
+        </span>
+        {st.gradient && (
+          <>
+            <input
+              className="prow__color"
+              type="color"
+              value={st.gradient.from}
+              title="Top color"
+              onChange={(e) =>
+                updateTextClip(clip.id, { style: { gradient: { ...st.gradient!, from: e.target.value } } })
+              }
+            />
+            <input
+              className="prow__color"
+              type="color"
+              value={st.gradient.to}
+              title="Bottom color"
+              onChange={(e) =>
+                updateTextClip(clip.id, { style: { gradient: { ...st.gradient!, to: e.target.value } } })
+              }
+            />
+          </>
+        )}
+      </div>
     </>
   )
 }

@@ -368,6 +368,29 @@ fn save_recovery(bundle_path: String, project_json: String) -> Result<(), String
     persistence::save_recovery(std::path::Path::new(&bundle_path), &project_json)
 }
 
+// Untitled-project autosave (foundation, Phase 8): unsaved projects get a
+// crash-recovery home in app_data/untitled/. Unlike bundle recovery there is
+// no project.json to compare against — existence IS the signal.
+fn untitled_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("untitled"))
+}
+
+#[tauri::command]
+fn save_untitled_recovery(app: tauri::AppHandle, project_json: String) -> Result<(), String> {
+    persistence::save_recovery(&untitled_dir(&app)?, &project_json)
+}
+
+#[tauri::command]
+fn check_untitled_recovery(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(std::fs::read_to_string(untitled_dir(&app)?.join("recovery.json")).ok())
+}
+
+#[tauri::command]
+fn clear_untitled_recovery(app: tauri::AppHandle) -> Result<(), String> {
+    persistence::clear_recovery(&untitled_dir(&app)?);
+    Ok(())
+}
+
 // macOS titlebar "edited" dot — the standard unsaved-changes convention.
 // (No tauri v2 API for NSWindow.documentEdited; one objc2 message, on the
 // main thread as AppKit requires.)
@@ -742,6 +765,9 @@ pub fn run() {
             request_proxy,
             spike_4k,
             save_recovery,
+            save_untitled_recovery,
+            check_untitled_recovery,
+            clear_untitled_recovery,
             set_edited,
             start_export,
             cancel_export,

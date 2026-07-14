@@ -149,12 +149,36 @@ export function Launcher() {
   const [name, setName] = useState('Untitled')
   const [preset, setPreset] = useState(CANVAS_CHOICES[0])
   const [fps, setFps] = useState(30)
+  // Untitled-project crash recovery (foundation, Phase 8).
+  const [recovery, setRecovery] = useState<string | null>(null)
 
   useEffect(() => {
     void invoke<RecentProject[]>('list_recent_projects')
       .then(setRecents)
       .catch(() => setRecents([]))
+    void invoke<string | null>('check_untitled_recovery')
+      .then(setRecovery)
+      .catch(() => {})
   }, [])
+
+  const restoreUntitled = () => {
+    if (!recovery) return
+    try {
+      const p = JSON.parse(recovery) as Project
+      for (const m of p.media) if (m.path.startsWith('/')) m.playbackUrl = convertFileSrc(m.path)
+      useStore.getState().replaceProject(p, null)
+      // Still unsaved: dirty keeps the close guard and untitled autosave live.
+      useStore.getState().markDirty()
+      useStore.getState().setAppView('editor')
+    } catch {
+      useStore.getState().pushToast('error', 'Recovered project data was unreadable')
+      discardUntitled()
+    }
+  }
+  const discardUntitled = () => {
+    setRecovery(null)
+    void invoke('clear_untitled_recovery').catch(() => {})
+  }
 
   const create = async () => {
     // The native save dialog is both the location picker and the final name
@@ -195,6 +219,20 @@ export function Launcher() {
           </button>
         </div>
       </header>
+
+      {recovery && (
+        <div className="launcher__recovery">
+          <span>An unsaved project from your last session was recovered.</span>
+          <div className="shell__row">
+            <button className="shell__primary" onClick={restoreUntitled}>
+              Restore
+            </button>
+            <button className="shell__secondary" onClick={discardUntitled}>
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
 
       {creating && (
         <div className="modal" onClick={() => setCreating(false)}>

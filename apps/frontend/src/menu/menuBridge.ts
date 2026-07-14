@@ -31,6 +31,9 @@ async function dispatch(action: string, path?: string) {
     case 'file:new': {
       const { guardDirty } = await import('../hooks/unsaved')
       if (!(await guardDirty())) break
+      // Passing the guard on an untitled project abandons it deliberately —
+      // drop its crash copy so the launcher stops offering it.
+      if (!s.projectPath) void invoke('clear_untitled_recovery').catch(() => {})
       s.replaceProject(createProject(), null)
       break
     }
@@ -55,6 +58,7 @@ async function dispatch(action: string, path?: string) {
     case 'file:close': {
       const { guardDirty } = await import('../hooks/unsaved')
       if (!(await guardDirty())) break
+      if (!s.projectPath) void invoke('clear_untitled_recovery').catch(() => {})
       // Back to the launcher; the editor is a full-window view it replaces.
       s.pause()
       s.replaceProject(createProject(), null)
@@ -1451,6 +1455,192 @@ async function dispatch(action: string, path?: string) {
         )
       } catch (e) {
         void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:f8_demo': {
+      // Visual evidence scene: all three title templates over the pip demo,
+      // centered title dogfooding the Phase 8 gradient + shadow.
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      await loadPipDemo()
+      await wait(300)
+      const st = () => useStore.getState()
+      st().pause()
+      st().setPlayhead(1)
+      st().addTitleTemplate('lowerThird')
+      st().addTitleTemplate('caption')
+      st().setPlayhead(2)
+      st().addTitleTemplate('centered')
+      const cen = st()
+        .project.tracks.flatMap((t) => t.clips)
+        .find((c) => c.text?.content === 'Title')
+      if (cen)
+        st().updateTextClip(cen.id, {
+          style: { gradient: { from: '#ffd75e', to: '#ff5e8a' } },
+        })
+      st().setPlayhead(2.2)
+      break
+    }
+    case 'dev:f8_recovery': {
+      // Simulate a crash-orphaned untitled project so the launcher banner can
+      // be captured after a reload.
+      await invoke('save_untitled_recovery', {
+        projectJson: JSON.stringify(createProject()),
+      })
+      break
+    }
+    case 'dev:f8_restore_click': {
+      // Real click on the launcher banner's Restore: must land in the editor,
+      // dirty, still path-less (so autosave + close guard keep protecting it).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f8-restore', pass, detail }).catch(() => {})
+      const btn = document.querySelector<HTMLButtonElement>(
+        '.launcher__recovery .shell__primary',
+      )
+      if (!btn) {
+        void report(false, 'no banner button in DOM')
+        break
+      }
+      btn.click()
+      await new Promise((r) => setTimeout(r, 300))
+      const s2 = useStore.getState()
+      void report(
+        s2.appView === 'editor' && s2.dirty && !s2.projectPath,
+        `view=${s2.appView} dirty=${s2.dirty} path=${String(s2.projectPath)}`,
+      )
+      break
+    }
+    case 'dev:f8_recovery_clear': {
+      await invoke('clear_untitled_recovery')
+      break
+    }
+    case 'dev:f8_test': {
+      // Foundation Phase 8: vertical group move (atomic, all-or-nothing),
+      // untitled-recovery round-trip, title templates, text-polish raster.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f8-cleanup', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const p = () => st().project
+        const topVid = () =>
+          p().tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)[0]
+
+        // -- vertical group move --
+        st().setPlayhead(20)
+        st().addTextClip('one')
+        st().setPlayhead(24)
+        st().addTextClip('two')
+        const srcTrack = topVid()
+        const [t1, t2] = srcTrack.clips.filter((c) => c.kind === 'text').map((c) => c.id)
+        st().addTrack('video')
+        const dstTrack = topVid() // new track lands on top
+        st().moveClipsTo([
+          { id: t1, start: 20, trackId: dstTrack.id },
+          { id: t2, start: 24, trackId: dstTrack.id },
+        ])
+        const onDst = p().tracks.find((t) => t.id === dstTrack.id)!.clips.map((c) => c.id)
+        const movedBoth = onDst.includes(t1) && onDst.includes(t2)
+        // collision on target must reject the WHOLE move. setPlayhead clamps
+        // to project duration, so locate the blocker where it actually landed
+        // instead of assuming.
+        st().setPlayhead(40)
+        st().addTextClip('blocker')
+        const blocker = p()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.text?.content === 'blocker')!
+        const bTrackId = p().tracks.find((t) => t.clips.some((c) => c.id === blocker.id))!.id
+        st().moveClipsTo([
+          { id: t1, start: blocker.start + 1, trackId: bTrackId }, // overlaps blocker
+          { id: t2, start: blocker.start + 100, trackId: bTrackId },
+        ])
+        const afterReject = p().tracks.find((t) => t.id === dstTrack.id)!.clips
+        const rejected =
+          afterReject.find((c) => c.id === t1)?.start === 20 &&
+          afterReject.find((c) => c.id === t2)?.start === 24
+        // kind mismatch must reject too
+        const audioTrack = p().tracks.find((t) => t.kind === 'audio')
+        let kindOk = true
+        if (audioTrack) {
+          st().moveClipsTo([{ id: t1, start: 60, trackId: audioTrack.id }])
+          kindOk = p().tracks.find((t) => t.id === dstTrack.id)!.clips.some((c) => c.id === t1)
+        }
+
+        // -- untitled recovery round-trip --
+        const json = JSON.stringify({ probe: 'f8' })
+        await invoke('save_untitled_recovery', { projectJson: JSON.stringify(p()) })
+        const got = await invoke<string | null>('check_untitled_recovery')
+        const recSaved = !!got && got.includes('"tracks"')
+        await invoke('clear_untitled_recovery')
+        const recCleared = (await invoke<string | null>('check_untitled_recovery')) === null
+        void json
+
+        // -- title templates -- (identify pieces by their fixed content, not
+        // by assumed start times: the playhead clamps to duration)
+        const count = () => p().tracks.reduce((n, t) => n + t.clips.length, 0)
+        st().setPlayhead(p().duration)
+        const before = count()
+        st().addTitleTemplate('lowerThird')
+        const ltText = p()
+          .tracks.flatMap((t) => t.clips.map((c) => ({ c, tid: t.id })))
+          .find(({ c }) => c.text?.content.startsWith('Name'))
+        const ltBar = p()
+          .tracks.flatMap((t) => t.clips.map((c) => ({ c, tid: t.id })))
+          .find(({ c }) => c.shape?.kind === 'rect' && c.shape.fill === '#1f6feb')
+        const lowerThird =
+          count() === before + 2 &&
+          !!ltText &&
+          !!ltBar &&
+          ltText.tid !== ltBar.tid &&
+          ltText.c.start === ltBar.c.start
+        st().setPlayhead(p().duration)
+        st().addTitleTemplate('centered')
+        const cen = p()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.text?.content === 'Title')
+        const centered = !!cen?.text?.shadow && (cen.text.letterSpacing ?? 0) > 0
+        st().setPlayhead(p().duration)
+        st().addTitleTemplate('caption')
+        const cap = p()
+          .tracks.flatMap((t) => t.clips)
+          .find((c) => c.text?.content === 'Caption text')
+        const caption = !!cap?.text?.background
+
+        // -- text polish raster: shadow pads the canvas, spacing widens it --
+        const { rasterizeText } = await import('../compositor/textRaster')
+        const base = {
+          content: 'Polish',
+          font: 'Inter',
+          size: 64,
+          weight: 700,
+          color: '#ffffff',
+          align: 'center' as const,
+          stroke: null,
+          background: null,
+          maxWidth: 1200,
+        }
+        const plain = rasterizeText(base)!
+        const shadowed = rasterizeText({
+          ...base,
+          shadow: { color: '#000000', blur: 10, x: 0, y: 4 },
+        })!
+        const spaced = rasterizeText({ ...base, letterSpacing: 10 })!
+        const grad = rasterizeText({ ...base, gradient: { from: '#ff0000', to: '#0000ff' } })
+        const rasterOk =
+          shadowed.w > plain.w && shadowed.h > plain.h && spaced.w > plain.w && !!grad
+
+        const pass =
+          movedBoth && rejected && kindOk && recSaved && recCleared &&
+          lowerThird && centered && caption && rasterOk
+        void report(
+          pass,
+          `movedBoth=${movedBoth} rejected=${rejected} kindOk=${kindOk} recSaved=${recSaved} recCleared=${recCleared} lowerThird=${lowerThird} centered=${centered} caption=${caption} rasterOk=${rasterOk}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
       }
       break
     }

@@ -238,6 +238,18 @@ function Timeline() {
           <DropdownItem label="Rectangle" onClick={() => useStore.getState().addShapeClip('rect')} />
           <DropdownItem label="Ellipse" onClick={() => useStore.getState().addShapeClip('ellipse')} />
           <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
+          <DropdownItem
+            label="Title: lower third"
+            onClick={() => useStore.getState().addTitleTemplate('lowerThird')}
+          />
+          <DropdownItem
+            label="Title: centered"
+            onClick={() => useStore.getState().addTitleTemplate('centered')}
+          />
+          <DropdownItem
+            label="Title: caption bar"
+            onClick={() => useStore.getState().addTitleTemplate('caption')}
+          />
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
         <button

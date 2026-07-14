@@ -1462,3 +1462,57 @@ through the (parity-locked) keyframe engine, so all of it keyframes.
   the auto-save; prefs JSON round-trips; ⌘/ keydown opens the sheet) +
   captures of the Settings dialog (driven via the real ⌘, menu event) and
   the cheat sheet.
+
+## Phase 8 — deferred cleanup
+
+- **Typewriter text preset: REMOVED, formally.** FOUNDATION.md demanded a
+  decision after five deferrals: build it as a real per-character renderer
+  or remove it. Removed. Rationale: the Phase 4 text contract is
+  "rasterize on change, never per frame" — a typewriter effect re-rasters
+  every frame by definition, which either breaks that contract or needs
+  compositor-side text rendering (glyph atlas in Rust). It was already
+  absent from TEXT_PRESETS/TextAnimationPreset, so removal = keeping it
+  out + this log entry. Revisit ONLY if/when text moves into the
+  compositor as real geometry; do not fake it with raster churn.
+- **Vertical group drag**: moveClipsTo entries accept an optional trackId;
+  the whole move is atomic — any locked/missing target, kind mismatch, or
+  collision (checked per TARGET track against outsiders + co-arriving
+  group members) rejects everything. ClipBlock computes one display-lane
+  delta from the pointer and applies it to every member; any invalid
+  target keeps that frame horizontal. Cross-kind selections work: each
+  member shifts within its own kind's lanes (kind re-checked per member).
+- **Untitled-project autosave**: unsaved projects now have a crash-recovery
+  home — app_data/untitled/recovery.json (existence IS the signal; no
+  project.json to mtime-compare against, unlike bundle recovery). App
+  timer branch saves it when dirty && !projectPath; the launcher shows a
+  Restore/Discard banner at boot. Restore lands in the editor dirty and
+  path-less so the guard + autosave keep protecting it (recovery file is
+  deliberately NOT cleared on restore — only a real save clears it).
+  Clearing points: first real save, file:new / file:close of an untitled
+  project after passing the dirty guard (deliberate abandonment), Discard.
+- **Text polish**: TextStyle grew letterSpacing, lineHeight, shadow
+  {color,blur,x,y}, gradient {from,to} — all optional so old projects
+  load. Raster: letterSpacing set before measuring (affects metrics),
+  shadow pads the canvas margin (blur + max offset), shadow rides the
+  first paint op only (stroke if present — shadowing both passes would
+  double-darken), gradient spans the whole text block vertically. DOM
+  overlay mirrors all four; gradient uses background-clip:text, which
+  collides with a real background box — when both are set the DOM shows
+  the solid color and the compositor raster (the authority) shows truth.
+- **Title templates** (Add menu): lower third (accent bar + two-line name
+  block on separate tracks — clips can't overlap on one track), centered
+  title (dogfoods shadow + letterSpacing), caption bar (dogfoods the
+  background box). Pure composition of existing text/shape/keyframe
+  primitives — zero new render paths. Sizes/positions derive from canvas
+  dimensions, not hardcoded 1080p pixels.
+- Break-testing: first f8 run FAILED (rejected/lowerThird/centered/caption
+  all false) — the test assumed absolute playhead positions, but
+  setPlayhead clamps to project duration, so every position past the pip
+  demo's end was fiction. Feature code was fine; the test now derives
+  positions from actual state. House rule: never assert on a playhead you
+  set — assert on where clips actually landed. Final: f8-cleanup PASS
+  (atomic move both ways, collision + kind rejection, recovery round-trip,
+  all three templates, raster padding/widening) + f8-restore PASS (real
+  DOM click on the banner → editor, dirty, path-less) + captures of the
+  three templates compositing over video and the launcher banner after a
+  simulated crash-restart.

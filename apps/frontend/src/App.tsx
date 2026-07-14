@@ -104,6 +104,13 @@ function App() {
           bundlePath: s.projectPath,
           projectJson: serializeProject(s.project),
         }).catch(() => {})
+      } else if (s.dirty && !s.projectPath && s.appView === 'editor') {
+        // Untitled projects (foundation, Phase 8): recovery lives in app data
+        // until the first real save gives it a bundle.
+        lastAutosave = Date.now()
+        void invoke('save_untitled_recovery', {
+          projectJson: serializeProject(s.project),
+        }).catch(() => {})
       }
     }, 5000)
     // Global export notifications (works even when the panel is closed —
