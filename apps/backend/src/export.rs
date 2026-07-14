@@ -61,6 +61,19 @@ pub struct AudioClipSpec {
     // Stereo balance -1..1 (foundation, Phase 3).
     #[serde(default)]
     pub pan: f64,
+    // Audio effect chain (pro-editor session, Phase 6): pre-built FFmpeg
+    // filter fragments (e.g. "acompressor=..."), applied IN ORDER after
+    // trim/tempo and before volume. The frontend builds these from the
+    // clip's effect stack via audio_fx_filter().
+    #[serde(default)]
+    pub fx: Vec<String>,
+    // Track id: clips group into per-track submixes so TRACK effects can
+    // apply to the summed track (Phase 6).
+    #[serde(default)]
+    pub track: String,
+    // Track-level effect chain (same fragments), applied to the submix.
+    #[serde(default)]
+    pub track_fx: Vec<String>,
 }
 
 pub struct ExportJob {
@@ -134,7 +147,7 @@ fn atempo_chain(speed: f64) -> String {
 
 fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
     let mut chains = Vec::new();
-    let mut outs = Vec::new();
+    let mut clip_tags: Vec<(String, String)> = Vec::new(); // (track, tag)
     for (i, c) in clips.iter().enumerate() {
         let input = i + 1; // input 0 is the rawvideo pipe
         let delay_ms = (c.start * 1000.0).round().max(0.0) as u64;
@@ -149,6 +162,12 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
             chain.push(',');
             chain.push_str(&atempo_chain(c.speed));
         }
+        // Clip effect chain (Phase 6): IN ORDER, pre-volume — matching the
+        // preview graph's element → fx → gain topology.
+        for f in &c.fx {
+            chain.push(',');
+            chain.push_str(f);
+        }
         chain.push_str(&format!(",volume=eval=frame:volume='{vol}'"));
         if c.pan.abs() > 1e-6 {
             // Simple balance law: attenuate the far channel.
@@ -160,18 +179,67 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
         let tag = format!("[a{i}]");
         chain.push_str(&tag);
         chains.push(chain);
-        outs.push(tag);
+        clip_tags.push((c.track.clone(), tag));
     }
+
+    // Per-track submix so TRACK effects hit the summed track (Phase 6).
+    // Track order follows first appearance; a track's fx come from the first
+    // clip carrying them (the frontend sends identical copies per clip).
+    let mut track_order: Vec<String> = Vec::new();
+    for (t, _) in &clip_tags {
+        if !track_order.contains(t) {
+            track_order.push(t.clone());
+        }
+    }
+    let mut track_tags = Vec::new();
+    for (ti, tid) in track_order.iter().enumerate() {
+        let members: Vec<&String> =
+            clip_tags.iter().filter(|(t, _)| t == tid).map(|(_, tag)| tag).collect();
+        let track_fx: &[String] = clips
+            .iter()
+            .find(|c| &c.track == tid && !c.track_fx.is_empty())
+            .map(|c| c.track_fx.as_slice())
+            .unwrap_or(&[]);
+        if members.len() == 1 && track_fx.is_empty() {
+            // No submix needed — the clip tag feeds the master mix directly.
+            track_tags.push(members[0].clone());
+            continue;
+        }
+        let ttag = format!("[t{ti}]");
+        let mut chain = format!(
+            "{}amix=inputs={}:normalize=0",
+            members.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(""),
+            members.len()
+        );
+        for f in track_fx {
+            chain.push(',');
+            chain.push_str(f);
+        }
+        chain.push_str(&ttag);
+        chains.push(chain);
+        track_tags.push(ttag);
+    }
+
     let master_tail = if (master - 1.0).abs() > 1e-6 {
         format!(",volume={master:.4}")
     } else {
         String::new()
     };
+    if track_tags.len() == 1 {
+        // Single source: amix of one input is legal but pointless; a null
+        // pass-through keeps [aout] labeled.
+        return format!(
+            "{};{}anull{}[aout]",
+            chains.join(";"),
+            track_tags[0],
+            master_tail
+        );
+    }
     format!(
         "{};{}amix=inputs={}:normalize=0{}[aout]",
         chains.join(";"),
-        outs.join(""),
-        clips.len(),
+        track_tags.join(""),
+        track_tags.len(),
         master_tail
     )
 }
@@ -421,11 +489,15 @@ mod tests {
             volume: 1.0,
             volume_points: vec![],
             pan: -0.5,
+            fx: vec![],
+            track: String::new(),
+            track_fx: vec![],
         }];
         let g = build_audio_graph(&clips, 0.8);
         assert!(g.contains("aformat=channel_layouts=stereo"), "{g}");
         assert!(g.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"), "{g}");
-        assert!(g.contains("normalize=0,volume=0.8000[aout]"), "{g}");
+        // Single source: null pass-through + master tail (Phase 6 restructure).
+        assert!(g.contains("anull,volume=0.8000[aout]"), "{g}");
         // pan 0 / master 1 → no pan node, no master tail
         let g2 = build_audio_graph(
             &[AudioClipSpec {
@@ -437,11 +509,14 @@ mod tests {
                 volume: 1.0,
                 volume_points: vec![],
                 pan: 0.0,
+            fx: vec![],
+            track: String::new(),
+            track_fx: vec![],
             }],
             1.0,
         );
         assert!(!g2.contains("pan=stereo|"), "{g2}");
-        assert!(g2.contains("normalize=0[aout]"), "{g2}");
+        assert!(g2.contains("anull[aout]"), "{g2}");
     }
 
     #[test]
@@ -464,6 +539,9 @@ mod tests {
             volume: 1.0,
             volume_points: vec![],
             pan: 0.0,
+            fx: vec![],
+            track: String::new(),
+            track_fx: vec![],
         };
         let g = build_audio_graph(&[mk(0.0), mk(2.5)], 1.0);
         // Input 0 is the rawvideo pipe: audio inputs are 1-based.
@@ -471,6 +549,35 @@ mod tests {
         assert!(g.contains("[2:a]"), "{g}");
         assert!(g.contains("adelay=2500|2500"), "{g}");
         assert!(g.contains("amix=inputs=2:normalize=0"), "{g}");
+    }
+
+    #[test]
+    fn clip_fx_and_track_submix_with_track_fx() {
+        let mk = |start: f64, track: &str| AudioClipSpec {
+            path: "x.wav".into(),
+            in_: 0.0,
+            out: 1.0,
+            speed: 1.0,
+            start,
+            volume: 1.0,
+            volume_points: vec![],
+            pan: 0.0,
+            fx: vec!["acompressor=threshold=0.1:ratio=8".into()],
+            track: track.into(),
+            track_fx: vec!["highshelf=g=-12:f=6000".into()],
+        };
+        let g = build_audio_graph(&[mk(0.0, "t1"), mk(2.0, "t1")], 1.0);
+        // Clip fx sit AFTER tempo/trim and BEFORE volume…
+        assert!(
+            g.contains("stereo,acompressor=threshold=0.1:ratio=8,volume="),
+            "{g}"
+        );
+        // …and the track submix applies track fx to the SUM of both clips.
+        assert!(g.contains("[a0][a1]amix=inputs=2:normalize=0,highshelf=g=-12:f=6000[t0]"), "{g}");
+        assert!(g.contains("[t0]anull[aout]"), "{g}");
+        // Two tracks → two submixes into the master mix.
+        let g2 = build_audio_graph(&[mk(0.0, "t1"), mk(0.0, "t2")], 1.0);
+        assert!(g2.contains("amix=inputs=2:normalize=0[aout]") || g2.contains("[t0][t1]"), "{g2}");
     }
 
     #[test]

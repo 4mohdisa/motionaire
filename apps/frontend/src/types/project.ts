@@ -56,6 +56,10 @@ export type EffectType =
   | 'wheels' // lift/gamma/gain (Phase 5)
   | 'curves' // per-channel + master RGB curves (Phase 5)
   | 'lut' // 3D LUT from a .cube file (Phase 5)
+  | 'eq' // 3-band parametric (Phase 6, audio)
+  | 'compressor' // incl. limiter at high ratio (Phase 6, audio)
+  | 'gate' // noise gate (Phase 6, audio)
+  | 'deesser' // sibilance reduction (Phase 6, audio)
 
 export type EffectParam = number | string | boolean | [number, number][]
 
@@ -181,6 +185,9 @@ export interface Track {
   // ripple operations started on other tracks.
   targeted?: boolean
   syncLocked?: boolean
+  // Track-level audio effects (Phase 6): applied to the track SUBMIX in
+  // export and to the track bus in preview.
+  effects?: Effect[]
 }
 
 export interface CanvasSettings {

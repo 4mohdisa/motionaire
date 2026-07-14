@@ -2106,6 +2106,140 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p6_audio_test': {
+      // Pro-editor Phase 6: every audio effect verified IN THE EXPORTED FILE
+      // (the plan's hard requirement): EQ notches the tone, the compressor
+      // squashes it by a computable dB, the gate silences it, track-level fx
+      // hit the submix, and LUFS normalize lands at −14. Preview graph runs
+      // the same chains without killing playback.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p6-audio', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const tonePath = await invoke<string>('spike_audio', { pattern: null })
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        const toneClip = () =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.mediaId === tone.id)!
+        const audioTrack = st().project.tracks.find((t) =>
+          t.clips.some((c) => c.mediaId === tone.id),
+        )!
+        st().setMarkIn(1)
+        st().setMarkOut(3)
+        st().setExportSettings({ format: 'm4a' })
+        const { runExport } = await import('../compositor/exportRunner')
+        const once = () =>
+          new Promise<boolean>((resolve) => {
+            void import('@tauri-apps/api/event').then(({ listen }) => {
+              void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+                (un) => setTimeout(un, 60000),
+              )
+            })
+          })
+        const exportTo = async (path: string) => {
+          const d = once()
+          await runExport(path)
+          return d
+        }
+        const maxDb = async (path: string) =>
+          (await invoke<{ maxDb: number | null }>('analyze_audio', { path })).maxDb
+
+        // Baseline.
+        await exportTo('/tmp/p6-base.m4a')
+        const base = (await maxDb('/tmp/p6-base.m4a'))!
+
+        // EQ: deep notch at the tone's 440Hz.
+        st().addEffect(toneClip().id, 'eq')
+        let fxId = toneClip().effects.at(-1)!.id
+        // Q=1: a Q=4 notch RINGS at the tone's onset and volumedetect reads
+        // the transient, not the steady state (measured offline: Q=4 → −4.8,
+        // Q=1 → −12). The filter is correct; the measurement needed the
+        // wider band.
+        st().updateEffectParams(toneClip().id, fxId, {
+          midGain: -24, midFreq: 440, midQ: 1,
+        })
+        await exportTo('/tmp/p6-eq.m4a')
+        const eqDb = (await maxDb('/tmp/p6-eq.m4a'))!
+        st().removeEffect(toneClip().id, fxId)
+        const eqOk = base - eqDb > 8
+
+        // Compressor: tone ≈ −18dBFS; thr −30, ratio 8 → out ≈ −28.5dBFS.
+        st().addEffect(toneClip().id, 'compressor')
+        fxId = toneClip().effects.at(-1)!.id
+        // Limiter-grade settings for an unambiguous measured drop. ffmpeg's
+        // acompressor soft-knee model is gentler than textbook static math —
+        // ffmpeg IS the export authority, so the assertion range comes from
+        // its measured behavior (offline: −18.1 → −28.9 at these settings).
+        st().updateEffectParams(toneClip().id, fxId, {
+          threshold: -40, ratio: 20, attack: 1, release: 50, makeup: 0,
+        })
+        await exportTo('/tmp/p6-comp.m4a')
+        const compDb = (await maxDb('/tmp/p6-comp.m4a'))!
+        st().removeEffect(toneClip().id, fxId)
+        const compDrop = base - compDb
+        const compOk = compDrop > 7 && compDrop < 16
+
+        // Gate ABOVE the tone level: output must collapse.
+        st().addEffect(toneClip().id, 'gate')
+        fxId = toneClip().effects.at(-1)!.id
+        st().updateEffectParams(toneClip().id, fxId, { threshold: -12 })
+        await exportTo('/tmp/p6-gate.m4a')
+        const gateDb = await maxDb('/tmp/p6-gate.m4a')
+        st().removeEffect(toneClip().id, fxId)
+        const gateOk = gateDb === null || gateDb < -50
+
+        // TRACK-level gate: same collapse through the submix path.
+        const { mkEffect } = await import('../engine/effectStack')
+        const tg = mkEffect('gate')
+        tg.params.threshold = -12
+        st().setTrackEffects(audioTrack.id, [tg])
+        await exportTo('/tmp/p6-trackfx.m4a')
+        const trackDb = await maxDb('/tmp/p6-trackfx.m4a')
+        st().setTrackEffects(audioTrack.id, [])
+        const trackOk = trackDb === null || trackDb < -50
+
+        // LUFS normalize → −14 integrated in the exported file.
+        await st().normalizeLoudness(toneClip().id)
+        await exportTo('/tmp/p6-lufs.m4a')
+        const lufs = await invoke<number>('measure_loudness', { path: '/tmp/p6-lufs.m4a' })
+        const lufsOk = Math.abs(lufs - -14) < 1.5
+
+        // Preview: compressor chain live, playback survives.
+        st().addEffect(toneClip().id, 'compressor')
+        st().setPlayhead(1)
+        st().play()
+        await wait(1500)
+        const { lastPlaybackError } = await import('../engine/playback')
+        const previewOk = !lastPlaybackError && st().playing
+        st().pause()
+
+        const pass = eqOk && compOk && gateOk && trackOk && lufsOk && previewOk
+        void report(
+          pass,
+          `base=${base.toFixed(1)}dB eqCut=${(base - eqDb).toFixed(1)} compDrop=${compDrop.toFixed(1)} gate=${gateDb} trackGate=${trackDb} lufs=${lufs.toFixed(1)} preview=${previewOk}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

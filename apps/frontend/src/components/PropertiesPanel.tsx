@@ -7,6 +7,7 @@ import { keyframesFor, resolveProp } from '../engine/keyframes'
 import { customFamilies } from '../persistence/fontManager'
 import type { Clip, Ease, Effect, EffectType, TextAnimationPreset, TransitionType } from '../types/project'
 import { EFFECT_LABELS } from '../engine/effectStack'
+import { isAudioFx } from '../engine/audioFx'
 import { Popover } from './Popover'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -87,7 +88,7 @@ function ClipProperties({ clip }: { clip: Clip }) {
         <ShadowEditor clip={clip} />
       </Section>
 
-      {clip.kind === 'video' && (
+      {clip.kind !== 'text' && (
         <Section label="Effects">
           <FxEditor clip={clip} />
         </Section>
@@ -213,7 +214,11 @@ function FxEditor({ clip }: { clip: Clip }) {
         </button>
         {addAnchor && (
           <Popover anchorRect={addAnchor} onClose={() => setAddAnchor(null)}>
-            {(Object.keys(EFFECT_LABELS) as EffectType[]).map((t) => (
+            {(Object.keys(EFFECT_LABELS) as EffectType[])
+              .filter((t) =>
+                clip.kind === 'audio' ? isAudioFx(t) : !isAudioFx(t),
+              )
+              .map((t) => (
               <button
                 key={t}
                 className="menu__item"
@@ -224,7 +229,7 @@ function FxEditor({ clip }: { clip: Clip }) {
               >
                 {EFFECT_LABELS[t]}
               </button>
-            ))}
+              ))}
           </Popover>
         )}
         <FxPresets clip={clip} />
@@ -290,6 +295,8 @@ function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
       </div>
     )
   if (fx.type === 'curves') return <CurveEditor clip={clip} fx={fx} />
+  if (fx.type === 'eq' || fx.type === 'compressor' || fx.type === 'gate' || fx.type === 'deesser')
+    return <AudioFxParams clip={clip} fx={fx} />
   if (fx.type === 'lut')
     return (
       <div className="prow">
@@ -1137,6 +1144,57 @@ function CurveEditor({ clip, fx }: { clip: Clip; fx: Effect }) {
         })}
       </svg>
     </div>
+  )
+}
+
+// Audio effect params (Phase 6): plain inputs — deliberately NOT
+// keyframeable (export fragments are static; parity over flash).
+function AudioFxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
+  const s = useStore.getState()
+  const FIELDS: Record<string, [string, string, number][]> = {
+    eq: [
+      ['lowGain', 'Low dB', 1],
+      ['lowFreq', 'Low Hz', 10],
+      ['midGain', 'Mid dB', 1],
+      ['midFreq', 'Mid Hz', 50],
+      ['midQ', 'Mid Q', 0.1],
+      ['highGain', 'High dB', 1],
+      ['highFreq', 'High Hz', 100],
+    ],
+    compressor: [
+      ['threshold', 'Thresh dB', 1],
+      ['ratio', 'Ratio', 0.5],
+      ['attack', 'Attack ms', 5],
+      ['release', 'Release ms', 10],
+      ['makeup', 'Makeup dB', 0.5],
+    ],
+    gate: [
+      ['threshold', 'Thresh dB', 1],
+      ['attack', 'Attack ms', 1],
+      ['release', 'Release ms', 10],
+    ],
+    deesser: [
+      ['intensity', 'Amount', 0.05],
+      ['freqRatio', 'Freq', 0.05],
+    ],
+  }
+  return (
+    <>
+      {(FIELDS[fx.type] ?? []).map(([key, label, step]) => (
+        <div className="prow" key={key}>
+          <span className="prow__label">{label}</span>
+          <input
+            className="prow__input"
+            type="number"
+            step={step}
+            value={Number(fx.params[key] ?? 0)}
+            onChange={(e) =>
+              s.updateEffectParams(clip.id, fx.id, { [key]: Number(e.target.value) || 0 })
+            }
+          />
+        </div>
+      ))}
+    </>
   )
 }
 

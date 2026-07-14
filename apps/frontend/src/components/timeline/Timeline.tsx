@@ -639,6 +639,10 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
           { label: 'Fade in (0.5s)', onClick: () => s.addFade(clipId, 'in') },
           { label: 'Fade out (0.5s)', onClick: () => s.addFade(clipId, 'out') },
           {
+            label: 'Normalize loudness (−14 LUFS)',
+            onClick: () => void s.normalizeLoudness(clipId),
+          },
+          {
             label: 'Normalize (−1 dB peak)',
             onClick: () => void useStore.getState().normalizeClip(clipId),
           },

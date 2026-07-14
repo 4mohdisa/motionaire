@@ -367,6 +367,26 @@ fn cancel_export(exporter: State<export::Exporter>) {
     exporter.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+// Integrated loudness (pro-editor session, Phase 6): ffmpeg ebur128.
+// LUFS normalize = measure once, apply gain — peak normalize can't fix a
+// quiet-but-spiky recording; loudness normalize can.
+#[tauri::command]
+fn measure_loudness(path: String) -> Result<f64, String> {
+    let out = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+        .args(["-i", &path, "-af", "ebur128", "-f", "null", "-"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    // Summary block: "    I:         -23.0 LUFS"
+    let lufs = text
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with("I:") && l.contains("LUFS"))
+        .and_then(|l| l.split_whitespace().nth(1)?.parse::<f64>().ok())
+        .ok_or("no integrated loudness in ebur128 output")?;
+    Ok(lufs)
+}
+
 // Loudness probe (pro-editor session, Phase 1; groundwork for Phase 6 LUFS):
 // ffmpeg volumedetect over the whole file. Cheap and dependency-free.
 #[tauri::command]
@@ -794,6 +814,7 @@ pub fn run() {
             request_proxy,
             spike_4k,
             analyze_audio,
+            measure_loudness,
             save_recovery,
             save_untitled_recovery,
             check_untitled_recovery,

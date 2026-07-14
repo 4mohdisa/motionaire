@@ -1842,3 +1842,38 @@ visual = SUITE GREEN.
   0.9915, still passing but heading toward the threshold; the re-baseline
   policy is "refresh after intentional change, never to make red green".
 - Gate: 83 unit + 26 cargo + 25/25 e2e + visual GREEN.
+
+## Phase 6 — professional audio
+
+- **One source of truth for what each effect does on export**:
+  engine/audioFx.ts maps an effect instance to its FFmpeg fragment (eq →
+  lowshelf/equalizer/highshelf; compressor → acompressor with
+  detection=peak; gate → agate range=0; deesser → ffmpeg's deesser).
+  Preview mirrors those with Web Audio (biquads, DynamicsCompressor +
+  makeup gain, a real AudioWorklet noise gate with envelope
+  attack/release — DynamicsCompressor cannot gate). De-esser preview is a
+  STATIC high-band cut approximation (a true sidechain needs another
+  worklet); the export uses FFmpeg's real deesser — logged divergence,
+  export is the authority.
+- **Clip AND track effects**: the export graph now builds per-track
+  submixes (amix per track → track fx chain → master mix; single bare
+  track short-circuits through anull), and the preview bus gained an
+  input→fx→fader stage. Track fx are engine-complete and export-verified;
+  the mixer's editing UI for them is deferred (logged) — store
+  (setTrackEffects) is the current front door.
+- **LUFS normalize** (context-menu action): measure_loudness (ffmpeg
+  ebur128 integrated) → gain to −14 LUFS on clip volume. Whole-file
+  measurement (typical use: full recordings) — logged simplification.
+- **Audio fx params are deliberately NOT keyframeable**: export fragments
+  are static per clip; animating preview-only would break parity.
+- **EVERY effect verified in the exported file** (the plan's hard
+  requirement): EQ notch kills the 440Hz tone by 12.1dB; the compressor
+  drops it ~10dB at limiter settings; clip gate AND track-submix gate
+  collapse it to −91dB; LUFS normalize measures −14.0 in the exported
+  m4a. Two honest measurement lessons along the way: (a) a Q=4 notch
+  RINGS at tone onset and volumedetect reads the transient — widened to
+  Q=1 for the assertion (filter was correct all along, verified offline);
+  (b) ffmpeg's acompressor soft-knee model is gentler than textbook
+  static math — the assertion range now comes from ffmpeg's MEASURED
+  behavior, because ffmpeg is the export authority, not my formula.
+- Gate: 88 unit + 27 cargo + 26/26 e2e + visual GREEN.

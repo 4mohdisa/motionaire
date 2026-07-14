@@ -270,6 +270,11 @@ export interface StoreState {
     v: boolean,
   ) => void
   setTrackGain: (trackId: string, v: number) => void
+  // Track-level audio effects (Phase 6).
+  setTrackEffects: (trackId: string, effects: Effect[]) => void
+  // LUFS loudness normalize (Phase 6): measure integrated loudness, gain to
+  // −14 LUFS. Peak normalize can't fix quiet-but-spiky; this can.
+  normalizeLoudness: (clipId: string) => Promise<void>
   // Color matte (pro-editor session, Phase 1): a canvas-sized solid — title
   // cards, backgrounds. Rides the existing shape/raster path.
   addSolidClip: (color?: string) => void
@@ -1995,6 +2000,35 @@ export const useStore = create<StoreState>()(
           },
           { history: false }, // fader drags shouldn't spam undo; persisted anyway
         ),
+
+      setTrackEffects: (trackId, effects) =>
+        mutateProject((p) => {
+          const tr = p.tracks.find((t) => t.id === trackId)
+          if (tr) tr.effects = effects
+        }),
+
+      normalizeLoudness: async (clipId) => {
+        const s = get()
+        const found = findClip(s.project, clipId)
+        const asset = found?.clip.mediaId
+          ? s.project.media.find((m) => m.id === found.clip.mediaId)
+          : null
+        if (!asset) return
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          // Whole-file integrated loudness (typical use: full recordings) —
+          // logged simplification; clip-range measurement when needed later.
+          const lufs = await invoke<number>('measure_loudness', { path: asset.path })
+          const gain = Math.min(8, Math.pow(10, (-14 - lufs) / 20))
+          get().setClipProperty(clipId, 'volume', Number(gain.toFixed(4)))
+          get().pushToast(
+            'success',
+            `Loudness ${lufs.toFixed(1)} LUFS → −14: gain ${gain.toFixed(2)}×`,
+          )
+        } catch (e) {
+          get().pushToast('error', `Loudness measurement failed: ${e}`)
+        }
+      },
 
       reorderTrack: (trackId, dir) =>
         mutateProject((p) => {

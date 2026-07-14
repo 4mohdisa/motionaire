@@ -4,6 +4,7 @@ import { useStore } from '../state/store'
 import type { Clip, Project } from '../types/project'
 import { flatten } from './bridge'
 import { resolveProp } from '../engine/keyframes'
+import { audioFxChain } from '../engine/audioFx'
 import { clipDuration } from '../engine/time'
 
 // Export job assembly (session 9, Phase 5). Video structure reuses flatten()
@@ -19,6 +20,9 @@ interface AudioClipSpec {
   volume: number
   volumePoints: [number, number][]
   pan: number
+  fx: string[]
+  track: string
+  trackFx: string[]
 }
 
 // Clamp clips to the export range and re-express them range-relative, so
@@ -55,6 +59,11 @@ function audioSpecs(project: Project, rangeStart: number, rangeEnd: number): Aud
         start: winStart - rangeStart,
         volume: clip.volume * trackGain,
         volumePoints: kfs.map(([t, v]) => [t - shift, v * trackGain] as [number, number]),
+        // Audio effect chains (Phase 6): clip stack + track stack as ffmpeg
+        // fragments — the same audioFxFilter mapper the preview mirrors.
+        fx: audioFxChain(clip.effects),
+        track: track.id,
+        trackFx: audioFxChain(track.effects ?? []),
         pan: clip.pan ?? 0,
       })
     }

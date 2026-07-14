@@ -35,6 +35,14 @@ export const EFFECT_DEFAULTS: Record<EffectType, Record<string, import('../types
     pointsM: IDENTITY_POINTS,
   },
   lut: { path: '' },
+  eq: {
+    lowGain: 0, lowFreq: 120,
+    midGain: 0, midFreq: 1000, midQ: 1,
+    highGain: 0, highFreq: 8000,
+  },
+  compressor: { threshold: -24, ratio: 4, attack: 20, release: 250, makeup: 0 },
+  gate: { threshold: -45, attack: 10, release: 120 },
+  deesser: { intensity: 0.5, freqRatio: 0.5 },
 }
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
@@ -46,6 +54,10 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   wheels: 'Color wheels',
   curves: 'RGB curves',
   lut: '3D LUT (.cube)',
+  eq: 'EQ (3-band)',
+  compressor: 'Compressor / limiter',
+  gate: 'Noise gate',
+  deesser: 'De-esser',
 }
 
 // Scalar params that can carry keyframes (strings/bools/arrays cannot).
@@ -58,6 +70,12 @@ export const EFFECT_SCALAR_PARAMS: Record<EffectType, string[]> = {
   wheels: ['liftR', 'liftG', 'liftB', 'gammaR', 'gammaG', 'gammaB', 'gainR', 'gainG', 'gainB'],
   curves: [],
   lut: [],
+  // Audio fx: deliberately NOT keyframeable — export fragments are static
+  // per clip; animating preview-only would break preview/export parity.
+  eq: [],
+  compressor: [],
+  gate: [],
+  deesser: [],
 }
 
 export function mkEffect(type: EffectType): Effect {
