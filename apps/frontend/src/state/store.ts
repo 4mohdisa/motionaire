@@ -221,6 +221,10 @@ export interface StoreState {
   addTrack: (kind: 'video' | 'audio') => void
   renameTrack: (trackId: string, name: string) => void
   setTrackFlag: (trackId: string, flag: 'muted' | 'solo' | 'locked' | 'hidden', v: boolean) => void
+  setTrackGain: (trackId: string, v: number) => void
+  // Color matte (pro-editor session, Phase 1): a canvas-sized solid — title
+  // cards, backgrounds. Rides the existing shape/raster path.
+  addSolidClip: (color?: string) => void
   // Move a track one slot up/down in DISPLAY order (swaps z with the neighbor).
   reorderTrack: (trackId: string, dir: 1 | -1) => void
 
@@ -236,6 +240,8 @@ export interface StoreState {
   setCanvasFps: (fps: number) => void
   setSafeZones: (v: boolean) => void
   setExportOpen: (v: boolean) => void
+  mixerOpen: boolean
+  setMixerOpen: (v: boolean) => void
   setExportSettings: (patch: Partial<ExportSettings>) => void
   setTimelineHeight: (h: number) => void
   setPropsWidth: (w: number) => void
@@ -1103,6 +1109,47 @@ export const useStore = create<StoreState>()(
           })
         }),
 
+      addSolidClip: (color = '#1a1a1a') =>
+        mutateProject((p) => {
+          const vids = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)
+          if (!vids.length) return
+          const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
+          const duration = 4
+          let track = vids[0]
+          const fits = !track.clips.some((c) => start < clipEnd(c) && start + duration > c.start)
+          if (!fits) {
+            track = {
+              id: uid('t'),
+              kind: 'video',
+              z: vids[0].z + 1,
+              name: `V${vids.length + 1}`,
+              clips: [],
+            }
+            p.tracks.unshift(track)
+          }
+          track.clips.push({
+            id: uid('c'),
+            kind: 'video',
+            shape: {
+              kind: 'rect',
+              fill: color,
+              stroke: null,
+              strokeWidth: 0,
+              width: p.canvas.width,
+              height: p.canvas.height,
+            },
+            start,
+            in: 0,
+            out: duration,
+            speed: 1,
+            volume: 0,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+        }),
+
       addTitleTemplate: (kind) =>
         mutateProject((p) => {
           const fps = p.canvas.fps
@@ -1482,6 +1529,15 @@ export const useStore = create<StoreState>()(
           if (t) t[flag] = v
         }),
 
+      setTrackGain: (trackId, v) =>
+        mutateProject(
+          (p) => {
+            const tr = p.tracks.find((t) => t.id === trackId)
+            if (tr) tr.gain = Math.min(1.5, Math.max(0, v))
+          },
+          { history: false }, // fader drags shouldn't spam undo; persisted anyway
+        ),
+
       reorderTrack: (trackId, dir) =>
         mutateProject((p) => {
           const track = p.tracks.find((t) => t.id === trackId)
@@ -1558,6 +1614,12 @@ export const useStore = create<StoreState>()(
       setExportOpen: (v) =>
         set((s) => {
           s.exportOpen = v
+        }),
+
+      mixerOpen: false,
+      setMixerOpen: (v) =>
+        set((s) => {
+          s.mixerOpen = v
         }),
 
       setExportSettings: (patch) =>

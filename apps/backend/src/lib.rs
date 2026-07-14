@@ -363,6 +363,31 @@ fn cancel_export(exporter: State<export::Exporter>) {
     exporter.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+// Loudness probe (pro-editor session, Phase 1; groundwork for Phase 6 LUFS):
+// ffmpeg volumedetect over the whole file. Cheap and dependency-free.
+#[tauri::command]
+fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
+    let out = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+        .args(["-i", &path, "-af", "volumedetect", "-f", "null", "-"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    let grab = |key: &str| -> Option<f64> {
+        text.lines()
+            .find(|l| l.contains(key))?
+            .split(':')
+            .next_back()?
+            .trim()
+            .trim_end_matches(" dB")
+            .parse()
+            .ok()
+    };
+    Ok(serde_json::json!({
+        "meanDb": grab("mean_volume"),
+        "maxDb": grab("max_volume"),
+    }))
+}
+
 #[tauri::command]
 fn save_recovery(bundle_path: String, project_json: String) -> Result<(), String> {
     persistence::save_recovery(std::path::Path::new(&bundle_path), &project_json)
@@ -764,6 +789,7 @@ pub fn run() {
             consolidate_media,
             request_proxy,
             spike_4k,
+            analyze_audio,
             save_recovery,
             save_untitled_recovery,
             check_untitled_recovery,

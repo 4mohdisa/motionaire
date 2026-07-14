@@ -10,7 +10,7 @@ import {
   transitionTail,
 } from './time'
 import { resolveProp } from './keyframes'
-import { attachElement, resumeGraph, setMasterGain } from './audioGraph'
+import { attachElement, resumeGraph, setMasterGain, setTrackBusGain } from './audioGraph'
 import type { Clip, Project } from '../types/project'
 
 // Preview playback: one hidden/visible <video> per active clip (browser decodes,
@@ -200,8 +200,10 @@ function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<n
     const vol = resolveProp(clip, 'volume', t - clip.start) * trackGain
     el.volume = Math.min(1, Math.max(0, vol))
     el.muted = vol <= 0 || (s.playing && s.shuttle < 0)
-    // Route through the Web Audio tail: pan + master + meters.
-    attachElement(el, Math.max(-1, Math.min(1, clip.pan ?? 0)))
+    // Route through the Web Audio tail: pan → track bus (mixer fader, can
+    // exceed 1.0 — element.volume clamps) → master + meters.
+    attachElement(el, Math.max(-1, Math.min(1, clip.pan ?? 0)), found.track.id)
+    setTrackBusGain(found.track.id, found.track.gain ?? 1)
     el.playbackRate = Math.min(
       16,
       Math.max(0.0625, clip.speed * Math.max(0.0625, Math.abs(s.shuttle))),

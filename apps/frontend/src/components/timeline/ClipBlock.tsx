@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../types/project'
 import { useStore } from '../../state/store'
 import { clipDuration, clipEnd, snapTime } from '../../engine/time'
-import { getWaveform } from '../../engine/waveform'
+import { columnReduce, getWaveform } from '../../engine/waveform'
 import { getFilmstrip, type Strip } from '../../engine/filmstrip'
 import { useTimeline, type LaneRect } from './timelineContext'
 
@@ -38,14 +38,24 @@ function ClipBlock({ clip, trackId }: Props) {
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
-      ctx.globalAlpha = 0.55
-      for (let x = 0; x < w; x++) {
-        const src = clip.in + (x / pxPerSec) * clip.speed
-        const peak = wf.peaks[Math.floor(src * wf.pps)] ?? 0
-        const bh = Math.max(1, peak * (h - 2))
-        ctx.fillRect(x, (h - bh) / 2, 1, bh)
+      // Filled symmetric envelope (peak, translucent) over an RMS body
+      // (solid) — per-column MAX over the covered source range, so peaks
+      // survive any zoom level (pro-editor session, Phase 1).
+      const { peak, rms } = columnReduce(wf, clip.in, clip.speed / pxPerSec, w)
+      const mid = h / 2
+      const color = getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+      const drawEnvelope = (vals: Float32Array, alpha: number) => {
+        ctx.globalAlpha = alpha
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.moveTo(0, mid)
+        for (let x = 0; x < w; x++) ctx.lineTo(x, mid - Math.max(0.5, vals[x] * (mid - 1)))
+        for (let x = w - 1; x >= 0; x--) ctx.lineTo(x, mid + Math.max(0.5, vals[x] * (mid - 1)))
+        ctx.closePath()
+        ctx.fill()
       }
+      drawEnvelope(peak, 0.35)
+      drawEnvelope(rms, 0.75)
     })
     return () => {
       cancelled = true

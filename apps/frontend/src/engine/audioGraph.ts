@@ -13,6 +13,17 @@ let bufL: Uint8Array<ArrayBuffer> | null = null
 let bufR: Uint8Array<ArrayBuffer> | null = null
 
 const panners = new WeakMap<HTMLMediaElement, StereoPannerNode>()
+// Track buses (pro-editor session, Phase 1): panner → track GainNode →
+// master. The bus GainNode is what lets a mixer fader exceed 1.0 — element
+// .volume clamps at 1, a GainNode doesn't — and its analyser feeds the
+// per-track meter.
+interface TrackBus {
+  gain: GainNode
+  analyser: AnalyserNode
+  buf: Uint8Array<ArrayBuffer>
+}
+const trackBuses = new Map<string, TrackBus>()
+const elBus = new WeakMap<HTMLMediaElement, string>()
 let attachedCount = 0
 // Debug roster of attached elements (test forensics — see graphDebug).
 const attachedEls: WeakRef<HTMLMediaElement>[] = []
@@ -52,7 +63,22 @@ export function ensureGraph(): boolean {
   return true
 }
 
-export function attachElement(el: HTMLMediaElement, pan: number) {
+function trackBus(trackId: string): TrackBus | null {
+  if (!ensureGraph() || !ctx || !master) return null
+  let bus = trackBuses.get(trackId)
+  if (!bus) {
+    const gain = ctx.createGain()
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 512
+    gain.connect(analyser)
+    gain.connect(master)
+    bus = { gain, analyser, buf: new Uint8Array(new ArrayBuffer(analyser.fftSize)) }
+    trackBuses.set(trackId, bus)
+  }
+  return bus
+}
+
+export function attachElement(el: HTMLMediaElement, pan: number, trackId?: string) {
   if (!ensureGraph() || !ctx || !master) return
   let panner = panners.get(el)
   if (!panner) {
@@ -62,15 +88,49 @@ export function attachElement(el: HTMLMediaElement, pan: number) {
       const src = ctx.createMediaElementSource(el)
       panner = ctx.createStereoPanner()
       src.connect(panner)
-      panner.connect(master)
       panners.set(el, panner)
       attachedCount++
       attachedEls.push(new WeakRef(el))
     } catch {
       return // already claimed by a dead graph (shouldn't happen — one ctx)
     }
+  } else if (elBus.get(el) !== (trackId ?? '')) {
+    panner.disconnect() // re-routed: clip moved to another track
+  } else {
+    if (Math.abs(panner.pan.value - pan) > 1e-3) panner.pan.value = pan
+    return
   }
+  const bus = trackId ? trackBus(trackId) : null
+  panner.connect(bus ? bus.gain : master)
+  elBus.set(el, trackId ?? '')
   if (Math.abs(panner.pan.value - pan) > 1e-3) panner.pan.value = pan
+}
+
+export function setTrackBusGain(trackId: string, v: number) {
+  const bus = trackBus(trackId)
+  if (bus) bus.gain.gain.value = v
+}
+
+// Mono peak for one track's meter (post-fader).
+export function readTrackPeak(trackId: string): number {
+  const bus = trackBuses.get(trackId)
+  if (!bus) return 0
+  bus.analyser.getByteTimeDomainData(bus.buf)
+  let m = 0
+  for (let i = 0; i < bus.buf.length; i++) {
+    const d = Math.abs(bus.buf[i] - 128) / 127
+    if (d > m) m = d
+  }
+  return m
+}
+
+// dBFS mapping shared by every meter (pure — unit-tested).
+export function dbfs(v: number): number {
+  return 20 * Math.log10(Math.max(v, 1e-4))
+}
+// 0..1 meter fraction over a -60..0 dB scale.
+export function meterFrac(v: number): number {
+  return Math.min(1, Math.max(0, (dbfs(v) + 60) / 60))
 }
 
 export function resumeGraph() {

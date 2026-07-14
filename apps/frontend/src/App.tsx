@@ -5,6 +5,7 @@ import ExportPanel from './components/ExportPanel'
 import Timeline from './components/timeline/Timeline'
 import { Activation, Launcher, Onboarding } from './components/Shell'
 import { WorkflowDialogs } from './components/WorkflowDialogs'
+import Mixer from './components/Mixer'
 import { useBootFlow } from './hooks/useBootFlow'
 import MediaBin from './components/MediaBin'
 import Toasts from './components/Toasts'
@@ -78,6 +79,7 @@ function App() {
   useShortcuts()
   useBootFlow()
   const appView = useStore((s) => s.appView)
+  const mixerOpen = useStore((s) => s.mixerOpen)
   useEffect(() => {
     startCompositorBridge()
     startMenuBridge()
@@ -221,6 +223,7 @@ function App() {
       <ExportPanel />
       <UnsavedPrompt />
       <WorkflowDialogs />
+      {mixerOpen && <Mixer />}
       <Toasts />
     </div>
   )

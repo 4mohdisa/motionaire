@@ -461,3 +461,33 @@ describe('fx patch', () => {
     expect(clipById(c.id)!.blend).toBeUndefined()
   })
 })
+
+describe('mixer & solids (pro-editor P1)', () => {
+  it('setTrackGain clamps to 0..1.5 and skips history', () => {
+    const before = useStore.getState().past.length
+    const tid = st().project.tracks[0].id
+    st().setTrackGain(tid, 2.5)
+    expect(st().project.tracks[0].gain).toBe(1.5)
+    st().setTrackGain(tid, -1)
+    expect(st().project.tracks[0].gain).toBe(0)
+    expect(useStore.getState().past.length).toBe(before) // fader drags don't spam undo
+  })
+
+  it('addSolidClip drops a canvas-sized rect shape at the playhead', () => {
+    const c = mkClip({ start: 0, out: 10 })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().setPlayhead(2)
+    st().addSolidClip('#ff0000')
+    const solid = st()
+      .project.tracks.flatMap((t) => t.clips)
+      .find((x) => x.shape && x.id !== c.id)!
+    expect(solid.shape).toMatchObject({
+      kind: 'rect',
+      fill: '#ff0000',
+      width: 1920,
+      height: 1080,
+    })
+    expect(solid.start).toBe(2)
+    expect(solid.volume).toBe(0)
+  })
+})

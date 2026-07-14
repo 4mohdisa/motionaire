@@ -28,6 +28,7 @@ function audioSpecs(project: Project, rangeStart: number, rangeEnd: number): Aud
   for (const track of project.tracks) {
     const anySolo = project.tracks.some((t) => t.kind === track.kind && t.solo)
     if (track.muted || (anySolo && !track.solo)) continue
+    const trackGain = track.gain ?? 1 // mixer fader (Phase 1) — must survive export
     for (const clip of track.clips) {
       if (!clip.mediaId || clip.disabled) continue
       const asset = project.media.find((m) => m.id === clip.mediaId)
@@ -52,8 +53,8 @@ function audioSpecs(project: Project, rangeStart: number, rangeEnd: number): Aud
         out: outAdj,
         speed: clip.speed,
         start: winStart - rangeStart,
-        volume: clip.volume,
-        volumePoints: kfs.map(([t, v]) => [t - shift, v] as [number, number]),
+        volume: clip.volume * trackGain,
+        volumePoints: kfs.map(([t, v]) => [t - shift, v * trackGain] as [number, number]),
         pan: clip.pan ?? 0,
       })
     }

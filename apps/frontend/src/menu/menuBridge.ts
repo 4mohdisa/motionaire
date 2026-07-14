@@ -1465,6 +1465,172 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p1_mixer_test': {
+      // Pro-editor Phase 1: track bus gain is audible (attenuate AND boost —
+      // element.volume clamps at 1, the bus GainNode must not), per-track
+      // meters read signal, the mixer UI drives real gain, solid clip lands.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p1-mixer', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        const { readPeaks, readTrackPeak } = await import('../engine/audioGraph')
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const tonePath = await invoke<string>('spike_audio', { pattern: null })
+        st().addMedia({
+          id: mkid('m'),
+          path: tonePath,
+          playbackUrl: convertFileSrc(tonePath),
+          name: 'tone.wav',
+          kind: 'audio',
+          duration: 10,
+          hasAudio: true,
+        })
+        const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+        st().insertClipAt(tone.id, null, 0)
+        const audioTrack = st().project.tracks.find((t) =>
+          t.clips.some((c) => c.mediaId === tone.id),
+        )!
+        st().setPlayhead(1)
+        st().play()
+        // Baseline: poll until the tone reaches both meters.
+        let base = 0
+        for (let i = 0; i < 40 && base < 0.05; i++) {
+          await wait(150)
+          base = readPeaks().l
+        }
+        let trackPeak = 0
+        for (let i = 0; i < 20 && trackPeak < 0.05; i++) {
+          await wait(100)
+          trackPeak = readTrackPeak(audioTrack.id)
+        }
+        // Attenuate via the bus.
+        st().setTrackGain(audioTrack.id, 0.2)
+        let quiet = readPeaks().l
+        for (let i = 0; i < 30 && !(quiet > 0.001 && quiet < base * 0.45); i++) {
+          await wait(200)
+          quiet = readPeaks().l
+        }
+        // Boost past unity — the whole reason the bus GainNode exists.
+        st().setTrackGain(audioTrack.id, 1.5)
+        let loud = 0
+        for (let i = 0; i < 30 && loud < base * 1.2; i++) {
+          await wait(200)
+          loud = readPeaks().l
+        }
+        st().setTrackGain(audioTrack.id, 1)
+        st().pause()
+        // Mixer UI drives the store through a real input event.
+        st().setMixerOpen(true)
+        await wait(250)
+        const tracksAtOpen = st().project.tracks.length
+        const strips = document.querySelectorAll('.mixer__strip').length
+        const fader = document.querySelector<HTMLInputElement>('.mixer__fader')
+        let uiOk = false
+        if (fader) {
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            'value',
+          )!.set!
+          setter.call(fader, '0.5')
+          fader.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(150)
+          uiOk = Math.abs((st().project.tracks[0].gain ?? 1) - 0.5) < 0.01
+        }
+        st().setMixerOpen(false)
+        // Export parity: the fader must survive into the FILE. Two fast
+        // audio-only exports; volumedetect max should drop ~14dB at g=0.2.
+        st().setMarkIn(1)
+        st().setMarkOut(3)
+        st().setExportSettings({ format: 'm4a' })
+        const { runExport } = await import('../compositor/exportRunner')
+        const once = () =>
+          new Promise<boolean>((resolve) => {
+            void import('@tauri-apps/api/event').then(({ listen }) => {
+              void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+                (un) => setTimeout(un, 60000),
+              )
+            })
+          })
+        st().setTrackGain(audioTrack.id, 1)
+        let d = once()
+        await runExport('/tmp/p1-unity.m4a')
+        await d
+        st().setTrackGain(audioTrack.id, 0.2)
+        d = once()
+        await runExport('/tmp/p1-fifth.m4a')
+        await d
+        st().setTrackGain(audioTrack.id, 1)
+        const a1 = await invoke<{ maxDb: number | null }>('analyze_audio', {
+          path: '/tmp/p1-unity.m4a',
+        })
+        const a2 = await invoke<{ maxDb: number | null }>('analyze_audio', {
+          path: '/tmp/p1-fifth.m4a',
+        })
+        const drop = (a1.maxDb ?? 0) - (a2.maxDb ?? 0)
+        const exportGainOk = drop > 10 && drop < 18 // 20·log10(5) ≈ 14dB
+        // Solid clip.
+        st().addSolidClip('#102030')
+        const solid = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.shape?.fill === '#102030')
+        const solidOk =
+          !!solid && solid.shape!.width === st().project.canvas.width && solid.volume === 0
+        const pass =
+          base > 0.05 && trackPeak > 0.05 && quiet < base * 0.45 && loud > base * 1.2 &&
+          strips === tracksAtOpen + 1 && uiOk && solidOk && exportGainOk
+        void report(
+          pass,
+          `base=${base.toFixed(2)} trackPeak=${trackPeak.toFixed(2)} quiet=${quiet.toFixed(2)} loud=${loud.toFixed(2)} strips=${strips} uiOk=${uiOk} solidOk=${solidOk} exportDropDb=${drop.toFixed(1)}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:small_window': {
+      const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().setSize(new LogicalSize(980, 660))
+      break
+    }
+    case 'dev:normal_window': {
+      const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().setSize(new LogicalSize(1280, 800))
+      break
+    }
+    case 'dev:p1_show': {
+      // Evidence scene for Phase 1 captures: tone waveform on the timeline,
+      // solid matte under the playhead, mixer open, playing for live meters.
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      await loadPipDemo()
+      await wait(300)
+      const st = () => useStore.getState()
+      const { uid: mkid } = await import('../types/project')
+      const { convertFileSrc } = await import('@tauri-apps/api/core')
+      const tonePath = await invoke<string>('spike_audio', { pattern: null })
+      st().addMedia({
+        id: mkid('m'),
+        path: tonePath,
+        playbackUrl: convertFileSrc(tonePath),
+        name: 'tone.wav',
+        kind: 'audio',
+        duration: 10,
+        hasAudio: true,
+      })
+      const tone = st().project.media.find((m) => m.name === 'tone.wav')!
+      st().insertClipAt(tone.id, null, 0)
+      st().setPlayhead(6)
+      st().addSolidClip('#0f2233')
+      st().setMixerOpen(true)
+      st().setTimelineHeight(320) // audio lane + waveform in frame
+      st().setPlayhead(1)
+      st().play()
+      await wait(1500)
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

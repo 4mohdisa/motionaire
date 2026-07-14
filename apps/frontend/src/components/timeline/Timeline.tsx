@@ -239,6 +239,10 @@ function Timeline() {
           <DropdownItem label="Ellipse" onClick={() => useStore.getState().addShapeClip('ellipse')} />
           <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
           <DropdownItem
+            label="Solid color"
+            onClick={() => useStore.getState().addSolidClip()}
+          />
+          <DropdownItem
             label="Title: lower third"
             onClick={() => useStore.getState().addTitleTemplate('lowerThird')}
           />

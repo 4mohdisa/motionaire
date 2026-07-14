@@ -1912,14 +1912,44 @@
   overflow: hidden;
 }
 
+.meters__track {
+  position: relative;
+}
+
 .meters__fill {
   height: 100%;
-  background: var(--success);
+  /* dB zones anchored to the TRACK width: green to -12, yellow to -3, red above.
+     background-size pins zone positions regardless of fill width. */
+  background: linear-gradient(
+    90deg,
+    var(--success) 0 80%,
+    var(--warning) 80% 95%,
+    var(--danger) 95% 100%
+  );
+  background-size: 90px 100%;
   transition: none;
 }
 
-.meters__fill--hot {
-  background: var(--warning);
+.meters__hold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-primary);
+  opacity: 0.9;
+}
+
+.meters__scale {
+  position: relative;
+  height: 3px;
+}
+
+.meters__scale span {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 3px;
+  background: var(--text-disabled);
 }
 
 .meters__clip {
@@ -1973,4 +2003,152 @@
 
 .shortcuts__what {
   color: var(--text-secondary);
+}
+
+
+/* ---- Audio mixer (pro-editor session, Phase 1) ---- */
+
+.mixer {
+  position: fixed;
+  right: 16px;
+  bottom: 240px;
+  z-index: 60;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-seam);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 8px 10px 10px;
+  user-select: none;
+}
+
+.mixer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.mixer__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.mixer__close:hover {
+  color: var(--text-primary);
+}
+
+.mixer__strips {
+  display: flex;
+  gap: 10px;
+}
+
+.mixer__strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 52px;
+}
+
+.mixer__strip--muted .mixer__meterfill {
+  opacity: 0.25;
+}
+
+.mixer__strip--master {
+  border-left: 1px solid var(--border-seam);
+  padding-left: 10px;
+}
+
+.mixer__db {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-height: 13px;
+}
+
+.mixer__fadergroup {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  height: 110px;
+}
+
+.mixer__fader {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  width: 14px;
+  height: 110px;
+  accent-color: var(--accent);
+  background: transparent;
+}
+
+.mixer__meter {
+  width: 6px;
+  border-radius: 3px;
+  background: var(--bg-control);
+  position: relative;
+  overflow: hidden;
+}
+
+.mixer__meterfill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    0deg,
+    var(--success) 0 80%,
+    var(--warning) 80% 95%,
+    var(--danger) 95% 100%
+  );
+  background-size: 100% 110px;
+  background-position: bottom;
+}
+
+.mixer__toggles {
+  display: flex;
+  gap: 4px;
+}
+
+.mixer__tog {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border: 1px solid var(--border-seam);
+  border-radius: 4px;
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mixer__tog--on {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.mixer__tog--solo {
+  background: var(--warning);
+  color: #000;
+  border-color: var(--warning);
+}
+
+.mixer__name {
+  font-size: 10px;
+  color: var(--text-secondary);
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

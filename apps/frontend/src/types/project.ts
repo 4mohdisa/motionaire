@@ -161,6 +161,7 @@ export interface Track {
   solo?: boolean // audio tracks
   locked?: boolean // blocks all edits to the track's clips
   hidden?: boolean // video tracks: excluded from compositing (audio keeps playing, Premiere semantics)
+  gain?: number // mixer fader, 0..1.5 (pro-editor session, Phase 1); default 1
 }
 
 export interface CanvasSettings {

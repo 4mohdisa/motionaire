@@ -1615,3 +1615,40 @@ The first full run was RED (13/19 e2e) — and everything it caught was real:
 
 Final gate: full cold `npm test` → 55 vitest + 22 cargo + 19/19 e2e + 2/2
 visual = SUITE GREEN.
+
+## Phase 1 — audio visualization, mixer, color matte
+
+- **Pro meters** (transport): dBFS scale −60..0 with tick marks at
+  −60/−30/−12/−3, fixed color zones anchored to the TRACK width via
+  background-size (green → yellow −12dB → red −3dB), 1.5s peak-hold
+  markers, latching clip lamp. Mapping helpers (dbfs, meterFrac) are pure
+  and unit-tested.
+- **Waveforms**: cache upgraded 50 → 500 buckets/s plus an RMS array
+  (~4KB/s, negligible); ClipBlock renders a filled symmetric peak envelope
+  (translucent) over a solid RMS body. Every pixel column takes the MAX
+  over the source range it covers — columnReduce is pure and unit-tested
+  ("zoomed out, the hot peak survives"). No more point-sampling aliasing.
+- **Mixer panel**: floating, draggable (fixed corner buried the transport at
+  small windows — audit find), one strip per track: fader on track.gain
+  (NEW model field, 0..1.5, history:false like the master), post-fader
+  meter, mute/solo; master strip on the shared bus. KEY architecture:
+  faders route through per-track Web Audio GainNodes (panner → track bus →
+  master) because element.volume clamps at 1.0 — the bus is what makes
+  boost-past-unity actually audible. Export parity: track gain multiplies
+  into the FFmpeg volume spec (clip volume AND keyframe points).
+- **analyze_audio** Rust command (ffmpeg volumedetect): built for the
+  p1 export check, deliberately general — Phase 6's LUFS work will reuse it.
+- **Color matte**: addSolidClip — canvas-sized rect shape through the
+  existing raster path, volume 0, Add-menu entry. Zero new render code.
+- **UI audit**: mixer made draggable (see above). Deliberately left, logged:
+  solid clips label as "Rect" on the timeline (ClipBlock names shapes by
+  kind; a matte heuristic isn't worth the special case); mixer has no
+  track-pan knob (pan lives per-clip; track pan is a Phase 6 candidate);
+  transport meter is horizontal-compact by design — the mixer holds the
+  vertical meters.
+- Verified: p1-mixer PASS — bus meters read signal, fader attenuates
+  (quiet < 0.45×base) AND boosts (loud > 1.2×base), real input event on the
+  fader drives the store, solid clip lands canvas-sized, and the fader
+  survives export: volumedetect shows ~14dB drop between g=1 and g=0.2
+  m4a exports. Suite: 62 unit + 22 cargo + 20/20 e2e + visual GREEN
+  (vr baselines refreshed after the intentional transport-bar additions).
