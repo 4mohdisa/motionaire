@@ -5,6 +5,7 @@ import type {
   Clip,
   Ease,
   Effect,
+  Keyframe,
   EffectType,
   Transform,
   Shape,
@@ -26,7 +27,7 @@ import {
   findClip,
   snapToFrame,
 } from '../engine/time'
-import { resolveProp } from '../engine/keyframes'
+import { presetHandles, resolveProp } from '../engine/keyframes'
 import { expandTextAnimation } from '../engine/textPresets'
 
 const HISTORY_LIMIT = 100
@@ -156,7 +157,27 @@ export interface StoreState {
   // Stopwatch/diamond click: arm with first keyframe, or add/remove at playhead.
   toggleKeyframe: (clipId: string, prop: string) => void
   clearKeyframes: (clipId: string, prop: string) => void
-  setKeyframeEase: (clipId: string, prop: string, t: number, ease: Ease) => void
+  setKeyframeEase: (clipId: string, prop: string, t: number, ease: Ease | 'bezier') => void
+  // Graph editor (pro-editor session, Phase 3).
+  graphOpen: boolean
+  setGraphOpen: (v: boolean) => void
+  moveKeyframes: (
+    clipId: string,
+    moves: { prop: string; fromT: number; toT: number; toV: number }[],
+    transient?: boolean,
+  ) => void
+  deleteKeyframes: (clipId: string, keys: { prop: string; t: number }[]) => void
+  setKeyframeHandle: (
+    clipId: string,
+    prop: string,
+    t: number,
+    which: 'ho' | 'hi',
+    h: [number, number],
+    transient?: boolean,
+  ) => void
+  // Convert a keyframe's outgoing segment to editable bezier (preset eases
+  // become their curve equivalents; spring falls back to thirds-linear).
+  convertToBezier: (clipId: string, prop: string, t: number) => void
 
   // --- transitions & text ---
   setTransition: (clipId: string, edge: 'in' | 'out', transition: Transition | null) => void
@@ -985,6 +1006,98 @@ export const useStore = create<StoreState>()(
             (k) => k.prop === prop && Math.abs(k.t - t) < 1 / p.canvas.fps / 2,
           )
           if (kf) kf.ease = ease
+        }),
+
+      graphOpen: false,
+      setGraphOpen: (v) =>
+        set((s) => {
+          s.graphOpen = v
+        }),
+
+      moveKeyframes: (clipId, moves, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const { clip } = found
+            const fps = p.canvas.fps
+            const dur = clipDuration(clip)
+            const half = 1 / fps / 2
+            // Two-phase: pull the moving keyframes out, then reinsert at
+            // their targets (replacing any non-moving occupant — standard
+            // graph-editor overwrite semantics).
+            const moving: { kf: Keyframe; toT: number; toV: number }[] = []
+            for (const m of moves) {
+              const kf = clip.keyframes.find(
+                (k) => k.prop === m.prop && Math.abs(k.t - m.fromT) < half,
+              )
+              if (!kf) continue
+              moving.push({
+                kf,
+                toT: snapToFrame(Math.min(Math.max(0, m.toT), dur), fps),
+                toV: m.toV,
+              })
+            }
+            const movingSet = new Set(moving.map((m) => m.kf))
+            for (const m of moving) {
+              clip.keyframes = clip.keyframes.filter(
+                (k) =>
+                  movingSet.has(k) ||
+                  k.prop !== m.kf.prop ||
+                  Math.abs(k.t - m.toT) >= half,
+              )
+              m.kf.t = m.toT
+              m.kf.v = m.toV
+            }
+          },
+          { history: transient ? false : true },
+        ),
+
+      deleteKeyframes: (clipId, keys) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const fps = p.canvas.fps
+          found.clip.keyframes = found.clip.keyframes.filter(
+            (k) =>
+              !keys.some((d) => d.prop === k.prop && Math.abs(d.t - k.t) < 1 / fps / 2),
+          )
+        }),
+
+      setKeyframeHandle: (clipId, prop, t, which, h, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const kf = found.clip.keyframes.find(
+              (k) => k.prop === prop && Math.abs(k.t - t) < 1 / p.canvas.fps / 2,
+            )
+            if (!kf) return
+            if (which === 'ho') kf.ho = [Math.max(0, h[0]), h[1]]
+            else kf.hi = [Math.min(0, h[0]), h[1]]
+          },
+          { history: transient ? false : true },
+        ),
+
+      convertToBezier: (clipId, prop, t) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const kfs = found.clip.keyframes
+            .filter((k) => k.prop === prop)
+            .sort((a, b) => a.t - b.t)
+          const i = kfs.findIndex((k) => Math.abs(k.t - t) < 1 / p.canvas.fps / 2)
+          if (i < 0 || i >= kfs.length - 1) return // needs an outgoing segment
+          const k1 = kfs[i]
+          const k2 = kfs[i + 1]
+          if (k1.ease === 'bezier') return
+          const conv = presetHandles(k1.ease, k1, k2) ?? {
+            ho: [(k2.t - k1.t) / 3, (k2.v - k1.v) / 3] as [number, number],
+            hi: [-(k2.t - k1.t) / 3, -(k2.v - k1.v) / 3] as [number, number],
+          }
+          k1.ease = 'bezier'
+          k1.ho = conv.ho
+          k2.hi = conv.hi
         }),
 
       setTransition: (clipId, edge, transition) =>

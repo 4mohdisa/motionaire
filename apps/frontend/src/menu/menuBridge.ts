@@ -1040,8 +1040,9 @@ async function dispatch(action: string, path?: string) {
         const camL = payload.layers.find((l) => l.id === cam.id)!
         const scrL = payload.layers.find((l) => l.id === screen.id)!
         camL.keyframes = [
-          { prop: 'transform.x', t: 0, v: -400, ease: 'linear' },
-          { prop: 'transform.x', t: 3.7, v: 400, ease: 'linear' },
+          // Bezier segment (Phase 3): both resolvers must agree on the cubic.
+          { prop: 'transform.x', t: 0, v: -400, ease: 'bezier', ho: [0.9, 350] },
+          { prop: 'transform.x', t: 3.7, v: 400, ease: 'linear', hi: [-1.4, -80] },
           { prop: 'transform.y', t: 0.3, v: -200, ease: 'easeIn' },
           { prop: 'transform.y', t: 5.1, v: 260, ease: 'easeIn' },
           { prop: 'transform.scale', t: 0, v: 1, ease: 'easeInOut' },
@@ -1820,6 +1821,103 @@ async function dispatch(action: string, path?: string) {
         void report(
           pass,
           `types=${types} legacyGone=${legacyGone} paramsOk=${paramsOk} blendKept=${blendKept} kfs=${kfsRewritten} compositor=${live}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:p3_graph_test': {
+      // Pro-editor Phase 3: the graph editor drives the real store — curves
+      // render, a REAL pointer drag moves a keyframe, bezier conversion
+      // exposes draggable handles, and a handle drag reshapes the curve.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p3-graph', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const cam = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        st().select([cam.id])
+        st().setGraphOpen(true)
+        await wait(300)
+        const svg = document.querySelector<SVGSVGElement>('.graph__svg')
+        const curves = document.querySelectorAll('.graph__curve').length
+        const dots = document.querySelectorAll('.graph__kf').length
+        const kfCount = cam.keyframes.length
+        // Real drag: grab the first keyframe dot, pull it 40px right/up.
+        const dot = document.querySelector<SVGCircleElement>('.graph__kf')
+        let dragOk = false
+        if (dot && svg) {
+          const r = dot.getBoundingClientRect()
+          const cx = r.left + r.width / 2
+          const cy = r.top + r.height / 2
+          const before = JSON.stringify(
+            st()
+              .project.tracks.flatMap((t) => t.clips)
+              .find((c) => c.id === cam.id)!.keyframes,
+          )
+          dot.dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, clientX: cx, clientY: cy }),
+          )
+          window.dispatchEvent(
+            new PointerEvent('pointermove', { clientX: cx + 40, clientY: cy - 25 }),
+          )
+          window.dispatchEvent(new PointerEvent('pointerup', {}))
+          await wait(150)
+          const after = JSON.stringify(
+            st()
+              .project.tracks.flatMap((t) => t.clips)
+              .find((c) => c.id === cam.id)!.keyframes,
+          )
+          dragOk = before !== after
+        }
+        // Bezier conversion + handle drag on transform.scale's first segment.
+        const scaleKfs = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === cam.id)!
+          .keyframes.filter((k) => k.prop === 'transform.scale')
+          .sort((a, b) => a.t - b.t)
+        st().convertToBezier(cam.id, 'transform.scale', scaleKfs[0].t)
+        const converted = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === cam.id)!
+          .keyframes.find((k) => k.prop === 'transform.scale' && k.ease === 'bezier')
+        const { resolveProp } = await import('../engine/keyframes')
+        const clipNow = () =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.id === cam.id)!
+        const midT = (scaleKfs[0].t + scaleKfs[1].t) / 2
+        const beforeShape = resolveProp(clipNow(), 'transform.scale', midT)
+        st().setKeyframeHandle(cam.id, 'transform.scale', scaleKfs[0].t, 'ho', [
+          (scaleKfs[1].t - scaleKfs[0].t) * 0.9,
+          0,
+        ])
+        const afterShape = resolveProp(clipNow(), 'transform.scale', midT)
+        const handleReshapes = Math.abs(afterShape - beforeShape) > 1e-4
+        // Rust accepts the bezier wire: compositor stays live after sync.
+        st().setPlayhead(1)
+        st().play()
+        const live = await (async () => {
+          const t0 = Date.now()
+          while (Date.now() - t0 < 4000) {
+            if (st().compositorActive && st().compositorFps > 5) return true
+            await wait(100)
+          }
+          return false
+        })()
+        st().pause()
+        const pass =
+          !!svg && curves >= 2 && dots === kfCount && dragOk && !!converted &&
+          handleReshapes && live
+        void report(
+          pass,
+          `svg=${!!svg} curves=${curves} dots=${dots}/${kfCount} dragOk=${dragOk} converted=${!!converted} reshapes=${handleReshapes} live=${live}`,
         )
       } catch (e) {
         void report(false, `threw: ${e}`)

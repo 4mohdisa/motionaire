@@ -78,6 +78,8 @@ pub fn demo_project(screen_path: &str, cam_path: &str) -> SyncProject {
         t,
         v,
         ease: "easeInOut".into(),
+        ho: None,
+        hi: None,
     };
     let base_transform = TransformCfg {
         x: 0.0,

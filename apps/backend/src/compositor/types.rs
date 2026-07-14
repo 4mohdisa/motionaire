@@ -180,6 +180,12 @@ pub struct Kf {
     pub t: f64,
     pub v: f64,
     pub ease: String,
+    // Bezier handles (pro-editor session, Phase 3): [dt, dv] relative to the
+    // keyframe. ho = out (left kf of a segment), hi = in (right kf).
+    #[serde(default)]
+    pub ho: Option<[f64; 2]>,
+    #[serde(default)]
+    pub hi: Option<[f64; 2]>,
 }
 
 impl Layer {

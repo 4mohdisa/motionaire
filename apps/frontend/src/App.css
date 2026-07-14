@@ -2233,3 +2233,105 @@
   font-size: 11px;
   color: var(--text-disabled);
 }
+
+/* ---- Keyframe graph editor (pro-editor session, Phase 3) ---- */
+
+.graph {
+  position: relative;
+  border-top: 1px solid var(--border-seam);
+  background: var(--bg-panel);
+}
+
+.graph--empty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text-disabled);
+  display: flex;
+  justify-content: space-between;
+}
+
+.graph__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+}
+
+.graph__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.graph__chip--off {
+  opacity: 0.35;
+}
+
+.graph__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.graph__spacer {
+  flex: 1;
+}
+
+.graph__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.graph__svg {
+  display: block;
+  width: 100%;
+  user-select: none;
+}
+
+.graph__grid {
+  stroke: var(--border-seam);
+  stroke-width: 1;
+}
+
+.graph__tick {
+  fill: var(--text-disabled);
+  font-size: 9px;
+  text-anchor: middle;
+}
+
+.graph__playhead {
+  stroke: var(--danger);
+  stroke-width: 1;
+}
+
+.graph__curve {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.graph__kf {
+  cursor: move;
+  stroke: var(--bg-panel);
+  stroke-width: 1;
+}
+
+.graph__kf--sel {
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+}
+
+.graph__marquee {
+  fill: rgba(80, 140, 255, 0.12);
+  stroke: rgba(80, 140, 255, 0.7);
+  stroke-dasharray: 3 3;
+}

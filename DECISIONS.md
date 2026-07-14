@@ -1710,3 +1710,42 @@ visual = SUITE GREEN.
   keyframed exposure on the second.
 - Gate: 66 unit + 23 cargo + 22/22 e2e (incl. new p2-fx, p2-migration) +
   visual SSIM 1.0 — SUITE GREEN.
+
+## Phase 3 — keyframe graph editor
+
+- **Model**: Keyframe.ease gains 'bezier'; optional ho/hi = [dt, dv] handles
+  relative to the keyframe. A bezier segment reads the LEFT keyframe's
+  out-handle and the RIGHT keyframe's in-handle → cubic in (t, v) space.
+  Handle dt is clamped inside the segment so x(u) stays monotonic — hostile
+  handles cannot fold the curve back in time (unit-tested both sides).
+- **Both resolvers, formula-identical** (the F1 contract): Rust authority
+  (compositor/keyframes.rs bezier_value) and TS mirror (bezierValue) share
+  thirds-defaults, identical clamps, 24-step bisection. The f1 parity
+  fixture now carries a bezier segment with asymmetric handles — both sides
+  agree within the same 2e-3 f32 tolerance as everything else.
+- **Presets become starting points, exactly**: thirds x-spacing makes
+  x(u)=u, so easeIn (t³) and easeOut (1-(1-t)³) convert to bezier handles
+  EXACTLY (y-controls pinned to the endpoint values — proven by unit tests
+  on both sides); easeInOut uses the standard (0.65,0)/(0.35,1)
+  approximation; spring is a damped oscillation and has no cubic
+  equivalent — convertToBezier falls back to thirds-linear for it, the
+  preset itself stays valid forever (logged).
+- **Store surface**: moveKeyframes (multi-move, frame-snap, clamp to clip,
+  overwrite occupants — standard graph-editor semantics), deleteKeyframes,
+  setKeyframeHandle (direction-clamped), convertToBezier (writes k1.ho AND
+  k2.hi), graphOpen. All history-transactional; drags coalesce via
+  beginGesture.
+- **UI** (GraphEditor.tsx, SVG): docked above the timeline, toggled from
+  the toolbar (Spline icon). Value-over-time curves per keyframed property
+  (sampled through the display mirror — Rust stays the render authority),
+  per-prop color chips with visibility toggles, per-prop normalized Y
+  scales, draggable keyframes (single + whole selection), draggable
+  bezier tangents on selected keyframes, box-select marquee, delete, and
+  the playhead line. Speed ramps: 'speed' is just another keyframed prop
+  here — its curve is editable in the same view, no special case.
+- Verified: p3-graph PASS — curves+dots render 1:1 with the model, a REAL
+  pointer drag on a keyframe dot changes the stored keyframes, conversion
+  exposes handles, a handle write reshapes the resolved curve, and the
+  compositor keeps rendering >5fps with bezier keyframes live (Rust accepts
+  the wire). Evidence capture shows four-curve overlay with a selected
+  keyframe. Gate: 74 unit + 24 cargo + 23/23 e2e + visual GREEN.

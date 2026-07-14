@@ -3,6 +3,7 @@ import { useStore } from './store'
 import { createProject, defaultTransform, uid } from '../types/project'
 import type { Clip, MediaAsset, Project } from '../types/project'
 import { clipEnd } from '../engine/time'
+import { resolveProp } from '../engine/keyframes'
 
 // Store-mutation unit tests (pro-editor session, Phase 0). These pin the
 // editing semantics that e2e tests can only sample. View-state setters
@@ -584,5 +585,66 @@ describe('mixer & solids (pro-editor P1)', () => {
     })
     expect(solid.start).toBe(2)
     expect(solid.volume).toBe(0)
+  })
+})
+
+describe('graph editor actions (pro-editor P3)', () => {
+  it('moveKeyframes moves, frame-snaps, clamps, and overwrites occupants', () => {
+    const c = mkClip({
+      start: 0,
+      out: 4,
+      keyframes: [
+        { prop: 'transform.x', t: 1, v: 10, ease: 'linear' },
+        { prop: 'transform.x', t: 2, v: 20, ease: 'linear' },
+      ],
+    })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().moveKeyframes(c.id, [{ prop: 'transform.x', fromT: 1, toT: 2, toV: 99 }])
+    const kfs = clipById(c.id)!.keyframes.filter((k) => k.prop === 'transform.x')
+    expect(kfs).toHaveLength(1) // occupant at t=2 overwritten
+    expect(kfs[0]).toMatchObject({ t: 2, v: 99 })
+    st().moveKeyframes(c.id, [{ prop: 'transform.x', fromT: 2, toT: 99, toV: 1 }])
+    expect(clipById(c.id)!.keyframes[0].t).toBe(4) // clamped to clip duration
+  })
+
+  it('setKeyframeHandle clamps dt direction; deleteKeyframes removes exact keys', () => {
+    const c = mkClip({
+      start: 0,
+      out: 4,
+      keyframes: [
+        { prop: 'volume', t: 1, v: 1, ease: 'linear' },
+        { prop: 'volume', t: 3, v: 0, ease: 'linear' },
+      ],
+    })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().setKeyframeHandle(c.id, 'volume', 1, 'ho', [-5, 0.5])
+    expect(clipById(c.id)!.keyframes[0].ho).toEqual([0, 0.5]) // out dt ≥ 0
+    st().setKeyframeHandle(c.id, 'volume', 3, 'hi', [5, -0.5])
+    expect(clipById(c.id)!.keyframes[1].hi).toEqual([0, -0.5]) // in dt ≤ 0
+    st().deleteKeyframes(c.id, [{ prop: 'volume', t: 1 }])
+    expect(clipById(c.id)!.keyframes).toHaveLength(1)
+  })
+
+  it('convertToBezier turns a preset segment into exact-equivalent handles', () => {
+    const c = mkClip({
+      start: 0,
+      out: 4,
+      keyframes: [
+        { prop: 'transform.x', t: 0, v: 0, ease: 'easeIn' },
+        { prop: 'transform.x', t: 2, v: 100, ease: 'linear' },
+      ],
+    })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().convertToBezier(c.id, 'transform.x', 0)
+    const [k1, k2] = clipById(c.id)!.keyframes
+    expect(k1.ease).toBe('bezier')
+    expect(k1.ho).toEqual([2 / 3, 0]) // easeIn: flat out handle at dt/3
+    expect(k2.hi).toEqual([-2 / 3, -100])
+    // the converted curve still resolves as t³
+    const mid = resolveProp(clipById(c.id)!, 'transform.x', 1)
+    expect(mid).toBeCloseTo(100 * 0.125, 3)
+    // last keyframe: no outgoing segment — no-op
+    st().convertToBezier(c.id, 'transform.x', 2)
+    expect(clipById(c.id)!.keyframes[1].ease).toBe('linear')
   })
 })

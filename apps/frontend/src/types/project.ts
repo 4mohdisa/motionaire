@@ -35,7 +35,12 @@ export interface Keyframe {
   prop: string // e.g. "transform.scale" — clip-relative time in storage
   t: number
   v: number
-  ease: Ease
+  // 'bezier' segments read the LEFT keyframe's out-handle (ho) and the
+  // RIGHT keyframe's in-handle (hi) — [dt, dv] relative to the keyframe
+  // (pro-editor session, Phase 3). Preset eases remain valid forever.
+  ease: Ease | 'bezier'
+  ho?: [number, number] // out handle (dt ≥ 0)
+  hi?: [number, number] // in handle (dt ≤ 0)
 }
 
 export type TransitionType = 'cut' | 'dissolve' | 'fade' | 'slide' | 'wipe'

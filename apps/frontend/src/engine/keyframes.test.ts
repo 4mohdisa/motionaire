@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEase, resolveProp, staticValue } from './keyframes'
+import { applyEase, presetHandles, resolveProp, staticValue } from './keyframes'
 import { mkClip } from './testUtils'
 import type { Ease } from '../types/project'
 
@@ -87,5 +87,62 @@ describe('easings', () => {
         prev = v
       }
     }
+  })
+})
+
+describe('bezier segments (pro-editor P3)', () => {
+  it('thirds handles are exactly linear; mirrors the Rust anchors', () => {
+    const c = mkClip({
+      keyframes: [
+        { prop: 'v', t: 0, v: 0, ease: 'bezier', ho: [1 / 3, 1 / 3] },
+        { prop: 'v', t: 1, v: 1, ease: 'linear', hi: [-1 / 3, -1 / 3] },
+      ],
+    })
+    for (let i = 0; i <= 10; i++) {
+      const x = i / 10
+      expect(resolveProp(c, 'v', x)).toBeCloseTo(x, 5)
+    }
+  })
+
+  it('easeIn preset converts to an EXACT t³ bezier', () => {
+    const k1 = { t: 0, v: 0 }
+    const k2 = { t: 1, v: 1 }
+    const h = presetHandles('easeIn', k1, k2)!
+    const c = mkClip({
+      keyframes: [
+        { prop: 'v', t: 0, v: 0, ease: 'bezier', ho: h.ho },
+        { prop: 'v', t: 1, v: 1, ease: 'linear', hi: h.hi },
+      ],
+    })
+    for (const x of [0.25, 0.5, 0.75]) {
+      expect(resolveProp(c, 'v', x)).toBeCloseTo(x * x * x, 4)
+    }
+  })
+
+  it('easeOut preset converts to an EXACT 1-(1-t)³ bezier', () => {
+    const h = presetHandles('easeOut', { t: 0, v: 0 }, { t: 2, v: 10 })!
+    const c = mkClip({
+      keyframes: [
+        { prop: 'v', t: 0, v: 0, ease: 'bezier', ho: h.ho },
+        { prop: 'v', t: 2, v: 10, ease: 'linear', hi: h.hi },
+      ],
+    })
+    const x = 1.0
+    const u = x / 2
+    expect(resolveProp(c, 'v', x)).toBeCloseTo(10 * (1 - Math.pow(1 - u, 3)), 4)
+  })
+
+  it('hostile handle dt clamps keep the curve finite and monotone in x', () => {
+    const c = mkClip({
+      keyframes: [
+        { prop: 'v', t: 0, v: 0, ease: 'bezier', ho: [99, 5] },
+        { prop: 'v', t: 1, v: 1, ease: 'linear', hi: [99, -5] },
+      ],
+    })
+    expect(Number.isFinite(resolveProp(c, 'v', 0.9))).toBe(true)
+  })
+
+  it('spring has no bezier equivalent', () => {
+    expect(presetHandles('spring', { t: 0, v: 0 }, { t: 1, v: 1 })).toBeNull()
   })
 })

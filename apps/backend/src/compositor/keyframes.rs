@@ -41,12 +41,47 @@ fn resolve(kfs: &[Kf], prop: &str, static_v: f64, t_rel: f64) -> f64 {
     for w in of_prop.windows(2) {
         let (l, r) = (w[0], w[1]);
         if l.t <= t_rel && t_rel <= r.t {
+            if l.ease == "bezier" {
+                return bezier_value(l, r, t_rel);
+            }
             let span = r.t - l.t;
             let p = if span <= 0.0 { 1.0 } else { (t_rel - l.t) / span };
             return l.v + (r.v - l.v) * ease(&l.ease, p);
         }
     }
     last.v
+}
+
+// Cubic bezier segment in (t, v) space (Phase 3). MIRROR CONTRACT: identical
+// to engine/keyframes.ts bezierValue — thirds defaults, dt clamped inside the
+// segment (x(u) monotone), 24-step bisection.
+fn bezier_value(k1: &Kf, k2: &Kf, t_abs: f64) -> f64 {
+    let span = k2.t - k1.t;
+    if span <= 0.0 {
+        return k2.v;
+    }
+    let ho = k1.ho.unwrap_or([span / 3.0, 0.0]);
+    let hi = k2.hi.unwrap_or([-span / 3.0, 0.0]);
+    let x0 = k1.t;
+    let x1 = k1.t + ho[0].clamp(0.0, span);
+    let x2 = k2.t + hi[0].clamp(-span, 0.0);
+    let x3 = k2.t;
+    let (y0, y1, y2, y3) = (k1.v, k1.v + ho[1], k2.v + hi[1], k2.v);
+    let (mut lo, mut hi_u) = (0.0f64, 1.0f64);
+    for _ in 0..24 {
+        let mid = (lo + hi_u) / 2.0;
+        let m = 1.0 - mid;
+        let x = m * m * m * x0 + 3.0 * m * m * mid * x1 + 3.0 * m * mid * mid * x2
+            + mid * mid * mid * x3;
+        if x < t_abs {
+            lo = mid;
+        } else {
+            hi_u = mid;
+        }
+    }
+    let u = (lo + hi_u) / 2.0;
+    let m = 1.0 - u;
+    m * m * m * y0 + 3.0 * m * m * u * y1 + 3.0 * m * u * u * y2 + u * u * u * y3
 }
 
 pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
@@ -151,7 +186,7 @@ mod tests {
     use super::*;
 
     fn kf(prop: &str, t: f64, v: f64, ease: &str) -> Kf {
-        Kf { prop: prop.into(), t, v, ease: ease.into() }
+        Kf { prop: prop.into(), t, v, ease: ease.into(), ho: None, hi: None }
     }
 
     #[test]
@@ -178,8 +213,8 @@ mod tests {
     fn easing_table_matches_ts_mirror() {
         let curve = |ease: &str, x: f64| {
             let kfs = vec![
-                Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: ease.into() },
-                Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "linear".into() },
+                Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: ease.into(), ho: None, hi: None },
+                Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "linear".into(), ho: None, hi: None },
             ];
             resolve(&kfs, "v", 0.0, x)
         };
@@ -194,10 +229,44 @@ mod tests {
     }
 
     #[test]
+    fn bezier_segments_resolve_and_match_thirds_linear() {
+        // Thirds handles == exact linear; asymmetric handles bend the curve.
+        let mk = |t: f64, v: f64, ease: &str, ho: Option<[f64; 2]>, hi: Option<[f64; 2]>| Kf {
+            prop: "v".into(), t, v, ease: ease.into(), ho, hi,
+        };
+        let lin = vec![
+            mk(0.0, 0.0, "bezier", Some([1.0 / 3.0, 1.0 / 3.0]), None),
+            mk(1.0, 1.0, "linear", None, Some([-1.0 / 3.0, -1.0 / 3.0])),
+        ];
+        for i in 0..=10 {
+            let x = i as f64 / 10.0;
+            let v = resolve(&lin, "v", 0.0, x);
+            assert!((v - x).abs() < 1e-5, "thirds linear at {x}: {v}");
+        }
+        // ease-in-shaped: flat out-handle → slow start (value below linear).
+        let eased = vec![
+            mk(0.0, 0.0, "bezier", Some([0.33, 0.0]), None),
+            mk(1.0, 1.0, "linear", None, Some([-0.33, -1.0])),
+        ];
+        let mid = resolve(&eased, "v", 0.0, 0.5);
+        assert!(mid < 0.35, "ease-in bezier mid {mid}");
+        // exact t³ equivalence (Phase 3 conversion contract)
+        let cubed = resolve(&eased, "v", 0.0, 0.5);
+        assert!((cubed - 0.125).abs() < 1e-4, "t^3 via bezier: {cubed}");
+        // dt clamps keep x monotone even with hostile handles
+        let hostile = vec![
+            mk(0.0, 0.0, "bezier", Some([99.0, 5.0]), None),
+            mk(1.0, 1.0, "linear", None, Some([99.0, -5.0])),
+        ];
+        let v = resolve(&hostile, "v", 0.0, 0.9);
+        assert!(v.is_finite());
+    }
+
+    #[test]
     fn left_keyframe_easing_wins() {
         let kfs = vec![
-            Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: "linear".into() },
-            Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "easeIn".into() }, // must be ignored
+            Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: "linear".into(), ho: None, hi: None },
+            Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "easeIn".into(), ho: None, hi: None }, // must be ignored
         ];
         assert!((resolve(&kfs, "v", 0.0, 0.5) - 0.5).abs() < 1e-12);
     }

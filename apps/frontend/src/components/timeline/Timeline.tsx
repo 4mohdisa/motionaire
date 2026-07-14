@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Ellipsis,
+import { Ellipsis,
   Eye,
   EyeOff,
   Headphones,
@@ -13,6 +12,7 @@ import {
   Volume2,
   VolumeX,
   ZoomIn,
+  Spline,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
@@ -256,6 +256,12 @@ function Timeline() {
           />
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
+        <IconBtn
+          icon={Spline}
+          label="Keyframe graph editor"
+          active={useStore.getState().graphOpen}
+          onClick={() => useStore.getState().setGraphOpen(!useStore.getState().graphOpen)}
+        />
         <button
           className="chip chip--mode"
           title="Drop behavior: Insert pushes clips right; Overwrite replaces what's underneath"
