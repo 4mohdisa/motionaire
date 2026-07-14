@@ -1924,6 +1924,122 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p4_trim_test': {
+      // Pro-editor Phase 4: the four trim tools driven through REAL pointer
+      // drags on timeline clip blocks, plus track targeting. Semantics are
+      // pinned exactly by the unit suite; this proves the tool dispatch.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p4-trim', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const { clipEnd: cEnd } = await import('../engine/time')
+        // Build A|B|C by splitting the screen clip (10s on V1).
+        const v1 = st().project.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)[0]
+        const base = v1.clips[0]
+        st().splitClip(base.id, 3)
+        const b0 = [...st().project.tracks.flatMap((t) => t.clips)].find(
+          (c) => Math.abs(c.start - 3) < 0.05 && c.mediaId === base.mediaId,
+        )!
+        st().splitClip(b0.id, 6)
+        const clipsOf = () =>
+          st()
+            .project.tracks.find((t) => t.id === v1.id)!
+            .clips.slice()
+            .sort((x, y) => x.start - y.start)
+        await wait(300) // let the timeline render the split blocks
+        const [, B] = clipsOf()
+        const blockOf = (id: string) =>
+          document.querySelector<HTMLElement>(`[data-clip-id="${id}"]`)!
+        const drag = async (el: HTMLElement, fromX: number, y: number, dx: number) => {
+          el.dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, clientX: fromX, clientY: y }),
+          )
+          // two moves: cross the 4px threshold, then the real target
+          window.dispatchEvent(new PointerEvent('pointermove', { clientX: fromX + 6, clientY: y }))
+          window.dispatchEvent(new PointerEvent('pointermove', { clientX: fromX + dx, clientY: y }))
+          window.dispatchEvent(new PointerEvent('pointerup', {}))
+          await wait(120)
+        }
+        const pps = st().pxPerSec
+
+        // RIPPLE: drag B's out edge 1s left → C follows, no gap.
+        st().setTool('ripple')
+        let r = blockOf(B.id).getBoundingClientRect()
+        let yMid = r.top + r.height / 2
+        await drag(blockOf(B.id), r.right - 3, yMid, -pps)
+        const afterRipple = clipsOf()
+        const rippleOk =
+          Math.abs(cEnd(afterRipple[1]) - 5) < 0.15 &&
+          Math.abs(afterRipple[2].start - 5) < 0.15
+        // restore for the next tool: undo the whole gesture, then let the
+        // timeline re-render before measuring rects (stale-rect trap).
+        st().undo()
+        await wait(200)
+
+        // ROLL: drag B's out edge 1s right → boundary 6→7, duration fixed.
+        st().setTool('roll')
+        const durBefore = st().project.duration
+        r = blockOf(B.id).getBoundingClientRect()
+        yMid = r.top + r.height / 2
+        await drag(blockOf(B.id), r.right - 3, yMid, pps)
+        const afterRoll = clipsOf()
+        const rollDbg = `[roll C.start=${afterRoll[2].start.toFixed(2)} dur=${st().project.duration.toFixed(2)}/${durBefore.toFixed(2)} Bend=${cEnd(afterRoll[1]).toFixed(2)}]`
+        const rollOk =
+          Math.abs(afterRoll[2].start - 7) < 0.15 &&
+          Math.abs(st().project.duration - durBefore) < 1e-6
+        st().undo()
+        await wait(200)
+
+        // SLIP: drag B's body right 1s → in/out shift EARLIER, start fixed.
+        st().setTool('slip')
+        const bBefore = { ...clipsOf()[1] }
+        r = blockOf(B.id).getBoundingClientRect()
+        yMid = r.top + r.height / 2
+        await drag(blockOf(B.id), r.left + r.width / 2, yMid, pps)
+        const bSlip = clipsOf()[1]
+        const slipOk =
+          Math.abs(bSlip.start - bBefore.start) < 1e-6 &&
+          Math.abs(bSlip.in - (bBefore.in - 1)) < 0.15 &&
+          Math.abs(bSlip.out - bBefore.out - (bSlip.in - bBefore.in)) < 1e-6
+        st().undo()
+        await wait(200)
+
+        // SLIDE: drag B's body right 1s → B moves, A extends, C's head trims.
+        st().setTool('slide')
+        r = blockOf(B.id).getBoundingClientRect()
+        yMid = r.top + r.height / 2
+        await drag(blockOf(B.id), r.left + r.width / 2, yMid, pps)
+        const afterSlide = clipsOf()
+        const slideOk =
+          Math.abs(afterSlide[1].start - 4) < 0.15 &&
+          Math.abs(cEnd(afterSlide[0]) - afterSlide[1].start) < 0.05 &&
+          Math.abs(cEnd(afterSlide[2]) - 10) < 0.05
+        st().setTool('select')
+
+        // TARGETING: mark V2 targeted; a laneless insert lands there.
+        const v2 = st().project.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)[0]
+        st().setTrackFlag(v2.id, 'targeted', true)
+        const media = st().project.media[0]
+        st().setEditMode('overwrite')
+        st().insertClipAt(media.id, null, 20, { in: 0, out: 1 })
+        const landed = st()
+          .project.tracks.find((t) => t.id === v2.id)!
+          .clips.some((c) => Math.abs(c.start - 20) < 0.05)
+
+        const pass = rippleOk && rollOk && slipOk && slideOk && landed
+        void report(
+          pass,
+          `ripple=${rippleOk} roll=${rollOk} ${rollDbg} slip=${slipOk} slide=${slideOk} targeted=${landed}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

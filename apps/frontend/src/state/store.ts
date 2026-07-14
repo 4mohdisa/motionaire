@@ -143,6 +143,17 @@ export interface StoreState {
     transient?: boolean,
   ) => void
   trimClip: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
+  // Professional trim tools (pro-editor session, Phase 4). Exact semantics:
+  // ripple = trim an edge and shift EVERYTHING downstream on sync-locked
+  // tracks (no gap); roll = move the cut between two adjacent clips (total
+  // duration unchanged); slip = shift a clip's source window without moving
+  // it on the timeline; slide = move a clip while adjacent neighbors absorb.
+  rippleTrim: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
+  rollEdit: (leftClipId: string, timelineTime: number, transient?: boolean) => void
+  slipClip: (clipId: string, deltaSrc: number, transient?: boolean) => void
+  slideClip: (clipId: string, deltaT: number, transient?: boolean) => void
+  tool: 'select' | 'ripple' | 'roll' | 'slip' | 'slide'
+  setTool: (t: 'select' | 'ripple' | 'roll' | 'slip' | 'slide') => void
   splitClip: (clipId: string, at: number) => void
   splitAtPlayhead: () => void
   deleteClips: (ids: string[]) => void
@@ -253,7 +264,11 @@ export interface StoreState {
   // --- tracks (session 9, Phase 3) ---
   addTrack: (kind: 'video' | 'audio') => void
   renameTrack: (trackId: string, name: string) => void
-  setTrackFlag: (trackId: string, flag: 'muted' | 'solo' | 'locked' | 'hidden', v: boolean) => void
+  setTrackFlag: (
+    trackId: string,
+    flag: 'muted' | 'solo' | 'locked' | 'hidden' | 'targeted' | 'syncLocked',
+    v: boolean,
+  ) => void
   setTrackGain: (trackId: string, v: number) => void
   // Color matte (pro-editor session, Phase 1): a canvas-sized solid — title
   // cards, backgrounds. Rides the existing shape/raster path.
@@ -477,7 +492,9 @@ export const useStore = create<StoreState>()(
             delete copy.linkId // pasted halves aren't linked to originals
             const kind: 'video' | 'audio' = copy.kind === 'audio' ? 'audio' : 'video'
             const track =
-              p.tracks.find((t) => t.kind === kind && !t.locked) ?? undefined
+              p.tracks.find((t) => t.kind === kind && t.targeted && !t.locked) ??
+              p.tracks.find((t) => t.kind === kind && !t.locked) ??
+              undefined
             if (!track) continue
             const dur = clipDuration(copy)
             const desired = at + (src.start - minStart)
@@ -588,7 +605,11 @@ export const useStore = create<StoreState>()(
           // Wrong-kind lane (or no lane): fall back to the first matching track.
           let track = trackId ? p.tracks.find((t) => t.id === trackId) : undefined
           if (!track || track.kind !== asset.kind || track.locked)
-            track = p.tracks.find((t) => t.kind === asset.kind && !t.locked)
+            track =
+              // Track targeting (Phase 4): targeted lane wins when no
+              // explicit lane was given.
+              p.tracks.find((t) => t.kind === asset.kind && t.targeted && !t.locked) ??
+              p.tracks.find((t) => t.kind === asset.kind && !t.locked)
           if (!track) return
           const still = /\.(png|jpe?g)$/i.test(asset.path)
           const inPt = range ? Math.max(0, range.in) : 0
@@ -778,6 +799,235 @@ export const useStore = create<StoreState>()(
           },
           { history: transient ? false : true },
         ),
+
+      // ---- Phase 4 trim tools ----
+
+      rippleTrim: (clipId, edge, timelineTime, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const { clip, track } = found
+            const fps = p.canvas.fps
+            const minDur = 1 / fps
+            const oldStart = clip.start
+            const oldEnd = clipEnd(clip)
+            const t = snapToFrame(timelineTime, fps)
+            // The edit point everything downstream is measured from.
+            const point = edge === 'out' ? oldEnd : oldStart
+
+            // 1. Desired delta from the edge trim, clamped by media/minDur.
+            let delta: number
+            if (edge === 'out') {
+              let newEnd = Math.max(oldStart + minDur, t)
+              if (clip.mediaId) {
+                const asset = p.media.find((m) => m.id === clip.mediaId)
+                const maxEnd = asset
+                  ? oldStart + (asset.duration - clip.in) / clip.speed
+                  : newEnd
+                newEnd = Math.min(newEnd, maxEnd)
+              }
+              delta = snapToFrame(newEnd, fps) - oldEnd
+            } else {
+              let newStart = Math.min(t, oldEnd - minDur)
+              if (clip.mediaId) newStart = Math.max(newStart, oldStart - clip.in / clip.speed)
+              newStart = Math.max(0, snapToFrame(newStart, fps))
+              // ripple-in: downstream shifts by -(newStart - oldStart)
+              delta = -(newStart - oldStart)
+            }
+            if (Math.abs(delta) < 1e-9) return
+
+            // 2. Downstream = clips starting at/after the edit point on this
+            // track and every sync-locked unlocked track. Left-shifts clamp
+            // against straddlers so the ripple hits a wall instead of
+            // overlapping (all tracks share ONE clamped delta — sync).
+            const participates = (tr: Track) =>
+              tr === track || ((tr.syncLocked ?? true) && !tr.locked)
+            if (delta < 0) {
+              let maxShift = -delta
+              // Per participating track: the first downstream clip may shift
+              // left until it touches the latest non-downstream clip end
+              // (straddlers/predecessors form the wall); the edited track's
+              // wall includes the freshly trimmed edge. One shared clamped
+              // delta keeps every track in sync.
+              for (const tr of p.tracks) {
+                if (!participates(tr)) continue
+                const downstream = tr.clips
+                  .filter((c) => c.id !== clip.id && c.start >= point - 1e-6)
+                  .sort((a, b) => a.start - b.start)
+                if (!downstream.length) continue
+                const firstStart = downstream[0].start
+                let wall = 0
+                for (const c of tr.clips) {
+                  if (c.id === clip.id || c.start >= point - 1e-6) continue
+                  wall = Math.max(wall, clipEnd(c))
+                }
+                if (tr === track && edge === 'out') wall = Math.max(wall, oldEnd + delta)
+                if (tr === track && edge === 'in') wall = Math.max(wall, 0)
+                maxShift = Math.min(maxShift, Math.max(0, firstStart - wall))
+              }
+              delta = -maxShift
+              if (maxShift < 1e-9) return
+            }
+
+            // 3. Apply the edge trim with the FINAL clamped delta.
+            if (edge === 'out') {
+              if (clip.mediaId) clip.out = clip.in + (oldEnd + delta - oldStart) * clip.speed
+              else clip.out = (oldEnd + delta - oldStart) * clip.speed
+              clip.keyframes = clip.keyframes.filter((k) => k.t <= oldEnd + delta - oldStart + 1e-6)
+            } else {
+              // Ripple-in: the head is trimmed AND the gap closes into the
+              // clip — its start stays anchored; only the source window and
+              // keyframes shift (content moves left on the timeline).
+              const shift = -delta
+              if (clip.mediaId) clip.in += shift * clip.speed
+              else clip.out -= shift * clip.speed
+              clip.keyframes = clip.keyframes
+                .map((k) => ({ ...k, t: k.t - shift }))
+                .filter((k) => k.t >= -1e-6)
+            }
+
+            // 4. Shift downstream.
+            for (const tr of p.tracks) {
+              if (!participates(tr)) continue
+              for (const c of tr.clips) {
+                if (c.id === clip.id) continue
+                if (c.start >= point - 1e-6) c.start = snapToFrame(c.start + delta, fps)
+              }
+            }
+          },
+          { history: transient ? false : true },
+        ),
+
+      rollEdit: (leftClipId, timelineTime, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, leftClipId)
+            if (!found || found.track.locked) return
+            const { clip: left, track } = found
+            const fps = p.canvas.fps
+            const minDur = 1 / fps
+            const boundary = clipEnd(left)
+            const right = track.clips.find(
+              (c) => c.id !== left.id && Math.abs(c.start - boundary) < 1 / fps / 2,
+            )
+            if (!right) return // roll needs an adjacent cut
+
+            let b = snapToFrame(timelineTime, fps)
+            // Clamps: min durations + both media bounds.
+            b = Math.max(b, left.start + minDur)
+            b = Math.min(b, clipEnd(right) - minDur)
+            if (left.mediaId) {
+              const asset = p.media.find((m) => m.id === left.mediaId)
+              if (asset) b = Math.min(b, left.start + (asset.duration - left.in) / left.speed)
+            }
+            if (right.mediaId) b = Math.max(b, right.start - right.in / right.speed)
+            b = snapToFrame(b, fps)
+            const delta = b - boundary
+            if (Math.abs(delta) < 1e-9) return
+
+            // Left keeps its start; its out point moves.
+            if (left.mediaId) left.out += delta * left.speed
+            else left.out = (b - left.start) * left.speed
+            left.keyframes = left.keyframes.filter((k) => k.t <= b - left.start + 1e-6)
+            // Right's in-edge moves; keyframes hold absolute positions.
+            if (right.mediaId) right.in += delta * right.speed
+            else right.out -= delta * right.speed
+            right.start = b
+            right.keyframes = right.keyframes
+              .map((k) => ({ ...k, t: k.t - delta }))
+              .filter((k) => k.t >= -1e-6)
+          },
+          { history: transient ? false : true },
+        ),
+
+      slipClip: (clipId, deltaSrc, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const { clip } = found
+            if (!clip.mediaId) return // only source-backed clips can slip
+            const asset = p.media.find((m) => m.id === clip.mediaId)
+            if (!asset) return
+            // Shift the source window; timeline position/duration UNCHANGED.
+            const d = Math.max(-clip.in, Math.min(deltaSrc, asset.duration - clip.out))
+            if (Math.abs(d) < 1e-9) return
+            clip.in += d
+            clip.out += d
+            // Keyframes are clip-relative → untouched, exactly as slip demands.
+          },
+          { history: transient ? false : true },
+        ),
+
+      slideClip: (clipId, deltaT, transient) =>
+        mutateProject(
+          (p) => {
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const { clip, track } = found
+            const fps = p.canvas.fps
+            const minDur = 1 / fps
+            const half = 1 / fps / 2
+            const start = clip.start
+            const end = clipEnd(clip)
+            const leftN = track.clips
+              .filter((c) => c.id !== clip.id && clipEnd(c) <= start + half)
+              .sort((a, b) => clipEnd(b) - clipEnd(a))[0]
+            const rightN = track.clips
+              .filter((c) => c.id !== clip.id && c.start >= end - half)
+              .sort((a, b) => a.start - b.start)[0]
+            const leftAdj = !!leftN && Math.abs(clipEnd(leftN) - start) < half
+            const rightAdj = !!rightN && Math.abs(rightN.start - end) < half
+
+            let d = deltaT
+            // Left side: adjacent neighbor's out-edge absorbs (media + minDur
+            // limits); with a gap, sliding left stops at the neighbor's end.
+            if (d > 0) {
+              if (leftAdj && leftN.mediaId) {
+                const asset = p.media.find((m) => m.id === leftN.mediaId)
+                if (asset)
+                  d = Math.min(d, (asset.duration - leftN.out) / leftN.speed)
+              }
+              if (rightAdj) d = Math.min(d, clipDuration(rightN) - minDur)
+              else if (rightN) d = Math.min(d, rightN.start - end)
+            } else {
+              if (leftAdj) d = Math.max(d, -(clipDuration(leftN) - minDur))
+              else if (leftN) d = Math.max(d, clipEnd(leftN) - start)
+              else d = Math.max(d, -start)
+              if (rightAdj && rightN.mediaId) {
+                d = Math.max(d, -(rightN.in / rightN.speed))
+              }
+            }
+            d = snapToFrame(clip.start + d, fps) - clip.start
+            if (Math.abs(d) < 1e-9) return
+
+            clip.start = snapToFrame(clip.start + d, fps)
+            if (leftAdj) {
+              if (leftN.mediaId) leftN.out += d * leftN.speed
+              else leftN.out = (clip.start - leftN.start) * leftN.speed
+              leftN.keyframes = leftN.keyframes.filter(
+                (k) => k.t <= clip.start - leftN.start + 1e-6,
+              )
+            }
+            if (rightAdj) {
+              const shift = d
+              if (rightN.mediaId) rightN.in += shift * rightN.speed
+              else rightN.out -= shift * rightN.speed
+              rightN.start = snapToFrame(rightN.start + shift, fps)
+              rightN.keyframes = rightN.keyframes
+                .map((k) => ({ ...k, t: k.t - shift }))
+                .filter((k) => k.t >= -1e-6)
+            }
+          },
+          { history: transient ? false : true },
+        ),
+
+      tool: 'select',
+      setTool: (t) =>
+        set((s) => {
+          s.tool = t
+        }),
 
       splitClip: (clipId, at) =>
         mutateProject((p) => {

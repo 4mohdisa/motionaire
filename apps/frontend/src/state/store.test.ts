@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useStore } from './store'
 import { createProject, defaultTransform, uid } from '../types/project'
 import type { Clip, MediaAsset, Project } from '../types/project'
-import { clipEnd } from '../engine/time'
+import { clipDuration, clipEnd } from '../engine/time'
 import { resolveProp } from '../engine/keyframes'
 
 // Store-mutation unit tests (pro-editor session, Phase 0). These pin the
@@ -646,5 +646,154 @@ describe('graph editor actions (pro-editor P3)', () => {
     // last keyframe: no outgoing segment — no-op
     st().convertToBezier(c.id, 'transform.x', 2)
     expect(clipById(c.id)!.keyframes[1].ease).toBe('linear')
+  })
+})
+
+describe('trim tools — exact semantics (pro-editor P4)', () => {
+  // Fixture: A[0..4) B[4..8) C[8..12) on V1, X[5..9) on V2 (media dur 60).
+  const abc = () => {
+    const A = mkClip({ start: 0, in: 10, out: 14 })
+    const B = mkClip({ start: 4, in: 20, out: 24 })
+    const C = mkClip({ start: 8, in: 30, out: 34 })
+    const X = mkClip({ start: 5, in: 0, out: 4 })
+    fresh((p) => {
+      p.tracks[1].clips.push(A, B, C)
+      p.tracks[0].clips.push(X)
+    })
+    return { A, B, C, X }
+  }
+
+  it('ripple-out shortens the clip and closes the gap on ALL sync-locked tracks', () => {
+    const { A, B, C, X } = abc()
+    st().rippleTrim(A.id, 'out', 3) // A ends 4 → 3, delta -1
+    expect(clipEnd(clipById(A.id)!)).toBeCloseTo(3, 6)
+    expect(clipById(A.id)!.out).toBeCloseTo(13, 6) // source out follows
+    expect(clipById(B.id)!.start).toBeCloseTo(3, 6) // downstream shifted
+    expect(clipById(C.id)!.start).toBeCloseTo(7, 6)
+    expect(clipById(X.id)!.start).toBeCloseTo(4, 6) // other track ripples too
+    expect(st().project.duration).toBeCloseTo(11, 6) // total shrank by 1
+  })
+
+  it('ripple-out respects sync lock OFF: other track holds still', () => {
+    const { A, B, X } = abc()
+    st().setTrackFlag(st().project.tracks[0].id, 'syncLocked', false)
+    st().rippleTrim(A.id, 'out', 3)
+    expect(clipById(B.id)!.start).toBeCloseTo(3, 6)
+    expect(clipById(X.id)!.start).toBeCloseTo(5, 6) // untouched
+  })
+
+  it('ripple-out left-shift clamps at a straddler wall instead of overlapping', () => {
+    const A2 = mkClip({ start: 0, in: 10, out: 14 })
+    const B2 = mkClip({ start: 4, in: 20, out: 24 })
+    fresh((p) => void p.tracks[1].clips.push(A2, B2))
+    // No cross-track blockers: the full -3s ripple applies.
+    st().rippleTrim(A2.id, 'out', 1)
+    expect(clipById(B2.id)!.start).toBeCloseTo(1, 6)
+    // Now a real wall: C3 downstream on V2 with a straddler in front of it.
+    const A3 = mkClip({ start: 0, in: 10, out: 14 })
+    const B3 = mkClip({ start: 4, in: 20, out: 24 })
+    const S3 = mkClip({ start: 3, in: 0, out: 2 }) // [3..5) straddles point 4
+    const D3 = mkClip({ start: 6, in: 0, out: 1 }) // downstream on V2, wall at 5
+    fresh((p) => {
+      p.tracks[1].clips.push(A3, B3)
+      p.tracks[0].clips.push(S3, D3)
+    })
+    st().rippleTrim(A3.id, 'out', 1) // wants -3; V2 allows D3 only 6→5 (-1)
+    expect(clipEnd(clipById(A3.id)!)).toBeCloseTo(3, 6) // clamped to -1
+    expect(clipById(B3.id)!.start).toBeCloseTo(3, 6)
+    expect(clipById(D3.id)!.start).toBeCloseTo(5, 6) // touches the straddler
+    expect(clipById(S3.id)!.start).toBeCloseTo(3, 6) // straddler never moves
+  })
+
+  it('ripple-in trims the head and pulls everything left', () => {
+    const { A, B, C } = abc()
+    st().rippleTrim(B.id, 'in', 5) // B loses 1s of head
+    const b = clipById(B.id)!
+    expect(b.start).toBeCloseTo(4, 6) // starts where it used to (gap closed)
+    expect(b.in).toBeCloseTo(21, 6) // source head trimmed
+    expect(clipEnd(b)).toBeCloseTo(7, 6)
+    expect(clipById(C.id)!.start).toBeCloseTo(7, 6)
+    expect(clipById(A.id)!.start).toBeCloseTo(0, 6) // upstream untouched
+  })
+
+  it('roll moves the cut point; total duration NEVER changes', () => {
+    const { A, B, C } = abc()
+    const before = st().project.duration
+    st().rollEdit(A.id, 5) // boundary 4 → 5
+    const a = clipById(A.id)!
+    const b = clipById(B.id)!
+    expect(clipEnd(a)).toBeCloseTo(5, 6)
+    expect(a.out).toBeCloseTo(15, 6) // A reveals one more source second
+    expect(b.start).toBeCloseTo(5, 6)
+    expect(b.in).toBeCloseTo(21, 6) // B loses one source second at the head
+    expect(clipEnd(b)).toBeCloseTo(8, 6) // B's end NEVER moves
+    expect(clipById(C.id)!.start).toBeCloseTo(8, 6) // C untouched
+    expect(st().project.duration).toBeCloseTo(before, 6)
+  })
+
+  it('roll clamps at source exhaustion and refuses without an adjacent cut', () => {
+    const A = mkClip({ start: 0, in: 58, out: 60 }) // only 0 tail room (media 60)
+    const B = mkClip({ start: 2, in: 0, out: 4 })
+    const lone = mkClip({ start: 10, in: 0, out: 2 })
+    fresh((p) => void p.tracks[1].clips.push(A, B, lone))
+    st().rollEdit(A.id, 3.5) // A has no source past out=60 → no movement
+    expect(clipEnd(clipById(A.id)!)).toBeCloseTo(2, 6)
+    st().rollEdit(lone.id, 11) // no adjacent right clip → no-op
+    expect(clipById(lone.id)!.out).toBeCloseTo(2, 6)
+  })
+
+  it('slip shifts ONLY the source window — timeline, duration, keyframes fixed', () => {
+    const A = mkClip({
+      start: 2,
+      in: 5,
+      out: 9,
+      keyframes: [{ prop: 'transform.x', t: 1, v: 50, ease: 'linear' }],
+    })
+    fresh((p) => void p.tracks[1].clips.push(A))
+    st().slipClip(A.id, 3)
+    const a = clipById(A.id)!
+    expect(a.start).toBe(2)
+    expect(a.in).toBeCloseTo(8, 6)
+    expect(a.out).toBeCloseTo(12, 6)
+    expect(clipDuration(a)).toBeCloseTo(4, 6)
+    expect(a.keyframes[0].t).toBe(1) // untouched — slip changes content only
+    // clamps: media is 60s; slipping far right pins out at 60
+    st().slipClip(A.id, 500)
+    expect(clipById(A.id)!.out).toBeCloseTo(60, 6)
+    expect(clipById(A.id)!.in).toBeCloseTo(56, 6)
+    st().slipClip(A.id, -500) // and left pins in at 0
+    expect(clipById(A.id)!.in).toBeCloseTo(0, 6)
+    expect(clipById(A.id)!.out).toBeCloseTo(4, 6)
+  })
+
+  it('slide moves the clip while adjacent neighbors absorb; total duration fixed', () => {
+    const A = mkClip({ start: 0, in: 10, out: 14 })
+    const B = mkClip({ start: 4, in: 20, out: 24 })
+    const C = mkClip({ start: 8, in: 30, out: 34 })
+    fresh((p) => void p.tracks[1].clips.push(A, B, C))
+    const before = st().project.duration
+    st().slideClip(B.id, 1)
+    const a = clipById(A.id)!
+    const b = clipById(B.id)!
+    const c = clipById(C.id)!
+    expect(b.start).toBeCloseTo(5, 6)
+    expect(b.in).toBeCloseTo(20, 6) // B's CONTENT untouched
+    expect(clipEnd(a)).toBeCloseTo(5, 6) // A extended behind B
+    expect(a.out).toBeCloseTo(15, 6)
+    expect(c.start).toBeCloseTo(9, 6) // C's head trimmed in front
+    expect(c.in).toBeCloseTo(31, 6)
+    expect(clipEnd(c)).toBeCloseTo(12, 6) // C's end NEVER moves
+    expect(st().project.duration).toBeCloseTo(before, 6)
+  })
+
+  it('slide with a gap on one side absorbs into the gap without trimming', () => {
+    const A = mkClip({ start: 0, in: 10, out: 14 })
+    const B = mkClip({ start: 6, in: 20, out: 24 }) // 2s gap behind B
+    fresh((p) => void p.tracks[1].clips.push(A, B))
+    st().slideClip(B.id, -1) // slides into the gap
+    expect(clipById(B.id)!.start).toBeCloseTo(5, 6)
+    expect(clipEnd(clipById(A.id)!)).toBeCloseTo(4, 6) // A untouched (gap side)
+    st().slideClip(B.id, -5) // wants past A's end; clamps at contact
+    expect(clipById(B.id)!.start).toBeCloseTo(4, 6)
   })
 })

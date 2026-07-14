@@ -44,6 +44,27 @@ export function useShortcuts() {
       if (mod) return
 
       switch (e.key) {
+        // Tool selection (Phase 4) — Premiere muscle-memory mapping.
+        case 'v':
+        case 'V':
+          s.setTool('select')
+          break
+        case 'b':
+        case 'B':
+          s.setTool('ripple')
+          break
+        case 'n':
+        case 'N':
+          s.setTool('roll')
+          break
+        case 'y':
+        case 'Y':
+          s.setTool('slip')
+          break
+        case 'u':
+        case 'U':
+          s.setTool('slide')
+          break
         case ' ':
           e.preventDefault()
           s.togglePlay()

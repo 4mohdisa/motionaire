@@ -1749,3 +1749,49 @@ visual = SUITE GREEN.
   compositor keeps rendering >5fps with bezier keyframes live (Rust accepts
   the wire). Evidence capture shows four-curve overlay with a selected
   keyframe. Gate: 74 unit + 24 cargo + 23/23 e2e + visual GREEN.
+
+## Phase 4 — professional trim tools
+
+- **Exact semantics, pinned by unit tests against known-correct outputs**
+  (the plan's warning taken literally — an almost-correct slip corrupts
+  edits silently):
+  - **Ripple** (rippleTrim): trim an edge, close the gap — everything
+    starting at/after the edit point shifts on the edited track AND every
+    sync-locked unlocked track, by ONE shared delta. Left-shifts clamp at
+    a per-track wall (latest non-downstream clip end — straddlers never
+    move, nothing ever overlaps; the drag hits a wall instead of failing).
+    Ripple-in keeps the clip's START anchored (the gap closes INTO it);
+    source window and keyframes shift. Found by the test suite: my first
+    implementation moved the clip right then shifted it back — the test
+    demanded start==4 and caught it.
+  - **Roll** (rollEdit): moves the cut between two frame-adjacent clips;
+    left clip's out-point and right clip's in-point/start move together;
+    right clip's END and everything else NEVER move; clamps at both media
+    bounds and min durations; refuses without an adjacent cut. Total
+    duration provably unchanged.
+  - **Slip** (slipClip): source window shifts, clamped to [0, media
+    duration]; timeline position, duration, and keyframes untouched —
+    EXACTLY nothing else.
+  - **Slide** (slideClip): the clip moves; an ADJACENT left neighbor's
+    out-edge extends/shrinks behind it, an ADJACENT right neighbor's
+    head is trimmed in front (its end never moves); a gap side absorbs
+    into the gap without trimming and clamps at contact. Total duration
+    unchanged in the contiguous case.
+- **Track targeting**: track.targeted; laneless inserts (source monitor
+  add, paste) land on the targeted track of the right kind first,
+  falling back to the previous first-match. Crosshair toggle per track.
+- **Sync lock**: track.syncLocked, DEFAULT TRUE (Premiere semantics);
+  ripple participation is opt-out per track (Link2 toggle). Unit-tested
+  both ways.
+- **Tool UI**: V/B/N/Y/U shortcuts (select/ripple/roll/slip/slide — the
+  standard mapping) + toolbar chips; ClipBlock dispatches drags by tool:
+  edges → ripple/roll (in-edge rolls the boundary with the PREVIOUS clip),
+  body → slip (drag right = earlier source, standard feel) / slide.
+  Slip/slide drags send increments against current state so the store's
+  internal clamps hold across the gesture.
+- Break-testing: the e2e (REAL pointer drags on clip blocks) caught the
+  stale-rect trap — querying a block's rect immediately after undo() reads
+  the pre-render layout, landing the pointer in the body instead of the
+  edge; roll silently no-ops on a body drag (as designed). House rule:
+  after any store write that reshapes the DOM, settle before measuring.
+- Gate: 83 unit + 24 cargo + 24/24 e2e + visual GREEN.

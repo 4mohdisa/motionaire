@@ -2335,3 +2335,33 @@
   stroke: rgba(80, 140, 255, 0.7);
   stroke-dasharray: 3 3;
 }
+
+/* ---- Trim tool chips + track targeting (pro-editor session, Phase 4) ---- */
+
+.toolchips {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 4px;
+}
+
+.toolchip {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--border-seam);
+  border-radius: 4px;
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.toolchip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.th__btn--target {
+  color: var(--accent);
+}

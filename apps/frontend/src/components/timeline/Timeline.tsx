@@ -13,6 +13,9 @@ import { Ellipsis,
   VolumeX,
   ZoomIn,
   Spline,
+  Crosshair,
+  Link2,
+  Link2Off,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
@@ -256,6 +259,7 @@ function Timeline() {
           />
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
+        <ToolChips />
         <IconBtn
           icon={Spline}
           label="Keyframe graph editor"
@@ -461,8 +465,8 @@ function TrackHeader({ track, height }: { track: Track; height: number }) {
     window.addEventListener('pointerup', up)
   }
 
-  const flag = (f: 'muted' | 'solo' | 'locked' | 'hidden') =>
-    useStore.getState().setTrackFlag(track.id, f, !track[f])
+  const flag = (f: 'muted' | 'solo' | 'locked' | 'hidden' | 'targeted' | 'syncLocked') =>
+    useStore.getState().setTrackFlag(track.id, f, !(track[f] ?? (f === 'syncLocked' ? true : false)))
 
   return (
     <div
@@ -525,8 +529,55 @@ function TrackHeader({ track, height }: { track: Track; height: number }) {
         >
           {track.locked ? <Lock size={12} /> : <LockOpen size={12} />}
         </button>
+        {/* Phase 4: targeting (insert/paste land here) + sync lock (ripples
+            started on other tracks move this one too — default ON). */}
+        <button
+          className={`th__btn${track.targeted ? ' th__btn--target' : ''}`}
+          title={track.targeted ? 'Untarget (inserts stop landing here)' : 'Target track for insert/paste'}
+          onClick={() => flag('targeted')}
+        >
+          <Crosshair size={12} />
+        </button>
+        <button
+          className={`th__btn${(track.syncLocked ?? true) ? '' : ' th__btn--on'}`}
+          title={
+            (track.syncLocked ?? true)
+              ? 'Sync lock ON: ripples on other tracks move this one'
+              : 'Sync lock OFF: this track ignores ripples from other tracks'
+          }
+          onClick={() => flag('syncLocked')}
+        >
+          {(track.syncLocked ?? true) ? <Link2 size={12} /> : <Link2Off size={12} />}
+        </button>
       </span>
     </div>
+  )
+}
+
+// Phase 4 tool selector — V/B/N/Y/U shortcuts mirror these chips.
+function ToolChips() {
+  const tool = useStore((s) => s.tool)
+  const { setTool } = useStore.getState()
+  const tools = [
+    ['select', 'V', 'Select'],
+    ['ripple', 'B', 'Ripple trim'],
+    ['roll', 'N', 'Rolling edit'],
+    ['slip', 'Y', 'Slip'],
+    ['slide', 'U', 'Slide'],
+  ] as const
+  return (
+    <span className="toolchips">
+      {tools.map(([id, key, label]) => (
+        <button
+          key={id}
+          className={`toolchip${tool === id ? ' toolchip--on' : ''}`}
+          title={`${label} (${key})`}
+          onClick={() => setTool(id)}
+        >
+          {key}
+        </button>
+      ))}
+    </span>
   )
 }
 

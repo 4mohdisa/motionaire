@@ -76,12 +76,11 @@ function ClipBlock({ clip, trackId }: Props) {
     const target = e.currentTarget as HTMLElement
     const rect = target.getBoundingClientRect()
     const localX = e.clientX - rect.left
+    const tool = store.tool
+    const onEdgeIn = localX < EDGE_PX && dur * pxPerSec > EDGE_PX * 3
+    const onEdgeOut = localX > rect.width - EDGE_PX && dur * pxPerSec > EDGE_PX * 3
     const mode: 'move' | 'trim-in' | 'trim-out' =
-      localX < EDGE_PX && dur * pxPerSec > EDGE_PX * 3
-        ? 'trim-in'
-        : localX > rect.width - EDGE_PX && dur * pxPerSec > EDGE_PX * 3
-          ? 'trim-out'
-          : 'move'
+      onEdgeIn ? 'trim-in' : onEdgeOut ? 'trim-out' : 'move'
 
     const grabOffset = xToTime(e.clientX) - clip.start
     let started = false
@@ -120,6 +119,8 @@ function ClipBlock({ clip, trackId }: Props) {
         for (const c of tr.clips) if (!moving.has(c.id)) snapTargets.push(c.start, clipEnd(c))
     }
 
+    // Trim tools (Phase 4): the active tool decides what a drag means.
+    const slipSlideStart = { in: clip.in, start: clip.start }
     const onMove = (ev: PointerEvent) => {
       if (!started && Math.abs(ev.clientX - startX) < DRAG_THRESHOLD_PX) return
       if (!started) begin()
@@ -127,6 +128,46 @@ function ClipBlock({ clip, trackId }: Props) {
       const snapEnabled = s.snap && !ev.altKey
       const tol = SNAP_PX / pxPerSec
       const pointerTime = xToTime(ev.clientX)
+      const dxTime = (ev.clientX - startX) / pxPerSec
+
+      if (tool === 'slip') {
+        // Dragging right shows EARLIER source (window slides back) —
+        // standard slip feel. Increment against current state so internal
+        // clamps hold across the gesture.
+        const cur = useStore.getState()
+        const me = cur.project.tracks.flatMap((t) => t.clips).find((c) => c.id === clip.id)!
+        const desiredIn = slipSlideStart.in - dxTime * clip.speed
+        s.slipClip(clip.id, desiredIn - me.in, true)
+        return
+      }
+      if (tool === 'slide') {
+        const cur = useStore.getState()
+        const me = cur.project.tracks.flatMap((t) => t.clips).find((c) => c.id === clip.id)!
+        const desiredStart = slipSlideStart.start + dxTime
+        s.slideClip(clip.id, desiredStart - me.start, true)
+        return
+      }
+      if (tool === 'ripple' && mode !== 'move') {
+        const t = snapEnabled ? snapTime(pointerTime, snapTargets, tol) : pointerTime
+        s.rippleTrim(clip.id, mode === 'trim-in' ? 'in' : 'out', t, true)
+        return
+      }
+      if (tool === 'roll' && mode !== 'move') {
+        // Roll the boundary this edge belongs to: out-edge → me|next,
+        // in-edge → previous|me.
+        const t = snapEnabled ? snapTime(pointerTime, snapTargets, tol) : pointerTime
+        if (mode === 'trim-out') {
+          s.rollEdit(clip.id, t, true)
+        } else {
+          const cur = useStore.getState()
+          const track = cur.project.tracks.find((tr) => tr.clips.some((c) => c.id === clip.id))!
+          const prev = track.clips.find(
+            (c) => c.id !== clip.id && Math.abs(clipEnd(c) - clip.start) < 1 / cur.project.canvas.fps / 2,
+          )
+          if (prev) s.rollEdit(prev.id, t, true)
+        }
+        return
+      }
 
       if (mode === 'move') {
         let desired = pointerTime - grabOffset

@@ -166,6 +166,11 @@ export interface Track {
   locked?: boolean // blocks all edits to the track's clips
   hidden?: boolean // video tracks: excluded from compositing (audio keeps playing, Premiere semantics)
   gain?: number // mixer fader, 0..1.5 (pro-editor session, Phase 1); default 1
+  // Phase 4: targeting + sync lock. targeted = receives insert/paste when no
+  // explicit lane is given; syncLocked (default TRUE) = participates in
+  // ripple operations started on other tracks.
+  targeted?: boolean
+  syncLocked?: boolean
 }
 
 export interface CanvasSettings {
