@@ -60,6 +60,8 @@ export function flatten(project: Project, opts?: { originals?: boolean }) {
         // Ordered effect stack (Phase 2): enabled instances only; Rust
         // resolves fx.<id>.<param> keyframes per instance.
         stack: clip.effects.filter((e) => e.enabled),
+        matte: clip.matte ?? null,
+        motionBlur: clip.motionBlur ?? false,
         blend: clip.blend ?? null,
 
       })

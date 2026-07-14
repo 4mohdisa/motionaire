@@ -210,6 +210,11 @@ export interface StoreState {
     patch: Record<string, import('../types/project').EffectParam>,
   ) => void
   setClipBlend: (clipId: string, blend: Clip['blend']) => void
+  setClipMatte: (clipId: string, matte: Clip['matte']) => void
+  setClipMotionBlur: (clipId: string, v: boolean) => void
+  // Auto-reframe (Phase 7, context.md §2.2): 'center' = cover-fit for the
+  // current canvas; 'activity' = luma-change centroids drive x/y keyframes.
+  autoReframe: (clipId: string, mode: 'center' | 'activity') => Promise<void>
   // Copy/paste attributes (transform + stack + blend) across clips.
   attrClipboard: { transform: Transform; effects: Effect[]; blend?: Clip['blend'] } | null
   copyAttributes: (clipId: string) => void
@@ -292,6 +297,8 @@ export interface StoreState {
   setCanvasPreset: (preset: CanvasPresetId | { width: number; height: number }) => void
   setCanvasFps: (fps: number) => void
   setSafeZones: (v: boolean) => void
+  guides: boolean
+  setGuides: (v: boolean) => void
   setExportOpen: (v: boolean) => void
   mixerOpen: boolean
   setMixerOpen: (v: boolean) => void
@@ -1718,6 +1725,93 @@ export const useStore = create<StoreState>()(
           found.clip.blend = blend && blend !== 'normal' ? blend : undefined
         }),
 
+      setClipMatte: (clipId, matte) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (found && !found.track.locked) found.clip.matte = matte ?? undefined
+        }),
+
+      setClipMotionBlur: (clipId, v) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (found && !found.track.locked) found.clip.motionBlur = v || undefined
+        }),
+
+      autoReframe: async (clipId, mode) => {
+        const s = get()
+        const found = findClip(s.project, clipId)
+        const asset = found?.clip.mediaId
+          ? s.project.media.find((m) => m.id === found.clip.mediaId)
+          : null
+        if (!found || !asset?.width || !asset.height) return
+        const { canvas } = s.project
+        // The compositor contain-fits; cover the canvas instead.
+        const fit = Math.min(canvas.width / asset.width, canvas.height / asset.height)
+        const cover = Math.max(canvas.width / asset.width, canvas.height / asset.height)
+        const scale = Number((cover / fit).toFixed(4))
+        get().setClipProperty(clipId, 'transform.scale', scale)
+        if (mode === 'center') {
+          get().setClipProperty(clipId, 'transform.x', 0)
+          get().setClipProperty(clipId, 'transform.y', 0)
+          get().pushToast('success', `Reframed to cover (scale ${scale}×)`)
+          return
+        }
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          const pts = await invoke<[number, number, number][]>('analyze_activity', {
+            path: asset.path,
+            duration: asset.duration,
+          })
+          if (!pts.length) {
+            get().pushToast('info', 'No activity detected — centered instead')
+            return
+          }
+          // Smooth (moving average of 5) + thin (≥1s apart) + clamp so the
+          // covered frame never reveals background.
+          const dw = asset.width * fit * scale
+          const dh = asset.height * fit * scale
+          const maxX = Math.max(0, (dw - canvas.width) / 2)
+          const maxY = Math.max(0, (dh - canvas.height) / 2)
+          const clip = found.clip
+          mutateProject((p) => {
+            const f2 = findClip(p, clipId)
+            if (!f2) return
+            f2.clip.keyframes = f2.clip.keyframes.filter(
+              (k) => k.prop !== 'transform.x' && k.prop !== 'transform.y',
+            )
+            let lastT = -Infinity
+            for (let i = 0; i < pts.length; i++) {
+              const from = Math.max(0, i - 2)
+              const to = Math.min(pts.length, i + 3)
+              const win = pts.slice(from, to)
+              const cx = win.reduce((a, q) => a + q[1], 0) / win.length
+              const cy = win.reduce((a, q) => a + q[2], 0) / win.length
+              const srcT = pts[i][0]
+              const rel = (srcT - clip.in) / clip.speed
+              if (rel < 0 || rel > clipDuration(clip) || srcT - lastT < 1) continue
+              lastT = srcT
+              f2.clip.keyframes.push(
+                {
+                  prop: 'transform.x',
+                  t: snapToFrame(rel, p.canvas.fps),
+                  v: Math.max(-maxX, Math.min(maxX, (0.5 - cx) * dw)),
+                  ease: 'easeInOut',
+                },
+                {
+                  prop: 'transform.y',
+                  t: snapToFrame(rel, p.canvas.fps),
+                  v: Math.max(-maxY, Math.min(maxY, (0.5 - cy) * dh)),
+                  ease: 'easeInOut',
+                },
+              )
+            }
+          })
+          get().pushToast('success', `Auto-reframed: ${pts.length} activity samples`)
+        } catch (e) {
+          get().pushToast('error', `Auto-reframe failed: ${e}`)
+        }
+      },
+
       attrClipboard: null,
       copyAttributes: (clipId) => {
         const found = findClip(get().project, clipId)
@@ -2101,6 +2195,12 @@ export const useStore = create<StoreState>()(
       setSafeZones: (v) =>
         set((s) => {
           s.safeZones = v
+        }),
+
+      guides: false,
+      setGuides: (v) =>
+        set((s) => {
+          s.guides = v
         }),
 
       setExportOpen: (v) =>

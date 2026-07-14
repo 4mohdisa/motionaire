@@ -367,6 +367,54 @@ fn cancel_export(exporter: State<export::Exporter>) {
     exporter.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+// Activity centroids (pro-editor session, Phase 7 auto-reframe): sample the
+// file at ~2fps, diff consecutive frames' luma, return each diff's centroid.
+// No ML: for screen recordings the change-centroid IS the action. Face mode
+// stays deferred (needs a Vision/ML dependency — logged).
+#[tauri::command]
+fn analyze_activity(path: String, duration: f64) -> Result<Vec<(f64, f64, f64)>, String> {
+    let mut dec = compositor::decoder::Decoder::new(&path)?;
+    let (w, h) = (dec.info.width as usize, dec.info.height as usize);
+    let mut out = Vec::new();
+    let mut prev: Option<Vec<u8>> = None;
+    let step = 0.5f64;
+    let mut t = 0.0;
+    while t < duration.min(600.0) {
+        let Some(frame) = dec.frame_at(t) else { break };
+        // Downsample luma 1/8 in both axes.
+        let (sw, sh) = (w / 8, h / 8);
+        let mut luma = vec![0u8; sw * sh];
+        for y in 0..sh {
+            for x in 0..sw {
+                let i = ((y * 8) * w + x * 8) * 4;
+                luma[y * sw + x] = ((frame[i] as u32 * 30
+                    + frame[i + 1] as u32 * 59
+                    + frame[i + 2] as u32 * 11)
+                    / 100) as u8;
+            }
+        }
+        if let Some(p) = &prev {
+            let (mut sx, mut sy, mut sum) = (0f64, 0f64, 0f64);
+            for y in 0..sh {
+                for x in 0..sw {
+                    let d = (luma[y * sw + x] as i32 - p[y * sw + x] as i32).unsigned_abs() as f64;
+                    if d > 12.0 {
+                        sx += x as f64 * d;
+                        sy += y as f64 * d;
+                        sum += d;
+                    }
+                }
+            }
+            if sum > 500.0 {
+                out.push((t, sx / sum / sw as f64, sy / sum / sh as f64));
+            }
+        }
+        prev = Some(luma);
+        t += step;
+    }
+    Ok(out)
+}
+
 // Integrated loudness (pro-editor session, Phase 6): ffmpeg ebur128.
 // LUFS normalize = measure once, apply gain — peak normalize can't fix a
 // quiet-but-spiky recording; loudness normalize can.
@@ -815,6 +863,7 @@ pub fn run() {
             spike_4k,
             analyze_audio,
             measure_loudness,
+            analyze_activity,
             save_recovery,
             save_untitled_recovery,
             check_untitled_recovery,

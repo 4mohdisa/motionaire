@@ -43,7 +43,24 @@ export interface Keyframe {
   hi?: [number, number] // in handle (dt ≤ 0)
 }
 
-export type TransitionType = 'cut' | 'dissolve' | 'fade' | 'slide' | 'wipe'
+// Transition library (pro-editor session, Phase 7).
+export type TransitionType =
+  | 'cut'
+  | 'dissolve'
+  | 'fade'
+  | 'slide'
+  | 'slideRight'
+  | 'slideUp'
+  | 'slideDown'
+  | 'push'
+  | 'pushRight'
+  | 'wipe'
+  | 'wipeRight'
+  | 'wipeUp'
+  | 'wipeDown'
+  | 'zoom'
+  | 'spin'
+  | 'iris'
 
 // Effect stack (pro-editor session, Phase 2). Ordered, mutable, duplicable;
 // keyframes address instances as `fx.<effectId>.<param>`.
@@ -73,6 +90,8 @@ export interface Effect {
 export interface Transition {
   type: TransitionType
   duration: number
+  ease?: 'linear' | 'easeInOut'
+  softness?: number // wipe/iris edge feather 0..1
 }
 
 export interface TextStyle {
@@ -150,6 +169,10 @@ export interface Clip {
   // Blend mode stays a CLIP property: it's how the finished layer composites
   // against what's below, not a step inside the layer's own chain.
   blend?: 'normal' | 'multiply' | 'screen' | 'add'
+  // Track matte (Phase 7): alpha shaped by the layer directly above (which
+  // is consumed). Motion blur: directional smear along keyframed velocity.
+  matte?: 'luma' | 'alpha'
+  motionBlur?: boolean
 }
 
 export interface MediaAsset {

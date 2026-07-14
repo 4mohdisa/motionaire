@@ -2487,3 +2487,32 @@
   stroke: var(--border-seam);
   stroke-width: 1;
 }
+
+/* ---- Preview guides (pro-editor session, Phase 7) ---- */
+
+.preview__guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.preview__guide {
+  position: absolute;
+  background: rgba(120, 180, 255, 0.35);
+}
+
+.preview__guide--v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.preview__guide--h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.preview__guide--center {
+  background: rgba(120, 180, 255, 0.55);
+}

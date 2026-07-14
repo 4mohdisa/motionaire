@@ -2240,6 +2240,66 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p7_motion_test': {
+      // Pro-editor Phase 7: new transitions + matte + motion blur keep the
+      // compositor live in-app (pixel correctness pinned by spike PNGs);
+      // auto-reframe emits clamped keyframes from real activity analysis;
+      // guides render.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p7-motion', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        const vids = () =>
+          st().project.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)
+        const cam = vids()[0].clips[0]
+        const screen = vids()[1].clips[0]
+        // New transition types accepted end to end.
+        st().setTransition(cam.id, 'in', { type: 'iris', duration: 1, softness: 0.3 })
+        st().setTransition(screen.id, 'in', {
+          type: 'zoom',
+          duration: 1,
+          ease: 'easeInOut',
+        })
+        // Track matte + motion blur.
+        st().setClipMatte(screen.id, 'luma')
+        st().setClipMotionBlur(cam.id, true)
+        st().setPlayhead(0.4)
+        st().play()
+        const live = await until(() => st().compositorActive && st().compositorFps > 5, 6000)
+        st().pause()
+        st().setClipMatte(screen.id, undefined)
+        // Auto-reframe (activity) on the screen clip: testsrc2 has real
+        // motion, so centroids must exist and land clamped + frame-snapped.
+        st().setCanvasPreset({ width: 1080, height: 1920 })
+        await st().autoReframe(screen.id, 'activity')
+        const sc = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === screen.id)!
+        const xkfs = sc.keyframes.filter((k) => k.prop === 'transform.x')
+        const reframed = sc.transform.scale > 1.01 && xkfs.length >= 2
+        // Guides overlay renders 6 lines.
+        st().setGuides(true)
+        await wait(200)
+        const guideCount = document.querySelectorAll('.preview__guide').length
+        st().setGuides(false)
+        const pass = live && reframed && guideCount === 6
+        void report(
+          pass,
+          `live=${live} scale=${sc.transform.scale.toFixed(2)} xkfs=${xkfs.length} guides=${guideCount}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

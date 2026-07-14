@@ -1877,3 +1877,38 @@ visual = SUITE GREEN.
   static math — the assertion range now comes from ffmpeg's MEASURED
   behavior, because ffmpeg is the export authority, not my formula.
 - Gate: 88 unit + 27 cargo + 26/26 e2e + visual GREEN.
+
+## Phase 7 — transitions, mattes, motion, reframe, guides
+
+- **Transition library 4 → 16**: dissolve/fade + slide×4 + push×2 + wipe×4
+  (directional via the crop-reveal machinery) + zoom + spin + iris. Each
+  maps its progress onto EXISTING composite machinery (opacity, position,
+  rotation, scale, crop, mask) — no new render paths. Push precomputes
+  partner offsets (same-z adjacency) so layers stay independently
+  processable; iris rides the composite mask uniforms as a feathered
+  growing ellipse (overrides an authored mask for the short transition
+  window — logged). Per-transition settings: easing (linear/easeInOut) +
+  wipe/iris softness. Spike PNGs: push mid-flight, iris mid-reveal.
+- **Track mattes**: clip.matte = luma|alpha; the layer directly above (next
+  higher z) shapes the clip and is consumed (never composited). Implemented
+  as a synthetic chain op whose binding-3 texture is the SOURCE layer's
+  slot texture — the Phase 5 color-data binding paying off again. Matte
+  samples the source's RAW frames (source's own effect stack ignored when
+  matting; uv-stretched for size mismatch — both logged). Spike PNG: test
+  bars shaped by the fractal's luma.
+- **Motion blur**: clip.motionBlur → synthetic chain op 10; velocity from
+  resolve_layer at t±one frame (position only — scale/rotation blur not
+  attempted, logged), 8-tap premultiplied smear, skipped when motion is
+  sub-pixel.
+- **Auto-reframe (context.md §2.2, finally)**: 'center' = instant
+  cover-scale for the current canvas; 'activity' = Rust analyze_activity
+  samples the file at 2fps, diffs downsampled luma, returns change
+  centroids — no ML, and for screen recordings the change-centroid IS the
+  action. TS smooths (MA-5), thins (≥1s), clamps offsets so cover never
+  reveals background, emits easeInOut x/y keyframes. FACE mode stays
+  deferred: it needs a Vision-framework or ML dependency — an
+  activity-centroid shipped honestly beats a fake face detector (logged).
+  e2e proves real keyframes emerge from testsrc2's motion on a 9:16 canvas.
+- **Guides**: rule-of-thirds + center cross overlay, toggle beside safe
+  zones. Custom draggable guides deferred (logged).
+- Gate: 88 unit + 27 cargo + 27/27 e2e + visual GREEN.

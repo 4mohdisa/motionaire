@@ -71,13 +71,13 @@ fn main() {
         tp.layers[1].out = 5.0;
         tp.layers[1].keyframes.clear();
         tp.layers[1].transitions = TransitionsCfg {
-            in_: Some(TransitionCfg { kind: "dissolve".into(), duration: 1.2 }),
+            in_: Some(TransitionCfg { kind: "dissolve".into(), duration: 1.2, ease: None, softness: 0.0 }),
             out: None,
         };
         let p = dir.join("check-transition-dissolve-t5.6.png");
         gpu.dump_png(&tp, 5.6, &p).expect("dissolve dump");
         println!("dumped {}", p.display());
-        tp.layers[1].transitions.in_ = Some(TransitionCfg { kind: "wipe".into(), duration: 1.2 });
+        tp.layers[1].transitions.in_ = Some(TransitionCfg { kind: "wipe".into(), duration: 1.2, ease: None, softness: 0.0 });
         let p = dir.join("check-transition-wipe-t5.6.png");
         gpu.dump_png(&tp, 5.6, &p).expect("wipe dump");
         println!("dumped {}", p.display());
@@ -274,6 +274,52 @@ fn main() {
         // Invert LUT must differ hugely from the plain frame.
         let plain = dir.join("check-fullscreen-t0.5.png");
         let _ = plain;
+    }
+
+    // Phase 7: track matte (screen shaped by cam's luma), push transition
+    // mid-flight, iris reveal mid-flight.
+    {
+        use motionaire_lib::compositor::types::TransitionCfg;
+        let mut mp = demo::demo_project(&screen.path, &cam.path);
+        mp.layers[0].matte = Some("luma".into()); // screen matted by cam above
+        mp.layers[1].keyframes.clear();
+        let p = dir.join("check-p7-matte-luma-t2.png");
+        gpu.dump_png(&mp, 2.0, &p).expect("matte dump");
+        println!("dumped {}", p.display());
+
+        let mut pp = demo::demo_project(&screen.path, &cam.path);
+        pp.layers.truncate(1);
+        let mut b = pp.layers[0].clone();
+        b.id = "pushed_in".into();
+        b.media_path = cam.path.clone();
+        b.start = 3.0;
+        b.in_ = 0.0;
+        b.out = 5.0;
+        b.keyframes.clear();
+        b.transitions.in_ = Some(TransitionCfg {
+            kind: "push".into(),
+            duration: 1.0,
+            ease: None,
+            softness: 0.0,
+        });
+        pp.layers[0].out = 3.0; // outgoing ends where B starts
+        pp.layers[0].keyframes.clear();
+        pp.layers.push(b);
+        let p = dir.join("check-p7-push-mid.png");
+        gpu.dump_png(&pp, 3.5, &p).expect("push dump");
+        println!("dumped {}", p.display());
+
+        let mut ip = demo::demo_project(&screen.path, &cam.path);
+        ip.layers[1].keyframes.clear();
+        ip.layers[1].transitions.in_ = Some(TransitionCfg {
+            kind: "iris".into(),
+            duration: 2.0,
+            ease: None,
+            softness: 0.3,
+        });
+        let p = dir.join("check-p7-iris-mid.png");
+        gpu.dump_png(&ip, 1.0, &p).expect("iris dump");
+        println!("dumped {}", p.display());
     }
 
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make

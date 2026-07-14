@@ -10,6 +10,7 @@ function ExportPanel() {
   const canvas = useStore((s) => s.project.canvas)
   const settings = useStore((s) => s.exportSettings)
   const safeZones = useStore((s) => s.safeZones)
+  const guides = useStore((s) => s.guides)
   const { setExportOpen, setCanvasPreset, setCanvasFps, setExportSettings, setSafeZones } =
     useStore.getState()
 
@@ -193,6 +194,14 @@ function ExportPanel() {
             onChange={(e) => setSafeZones(e.target.checked)}
           />
           Show safe-zone guides on preview
+        </label>
+        <label className="modal__check">
+          <input
+            type="checkbox"
+            checked={guides}
+            onChange={(e) => useStore.getState().setGuides(e.target.checked)}
+          />
+          Show thirds/center guides on preview
         </label>
 
         {running && (

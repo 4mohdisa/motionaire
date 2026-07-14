@@ -311,6 +311,21 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     rgb = vec3(fn_curve(rgb.r, 3.0), fn_curve(rgb.g, 3.0), fn_curve(rgb.b, 3.0));
     return vec4(rgb, c.a);
   }
+  if (op == 9.0) { // track matte: binding 3 = matte source texture
+    let m = textureSampleLevel(lut_tex, lut_samp, in.uv, 0.0);
+    let k = select(m.a, dot(m.rgb, vec3(0.2126, 0.7152, 0.0722)), u.p0.x > 0.5);
+    return vec4(c.rgb, c.a * k);
+  }
+  if (op == 10.0) { // motion blur: 8-tap smear along the velocity vector
+    let dims = vec2<f32>(textureDimensions(tex));
+    let vel = vec2(u.p0.x, u.p0.y) / dims;
+    var acc = vec4(0.0, 0.0, 0.0, 0.0);
+    for (var i = -4; i <= 4; i++) {
+      let s = textureSampleLevel(tex, samp, in.uv + vel * (f32(i) / 8.0), 0.0);
+      acc += vec4(s.rgb * s.a, s.a);
+    }
+    return vec4(acc.rgb / max(acc.a, 0.0001), acc.a / 9.0);
+  }
   if (op == 8.0) { // 3D LUT via 2D strip (width N*N, height N; slice = blue)
     let n = u.op.y;
     let bpos = clamp(c.b, 0.0, 1.0) * (n - 1.0);
@@ -848,6 +863,51 @@ impl GpuCompositor {
                 .then(a.start.partial_cmp(&b.start).unwrap_or(std::cmp::Ordering::Equal))
         });
 
+        // Track mattes (Phase 7): a matted layer multiplies its alpha by the
+        // NEXT-HIGHER-z active layer, which is consumed (never composited).
+        let mut matte_of: std::collections::HashMap<String, (String, bool)> =
+            std::collections::HashMap::new(); // target id → (source path, luma?)
+        let mut consumed: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for l in &active {
+            if l.adjust {
+                continue;
+            }
+            if let Some(kind) = &l.matte {
+                if let Some(srcl) = active
+                    .iter()
+                    .filter(|o| o.z > l.z && !o.adjust && o.id != l.id)
+                    .min_by_key(|o| o.z)
+                {
+                    matte_of.insert(l.id.clone(), (srcl.media_path.clone(), kind == "luma"));
+                    consumed.insert(srcl.id.clone());
+                }
+            }
+        }
+
+        // Push transitions (Phase 7): the incoming clip shoves its outgoing
+        // partner. Precompute partner offsets so each layer stays
+        // independently processable.
+        let mut push_map: std::collections::HashMap<String, (f32, f32)> =
+            std::collections::HashMap::new();
+        for l in &active {
+            if let Some(tr) = &l.transitions.in_ {
+                if tr.kind.starts_with("push") && t < l.start + tr.duration.max(1e-6) {
+                    let p = (((t - l.start) / tr.duration.max(1e-6)).clamp(0.0, 1.0)) as f32;
+                    if let Some(partner) = active.iter().find(|o| {
+                        o.id != l.id
+                            && o.z == l.z
+                            && (o.end() - l.start).abs() < 1.0 / fps.max(1.0)
+                    }) {
+                        let dx = match tr.kind.as_str() {
+                            "pushRight" => p * cw,
+                            _ => -(p * cw), // push / pushLeft
+                        };
+                        push_map.insert(partner.id.clone(), (dx, 0.0));
+                    }
+                }
+            }
+        }
+
         // Adjustment layers: resolve each one's (possibly keyframed) grade at t
         // and add it onto every lower-z layer below. ponytail: component-wise
         // sum — exact when the target has no grade of its own; stacked grades
@@ -862,7 +922,10 @@ impl GpuCompositor {
         let mut draws: Vec<(String, bool, usize)> = Vec::new(); // (path, has_shadow, blend id)
         // Effect chains this frame: (path, pass count). The composite pass for
         // a chained layer binds the chain's final output instead of the source.
-        let mut chain_jobs: Vec<(String, usize, Vec<Option<u64>>)> = Vec::new();
+        // Per-pass binding-3 source: None = identity, Some(Ok(rev)) = cached
+        // LUT, Some(Err(path)) = matte source slot texture.
+        type Bind3 = Option<Result<u64, String>>;
+        let mut chain_jobs: Vec<(String, usize, Vec<Bind3>)> = Vec::new();
         let mut chained_bg: std::collections::HashMap<String, wgpu::BindGroup> =
             std::collections::HashMap::new();
         for layer in &active {
@@ -907,7 +970,14 @@ impl GpuCompositor {
                 }
             }
 
+            if consumed.contains(&layer.id) {
+                continue; // matte source: its texture is uploaded, never drawn
+            }
             let mut r = resolve_layer(layer, t);
+            if let Some((dx, dy)) = push_map.get(&layer.id) {
+                r.x += dx;
+                r.y += dy;
+            }
             for (az, ag) in &adjusts {
                 if *az > layer.z {
                     for i in 0..5 {
@@ -921,15 +991,66 @@ impl GpuCompositor {
             // slide enters from the right, wipe reveals left→right via the
             // crop machinery. Out-edge: fade (and, degraded, any cross type
             // without a partner) modulates alpha toward the end.
+            let mut mask_override: Option<([f32; 4], [f32; 3])> = None;
+            // Transition library (pro-editor Phase 7). p runs 0→1 over the
+            // in-edge window, optionally eased; each type maps p onto the
+            // existing composite machinery (opacity/position/rotation/scale/
+            // crop reveal) — no new render paths.
             let mut wipe_reveal: f32 = 1.0;
+            let mut wipe_axis: u8 = 0; // 0 = from left, 1 right, 2 top, 3 bottom
+            let mut wipe_soft: f32 = 0.0;
             if let Some(tr) = &layer.transitions.in_ {
                 let d = tr.duration.max(1e-6);
                 if t < layer.start + d {
-                    let p = (((t - layer.start) / d).clamp(0.0, 1.0)) as f32;
+                    let mut p = (((t - layer.start) / d).clamp(0.0, 1.0)) as f32;
+                    if tr.ease.as_deref() == Some("easeInOut") {
+                        p = if p < 0.5 {
+                            4.0 * p * p * p
+                        } else {
+                            1.0 - (-2.0 * p + 2.0).powi(3) / 2.0
+                        };
+                    }
+                    wipe_soft = tr.softness.clamp(0.0, 1.0) as f32;
                     match tr.kind.as_str() {
                         "dissolve" | "fade" => r.opacity *= p,
-                        "slide" => r.x += (1.0 - p) * cw,
-                        "wipe" => wipe_reveal = p,
+                        "slide" | "slideLeft" => r.x += (1.0 - p) * cw,
+                        "slideRight" => r.x -= (1.0 - p) * cw,
+                        "slideUp" => r.y += (1.0 - p) * ch,
+                        "slideDown" => r.y -= (1.0 - p) * ch,
+                        // push: the incoming slides in AND shoves the outgoing
+                        // partner out (partner offset applied via push_map).
+                        "push" | "pushLeft" => r.x += (1.0 - p) * cw,
+                        "pushRight" => r.x -= (1.0 - p) * cw,
+                        "wipe" | "wipeLeft" => wipe_reveal = p,
+                        "wipeRight" => {
+                            wipe_reveal = p;
+                            wipe_axis = 1;
+                        }
+                        "wipeUp" => {
+                            wipe_reveal = p;
+                            wipe_axis = 3;
+                        }
+                        "wipeDown" => {
+                            wipe_reveal = p;
+                            wipe_axis = 2;
+                        }
+                        "zoom" => {
+                            r.opacity *= p;
+                            r.scale *= 1.25 - 0.25 * p;
+                        }
+                        "spin" => {
+                            r.opacity *= p;
+                            r.rotation_deg += (1.0 - p) * 90.0;
+                            r.scale *= 0.6 + 0.4 * p;
+                        }
+                        "iris" => {
+                            // Circular reveal riding the mask machinery: an
+                            // ellipse mask growing past the layer diagonal.
+                            // Applied post-chain via the composite mask
+                            // uniforms — set below once dw/dh are known.
+                            wipe_reveal = p;
+                            wipe_axis = 4;
+                        }
                         _ => {}
                     }
                 }
@@ -949,6 +1070,30 @@ impl GpuCompositor {
             // canvas coordinates (matching the DOM overlay), never contain-fit.
             let fit = if is_text { 0.5 } else { (cw / mw as f32).min(ch / mh as f32) };
             let (dw, dh) = (mw as f32 * fit * r.scale, mh as f32 * fit * r.scale);
+
+            // Synthetic tail ops (Phase 7): motion blur first (smears the
+            // content), then the track matte (cuts the silhouette last).
+            if layer.motion_blur {
+                let dt = 1.0 / fps.max(1.0);
+                let ra = resolve_layer(layer, t - dt);
+                let rb = resolve_layer(layer, t + dt);
+                let fit_guess = if is_text { 0.5 } else { (cw / mw as f32).min(ch / mh as f32) };
+                let denom = (fit_guess * r.scale).max(1e-3);
+                let vx = (rb.x - ra.x) * 0.5 / denom;
+                let vy = (rb.y - ra.y) * 0.5 / denom;
+                if vx.abs() + vy.abs() > 0.5 {
+                    let mut p = [0.0f32; 12];
+                    p[0] = vx.clamp(-64.0, 64.0);
+                    p[1] = vy.clamp(-64.0, 64.0);
+                    r.chain.push(super::types::ChainOp { op: 10, p, color: [0.0; 3], lut: None });
+                }
+            }
+            let matte_src = matte_of.get(&layer.id).cloned();
+            if let Some((_, luma)) = &matte_src {
+                let mut p = [0.0f32; 12];
+                p[0] = if *luma { 1.0 } else { 0.0 };
+                r.chain.push(super::types::ChainOp { op: 9, p, color: [0.0; 3], lut: None });
+            }
 
             // --- Effect chain (Phase 2): ping-pong the stack in user order
             // over the source texture; the composite below binds the result.
@@ -1081,17 +1226,45 @@ impl GpuCompositor {
                 chain_jobs.push((
                     layer.media_path.clone(),
                     n,
-                    r.chain.iter().take(n).map(|o| o.lut.as_ref().map(|l| l.rev)).collect(),
+                    r.chain
+                        .iter()
+                        .take(n)
+                        .map(|o| {
+                            if o.op == 9 {
+                                matte_src.as_ref().map(|(p, _)| Err(p.clone()))
+                            } else {
+                                o.lut.as_ref().map(|l| Ok(l.rev))
+                            }
+                        })
+                        .collect(),
                 ));
             }
 
             // Crop cuts pixels away from the fitted rect (Premiere semantics):
             // the visible sub-rect keeps its on-canvas position; its center
             // shifts by the crop asymmetry, rotating with the layer.
-            let (cl, ct2, mut cr2, cb) = sane_crop(&r.crop);
-            if wipe_reveal < 1.0 {
-                // Reveal fraction of the (user-cropped) visible width.
-                cr2 = (cr2 + (1.0 - wipe_reveal) * (1.0 - cl - cr2)).min(0.999);
+            let (mut cl, mut ct2, mut cr2, mut cb) = sane_crop(&r.crop);
+            if wipe_axis == 4 && wipe_reveal < 1.0 {
+                // iris: feathered ellipse mask reveal in the composite pass.
+                // Overrides any authored mask for the transition window
+                // (transitions are short; logged).
+                let diag = (dw * dw + dh * dh).sqrt() * 0.5;
+                let rr = (wipe_reveal * 1.05) * diag + 1.0;
+                mask_override = Some(([0.0, 0.0, rr, rr], [
+                    (wipe_soft * diag * 0.5).max(6.0),
+                    0.0,
+                    1.0,
+                ]));
+            } else if wipe_reveal < 1.0 {
+                // Reveal fraction of the (user-cropped) visible extent, from
+                // the chosen edge.
+                let take = 1.0 - wipe_reveal;
+                match wipe_axis {
+                    1 => cl = (cl + take * (1.0 - cl - cr2)).min(0.999),
+                    2 => cb = (cb + take * (1.0 - ct2 - cb)).min(0.999),
+                    3 => ct2 = (ct2 + take * (1.0 - ct2 - cb)).min(0.999),
+                    _ => cr2 = (cr2 + take * (1.0 - cl - cr2)).min(0.999),
+                }
             }
             let half_w = dw * (1.0 - cl - cr2) * 0.5;
             let half_h = dh * (1.0 - ct2 - cb) * 0.5;
@@ -1115,8 +1288,12 @@ impl GpuCompositor {
                 grade2: [r.grade[4], 0.0, 0.0, 0.0],
                 key1: [0.0; 4],
                 key2: [0.0; 4],
-                mask1: [0.0; 4],
-                mask2: [0.0; 4],
+                // Composite mask stays identity except for the iris
+                // transition override (Phase 7).
+                mask1: mask_override.map(|(m1, _)| m1).unwrap_or([0.0; 4]),
+                mask2: mask_override
+                    .map(|(_, m2)| [m2[0], 0.0, m2[2], 0.0])
+                    .unwrap_or([0.0; 4]),
                 fxmode: [
                     match layer.blend.as_deref() {
                         Some("multiply") => 1.0,
@@ -1179,10 +1356,20 @@ impl GpuCompositor {
                 } else {
                     texs[(i - 1) % 2].create_view(&Default::default())
                 };
-                let lut_view = lut_revs[i]
-                    .and_then(|rev| self.lut_cache.get(&rev))
-                    .unwrap_or(&self.identity_lut)
-                    .create_view(&Default::default());
+                let lut_view = match &lut_revs[i] {
+                    Some(Ok(rev)) => self
+                        .lut_cache
+                        .get(rev)
+                        .unwrap_or(&self.identity_lut)
+                        .create_view(&Default::default()),
+                    Some(Err(matte_path)) => self
+                        .slots
+                        .get(matte_path)
+                        .map(|s| &s.texture)
+                        .unwrap_or(&self.identity_lut)
+                        .create_view(&Default::default()),
+                    None => self.identity_lut.create_view(&Default::default()),
+                };
                 let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("chain-pass"),
                     layout: &self.chain_bgl,

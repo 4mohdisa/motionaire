@@ -45,6 +45,14 @@ pub struct Layer {
     pub stack: Vec<EffectCfg>,
     #[serde(default)]
     pub blend: Option<String>, // normal | multiply | screen | add — clip-level
+    // Track matte (Phase 7): this layer's alpha is multiplied by the layer
+    // ABOVE it (next higher z), sampled as luma or alpha; the source layer
+    // is consumed (not composited itself).
+    #[serde(default)]
+    pub matte: Option<String>, // "luma" | "alpha"
+    // Motion blur (Phase 7): directional smear along the keyframed velocity.
+    #[serde(default)]
+    pub motion_blur: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -116,8 +124,13 @@ pub struct TransitionsCfg {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TransitionCfg {
     #[serde(rename = "type")]
-    pub kind: String, // dissolve | fade | slide | wipe (cut = None)
+    pub kind: String, // see TRANSITION library (pro-editor Phase 7)
     pub duration: f64,
+    // Per-transition settings (Phase 7): easing curve + wipe softness.
+    #[serde(default)]
+    pub ease: Option<String>, // linear (default) | easeInOut
+    #[serde(default)]
+    pub softness: f64, // wipe edge feather, 0..1 of the span
 }
 
 // Cross transitions (need the outgoing partner drawn underneath) vs fades
@@ -330,7 +343,9 @@ pub struct ResolvedLayer {
 }
 
 // One resolved chain pass. op: 1 chromaKey, 2 grade, 3 blur, 4 mask,
-// 5 vignette, 6 color wheels (lift/gamma/gain), 7 curves, 8 3D LUT.
+// 5 vignette, 6 color wheels (lift/gamma/gain), 7 curves, 8 3D LUT,
+// 9 track matte (binding 3 = matte source texture; p0=1 → luma, 0 → alpha),
+// 10 motion blur (p0/p1 = velocity in source px per frame).
 #[derive(Debug, Clone)]
 pub struct ChainOp {
     pub op: u32,

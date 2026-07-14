@@ -12,7 +12,24 @@ import { Popover } from './Popover'
 import { invoke } from '@tauri-apps/api/core'
 
 const EASES: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'spring']
-const TRANSITION_TYPES: TransitionType[] = ['cut', 'dissolve', 'fade', 'slide', 'wipe']
+const TRANSITION_TYPES: TransitionType[] = [
+  'cut',
+  'dissolve',
+  'fade',
+  'slide',
+  'slideRight',
+  'slideUp',
+  'slideDown',
+  'push',
+  'pushRight',
+  'wipe',
+  'wipeRight',
+  'wipeUp',
+  'wipeDown',
+  'zoom',
+  'spin',
+  'iris',
+]
 const TEXT_PRESETS: TextAnimationPreset[] = ['none', 'fade', 'fadeUp', 'popIn', 'slideLeft']
 const FONTS = ['Inter', 'system-ui', 'Helvetica Neue', 'Georgia', 'Courier New']
 
@@ -159,6 +176,55 @@ function FxEditor({ clip }: { clip: Clip }) {
           ))}
         </select>
       </div>
+      {clip.kind === 'video' && (
+        <>
+          <div className="prow">
+            <span className="prow__label">Matte</span>
+            <select
+              className="prow__ease"
+              value={clip.matte ?? 'none'}
+              title="Track matte: shape this clip with the layer directly above"
+              onChange={(e) =>
+                s.setClipMatte(
+                  clip.id,
+                  e.target.value === 'none' ? undefined : (e.target.value as 'luma' | 'alpha'),
+                )
+              }
+            >
+              {['none', 'luma', 'alpha'].map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <label className="prow__unit selectable" style={{ cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!clip.motionBlur}
+                onChange={(e) => s.setClipMotionBlur(clip.id, e.target.checked)}
+              />{' '}
+              motion blur
+            </label>
+          </div>
+          <div className="prow">
+            <span className="prow__label">Reframe</span>
+            <button
+              className="topbar__btn"
+              title="Scale to cover the canvas, centered"
+              onClick={() => void s.autoReframe(clip.id, 'center')}
+            >
+              Center
+            </button>
+            <button
+              className="topbar__btn"
+              title="Follow the activity centroid with keyframes (context.md §2.2)"
+              onClick={() => void s.autoReframe(clip.id, 'activity')}
+            >
+              Auto
+            </button>
+          </div>
+        </>
+      )}
 
       {effects.map((fx, i) => (
         <div key={fx.id} className={`fxcard${fx.enabled ? '' : ' fxcard--off'}`}>
@@ -510,19 +576,50 @@ function TransitionRow({ clip, edge }: { clip: Clip; edge: 'in' | 'out' }) {
         ))}
       </select>
       {tr && (
-        <input
-          className="prow__input prow__input--narrow"
-          type="number"
-          step={0.1}
-          min={0.1}
-          max={3}
-          value={tr.duration}
-          onChange={(e) => {
-            const d = Number(e.target.value)
-            if (Number.isFinite(d) && d > 0) setTransition(clip.id, edge, { ...tr, duration: d })
-          }}
-          title="Duration (s)"
-        />
+        <>
+          <input
+            className="prow__input prow__input--narrow"
+            type="number"
+            step={0.1}
+            min={0.1}
+            max={3}
+            value={tr.duration}
+            onChange={(e) => {
+              const d = Number(e.target.value)
+              if (Number.isFinite(d) && d > 0) setTransition(clip.id, edge, { ...tr, duration: d })
+            }}
+            title="Duration (s)"
+          />
+          {/* Per-transition settings (Phase 7): easing + wipe/iris softness. */}
+          <select
+            className="prow__ease"
+            value={tr.ease ?? 'linear'}
+            title="Easing"
+            onChange={(e) =>
+              setTransition(clip.id, edge, {
+                ...tr,
+                ease: e.target.value as 'linear' | 'easeInOut',
+              })
+            }
+          >
+            <option value="linear">linear</option>
+            <option value="easeInOut">easeInOut</option>
+          </select>
+          {(tr.type.startsWith('wipe') || tr.type === 'iris') && (
+            <input
+              className="prow__input prow__input--narrow"
+              type="number"
+              step={0.05}
+              min={0}
+              max={1}
+              value={tr.softness ?? 0}
+              title="Edge softness"
+              onChange={(e) =>
+                setTransition(clip.id, edge, { ...tr, softness: Number(e.target.value) || 0 })
+              }
+            />
+          )}
+        </>
       )}
     </div>
   )
