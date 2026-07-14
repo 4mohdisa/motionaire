@@ -6,6 +6,24 @@ use std::time::Instant;
 
 use motionaire_lib::compositor::{demo, gpu::GpuCompositor};
 
+
+// Stack-era helper: an EffectCfg literal for spike scenes.
+fn mkfx(kind: &str, params: serde_json::Value) -> motionaire_lib::compositor::types::EffectCfg {
+    motionaire_lib::compositor::types::EffectCfg {
+        id: format!("fx_{kind}"),
+        kind: kind.into(),
+        enabled: true,
+        params: params.as_object().cloned().unwrap_or_default(),
+    }
+}
+
+
+fn fx_cfg_key() -> motionaire_lib::compositor::types::EffectCfg {
+    mkfx("chromaKey", serde_json::json!({
+        "color": "#00FF00", "tolerance": 0.15, "softness": 0.08, "spill": 0.6
+    }))
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -68,19 +86,18 @@ fn main() {
     // Color grade extremes (session 8, Phase 3): fully desaturated and
     // blown-out exposure must look like exactly that — plus a subtle warm mix.
     {
-        use motionaire_lib::compositor::types::GradeCfg;
         let mut gp = demo::demo_project(&screen.path, &cam.path);
         gp.layers[1].keyframes.clear(); // fullscreen cam covers frame — grade it
-        gp.layers[1].grade = Some(GradeCfg { saturation: -1.0, ..Default::default() });
+        gp.layers[1].stack = vec![mkfx("grade", serde_json::json!({"saturation": -1.0}))];
         let p = dir.join("check-grade-desat-t2.png");
         gpu.dump_png(&gp, 2.0, &p).expect("desat dump");
         println!("dumped {}", p.display());
-        gp.layers[1].grade = Some(GradeCfg { exposure: 2.0, ..Default::default() });
+        gp.layers[1].stack = vec![mkfx("grade", serde_json::json!({"exposure": 2.0}))];
         let p = dir.join("check-grade-blown-t2.png");
         gpu.dump_png(&gp, 2.0, &p).expect("blown dump");
         println!("dumped {}", p.display());
-        gp.layers[1].grade =
-            Some(GradeCfg { temperature: 0.5, contrast: 0.2, ..Default::default() });
+        gp.layers[1].stack =
+            vec![mkfx("grade", serde_json::json!({"temperature": 0.5, "contrast": 0.2}))];
         let p = dir.join("check-grade-warm-t2.png");
         gpu.dump_png(&gp, 2.0, &p).expect("warm dump");
         println!("dumped {}", p.display());
@@ -89,7 +106,6 @@ fn main() {
     // Adjustment layer (session 8, Phase 5): a source-less adjust layer above
     // BOTH demo layers desaturates the whole stack inside its span only.
     {
-        use motionaire_lib::compositor::types::GradeCfg;
         let mut ap = demo::demo_project(&screen.path, &cam.path);
         let mut adj = ap.layers[0].clone();
         adj.id = "adjust".into();
@@ -101,7 +117,7 @@ fn main() {
         adj.out = 3.0; // active span [1,4)
         adj.keyframes.clear();
         adj.transitions = Default::default();
-        adj.grade = Some(GradeCfg { saturation: -1.0, ..Default::default() });
+        adj.stack = vec![mkfx("grade", serde_json::json!({"saturation": -1.0}))];
         ap.layers.push(adj);
         let p = dir.join("check-adjust-inside-t2.png");
         gpu.dump_png(&ap, 2.0, &p).expect("adjust inside dump");
@@ -145,7 +161,6 @@ fn main() {
     // Effects (foundation session, Phase 4): deterministic PNG evidence for
     // chroma key, blend modes, shape mask, blur, and vignette.
     {
-        use motionaire_lib::compositor::types::{KeyCfg, MaskCfg};
         use std::process::Command;
         // Green-screen fixture: green background with a red box "subject".
         let dir2 = demo::spike_dir();
@@ -163,12 +178,7 @@ fn main() {
         let mut fx = demo::demo_project(&screen.path, &cam.path);
         fx.layers[1].keyframes.clear();
         fx.layers[1].media_path = gs.to_string_lossy().into_owned();
-        fx.layers[1].key = Some(KeyCfg {
-            color: "#00FF00".into(),
-            tolerance: 0.15,
-            softness: 0.08,
-            spill: 0.6,
-        });
+        fx.layers[1].stack = vec![fx_cfg_key()];
         let p = dir.join("check-fx-key-t2.png");
         gpu.dump_png(&fx, 2.0, &p).expect("key dump");
         println!("dumped {}", p.display());
@@ -184,15 +194,10 @@ fn main() {
         // Ellipse mask with feather on the fullscreen cam.
         let mut mk = demo::demo_project(&screen.path, &cam.path);
         mk.layers[1].keyframes.clear();
-        mk.layers[1].mask = Some(MaskCfg {
-            kind: "ellipse".into(),
-            x: 0.0,
-            y: 0.0,
-            w: 700.0,
-            h: 500.0,
-            feather: 60.0,
-            invert: false,
-        });
+        mk.layers[1].stack = vec![mkfx("mask", serde_json::json!({
+            "kind": "ellipse", "x": 0.0, "y": 0.0, "w": 700.0, "h": 500.0,
+            "feather": 60.0, "invert": false
+        }))];
         let p = dir.join("check-fx-mask-t2.png");
         gpu.dump_png(&mk, 2.0, &p).expect("mask dump");
         println!("dumped {}", p.display());
@@ -200,11 +205,36 @@ fn main() {
         // Blur 24px + vignette 0.8 on the screen layer.
         let mut bv = demo::demo_project(&screen.path, &cam.path);
         bv.layers.truncate(1);
-        bv.layers[0].blur = 24.0;
-        bv.layers[0].vignette = 0.8;
+        bv.layers[0].stack = vec![
+            mkfx("blur", serde_json::json!({"amount": 24.0})),
+            mkfx("vignette", serde_json::json!({"amount": 0.8})),
+        ];
         let p = dir.join("check-fx-blur-vignette-t2.png");
         gpu.dump_png(&bv, 2.0, &p).expect("blur dump");
         println!("dumped {}", p.display());
+
+        // ORDER MATTERS (Phase 2): exposure-up-then-blur vs blur-then-
+        // exposure-up differ because grade clamps at white before/after the
+        // blur smears highlights. The two PNGs must NOT be identical.
+        let mut o1 = demo::demo_project(&screen.path, &cam.path);
+        o1.layers.truncate(1);
+        o1.layers[0].stack = vec![
+            mkfx("grade", serde_json::json!({"exposure": 1.6})),
+            mkfx("blur", serde_json::json!({"amount": 30.0})),
+        ];
+        let p1 = dir.join("check-fx-order-grade-blur-t2.png");
+        gpu.dump_png(&o1, 2.0, &p1).expect("order1 dump");
+        let mut o2 = demo::demo_project(&screen.path, &cam.path);
+        o2.layers.truncate(1);
+        o2.layers[0].stack = vec![
+            mkfx("blur", serde_json::json!({"amount": 30.0})),
+            mkfx("grade", serde_json::json!({"exposure": 1.6})),
+        ];
+        let p2 = dir.join("check-fx-order-blur-grade-t2.png");
+        gpu.dump_png(&o2, 2.0, &p2).expect("order2 dump");
+        let (b1, b2) = (std::fs::read(&p1).unwrap(), std::fs::read(&p2).unwrap());
+        assert!(b1 != b2, "ordering produced identical output — stack order is not being applied");
+        println!("order check: outputs differ as they must");
     }
 
     // Reverse-ring exercise: step backward through 2s at 60Hz; ring should make

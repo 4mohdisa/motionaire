@@ -13,6 +13,7 @@ import {
   type RecentProject,
 } from '../persistence/projectIO'
 import { loadPipDemo } from '../compositor/bridge'
+import { migrateProjectEffects } from '../engine/effectStack'
 
 // App shell (session 9, Phase 1): activation → onboarding (first run) →
 // launcher → editor. All full-window views in one window.
@@ -165,6 +166,7 @@ export function Launcher() {
     if (!recovery) return
     try {
       const p = JSON.parse(recovery) as Project
+      migrateProjectEffects(p)
       for (const m of p.media) if (m.path.startsWith('/')) m.playbackUrl = convertFileSrc(m.path)
       useStore.getState().replaceProject(p, null)
       // Still unsaved: dirty keeps the close guard and untitled autosave live.

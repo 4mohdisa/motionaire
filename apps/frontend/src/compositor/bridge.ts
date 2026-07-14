@@ -57,12 +57,11 @@ export function flatten(project: Project, opts?: { originals?: boolean }) {
         },
         keyframes: clip.keyframes,
         transitions: clip.transitions,
-        grade: clip.grade ?? null,
-        key: clip.key ?? null,
+        // Ordered effect stack (Phase 2): enabled instances only; Rust
+        // resolves fx.<id>.<param> keyframes per instance.
+        stack: clip.effects.filter((e) => e.enabled),
         blend: clip.blend ?? null,
-        mask: clip.mask ?? null,
-        blur: clip.blur ?? 0,
-        vignette: clip.vignette ?? 0,
+
       })
     }
   }

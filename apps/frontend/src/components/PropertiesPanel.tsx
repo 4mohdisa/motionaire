@@ -5,7 +5,10 @@ import IconBtn from './IconBtn'
 import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
 import { customFamilies } from '../persistence/fontManager'
-import type { Clip, Ease, TextAnimationPreset, TransitionType } from '../types/project'
+import type { Clip, Ease, Effect, EffectType, TextAnimationPreset, TransitionType } from '../types/project'
+import { EFFECT_LABELS } from '../engine/effectStack'
+import { Popover } from './Popover'
+import { invoke } from '@tauri-apps/api/core'
 
 const EASES: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'spring']
 const TRANSITION_TYPES: TransitionType[] = ['cut', 'dissolve', 'fade', 'slide', 'wipe']
@@ -85,16 +88,6 @@ function ClipProperties({ clip }: { clip: Clip }) {
       </Section>
 
       {clip.kind === 'video' && (
-        <Section label="Color">
-          <NumberRow clip={clip} prop="grade.exposure" label="Exposure" step={0.05} min={-2} max={2} />
-          <NumberRow clip={clip} prop="grade.contrast" label="Contrast" step={0.05} min={-1} max={1} />
-          <NumberRow clip={clip} prop="grade.saturation" label="Saturation" step={0.05} min={-1} max={1} />
-          <NumberRow clip={clip} prop="grade.temperature" label="Temp" step={0.05} min={-1} max={1} />
-          <NumberRow clip={clip} prop="grade.tint" label="Tint" step={0.05} min={-1} max={1} />
-        </Section>
-      )}
-
-      {clip.kind === 'video' && (
         <Section label="Effects">
           <FxEditor clip={clip} />
         </Section>
@@ -141,10 +134,14 @@ function ClipProperties({ clip }: { clip: Clip }) {
   )
 }
 
-// Effects (foundation, Phase 4): chroma key, blend mode, shape mask,
-// blur/sharpen, vignette. Scalars ride NumberRow → keyframeable.
+// Effect stack (pro-editor session, Phase 2): ordered cards — reorder,
+// toggle, duplicate, remove; same type twice is legal. Scalar params ride
+// NumberRow with fx.<id>.<param> props → keyframeable through the existing
+// stopwatch. Blend stays a clip property (composite behavior, not a step).
 function FxEditor({ clip }: { clip: Clip }) {
-  const { updateClipFx } = useStore.getState()
+  const s = useStore.getState()
+  const [addAnchor, setAddAnchor] = useState<DOMRect | null>(null)
+  const effects = clip.effects
   return (
     <>
       <div className="prow">
@@ -152,11 +149,7 @@ function FxEditor({ clip }: { clip: Clip }) {
         <select
           className="prow__ease prow__ease--wide"
           value={clip.blend ?? 'normal'}
-          onChange={(e) =>
-            updateClipFx(clip.id, {
-              blend: e.target.value === 'normal' ? null : (e.target.value as Clip['blend']),
-            })
-          }
+          onChange={(e) => s.setClipBlend(clip.id, e.target.value as Clip['blend'])}
         >
           {['normal', 'multiply', 'screen', 'add'].map((b) => (
             <option key={b} value={b}>
@@ -165,91 +158,221 @@ function FxEditor({ clip }: { clip: Clip }) {
           ))}
         </select>
       </div>
+
+      {effects.map((fx, i) => (
+        <div key={fx.id} className={`fxcard${fx.enabled ? '' : ' fxcard--off'}`}>
+          <div className="fxcard__head">
+            <button
+              className="fxcard__btn"
+              disabled={i === 0}
+              onClick={() => s.moveEffect(clip.id, fx.id, -1)}
+              title="Move up (applied earlier)"
+            >
+              ▲
+            </button>
+            <button
+              className="fxcard__btn"
+              disabled={i === effects.length - 1}
+              onClick={() => s.moveEffect(clip.id, fx.id, 1)}
+              title="Move down (applied later)"
+            >
+              ▼
+            </button>
+            <span className="fxcard__label">{EFFECT_LABELS[fx.type]}</span>
+            <input
+              type="checkbox"
+              checked={fx.enabled}
+              onChange={() => s.toggleEffect(clip.id, fx.id)}
+              title="Enable/disable"
+            />
+            <button
+              className="fxcard__btn"
+              onClick={() => s.duplicateEffect(clip.id, fx.id)}
+              title="Duplicate"
+            >
+              ⧉
+            </button>
+            <button
+              className="fxcard__btn"
+              onClick={() => s.removeEffect(clip.id, fx.id)}
+              title="Remove"
+            >
+              ×
+            </button>
+          </div>
+          <FxParams clip={clip} fx={fx} />
+        </div>
+      ))}
+
       <div className="prow">
-        <span className="prow__label">Key</span>
-        <input
-          type="checkbox"
-          checked={!!clip.key}
-          onChange={(e) =>
-            updateClipFx(clip.id, {
-              key: e.target.checked
-                ? { color: '#00ff00', tolerance: 0.12, softness: 0.08, spill: 0.5 }
-                : null,
-            })
-          }
-        />
-        {clip.key && (
+        <button
+          className="topbar__btn"
+          onPointerDown={(e) => setAddAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+        >
+          + Add effect
+        </button>
+        {addAnchor && (
+          <Popover anchorRect={addAnchor} onClose={() => setAddAnchor(null)}>
+            {(Object.keys(EFFECT_LABELS) as EffectType[]).map((t) => (
+              <button
+                key={t}
+                className="menu__item"
+                onClick={() => {
+                  s.addEffect(clip.id, t)
+                  setAddAnchor(null)
+                }}
+              >
+                {EFFECT_LABELS[t]}
+              </button>
+            ))}
+          </Popover>
+        )}
+        <FxPresets clip={clip} />
+      </div>
+    </>
+  )
+}
+
+function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
+  const s = useStore.getState()
+  const p = (name: string) => `fx.${fx.id}.${name}`
+  if (fx.type === 'grade')
+    return (
+      <>
+        <NumberRow clip={clip} prop={p('exposure')} label="Exposure" step={0.05} min={-2} max={2} />
+        <NumberRow clip={clip} prop={p('contrast')} label="Contrast" step={0.05} min={-1} max={1} />
+        <NumberRow clip={clip} prop={p('saturation')} label="Saturation" step={0.05} min={-1} max={1} />
+        <NumberRow clip={clip} prop={p('temperature')} label="Temp" step={0.05} min={-1} max={1} />
+        <NumberRow clip={clip} prop={p('tint')} label="Tint" step={0.05} min={-1} max={1} />
+      </>
+    )
+  if (fx.type === 'chromaKey')
+    return (
+      <>
+        <div className="prow">
+          <span className="prow__label">Color</span>
           <input
             className="prow__color"
             type="color"
-            value={clip.key.color}
-            onChange={(e) =>
-              updateClipFx(clip.id, { key: { ...clip.key!, color: e.target.value } })
-            }
-            title="Key color"
+            value={String(fx.params.color ?? '#00ff00')}
+            onChange={(e) => s.updateEffectParams(clip.id, fx.id, { color: e.target.value })}
           />
-        )}
-      </div>
-      {clip.key && (
-        <>
-          <NumberRow clip={clip} prop="key.tolerance" label="Tolerance" step={0.01} min={0} max={0.6} />
-          <NumberRow clip={clip} prop="key.softness" label="Softness" step={0.01} min={0} max={0.5} />
-          <NumberRow clip={clip} prop="key.spill" label="Spill" step={0.05} min={0} max={1} />
-        </>
-      )}
+        </div>
+        <NumberRow clip={clip} prop={p('tolerance')} label="Tolerance" step={0.01} min={0} max={0.6} />
+        <NumberRow clip={clip} prop={p('softness')} label="Softness" step={0.01} min={0} max={0.5} />
+        <NumberRow clip={clip} prop={p('spill')} label="Spill" step={0.05} min={0} max={1} />
+      </>
+    )
+  if (fx.type === 'blur')
+    return <NumberRow clip={clip} prop={p('amount')} label="Blur/Sharp" step={0.5} min={-20} max={40} />
+  if (fx.type === 'vignette')
+    return <NumberRow clip={clip} prop={p('amount')} label="Amount" step={0.02} min={0} max={1} />
+  // mask
+  return (
+    <>
       <div className="prow">
-        <span className="prow__label">Mask</span>
+        <span className="prow__label">Shape</span>
         <select
           className="prow__ease"
-          value={clip.mask?.kind ?? 'none'}
-          onChange={(e) => {
-            const v = e.target.value
-            updateClipFx(clip.id, {
-              mask:
-                v === 'none'
-                  ? null
-                  : {
-                      kind: v as 'rect' | 'ellipse',
-                      x: clip.mask?.x ?? 0,
-                      y: clip.mask?.y ?? 0,
-                      w: clip.mask?.w ?? 400,
-                      h: clip.mask?.h ?? 300,
-                      feather: clip.mask?.feather ?? 24,
-                      invert: clip.mask?.invert ?? false,
-                    },
-            })
-          }}
+          value={String(fx.params.kind ?? 'rect')}
+          onChange={(e) => s.updateEffectParams(clip.id, fx.id, { kind: e.target.value })}
         >
-          {['none', 'rect', 'ellipse'].map((k) => (
+          {['rect', 'ellipse'].map((k) => (
             <option key={k} value={k}>
               {k}
             </option>
           ))}
         </select>
-        {clip.mask && (
-          <label className="prow__unit selectable" style={{ cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={clip.mask.invert}
-              onChange={(e) =>
-                updateClipFx(clip.id, { mask: { ...clip.mask!, invert: e.target.checked } })
-              }
-            />{' '}
-            inv
-          </label>
-        )}
+        <label className="prow__unit selectable" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={!!fx.params.invert}
+            onChange={(e) => s.updateEffectParams(clip.id, fx.id, { invert: e.target.checked })}
+          />{' '}
+          inv
+        </label>
       </div>
-      {clip.mask && (
-        <>
-          <NumberRow clip={clip} prop="mask.x" label="Mask X" step={1} />
-          <NumberRow clip={clip} prop="mask.y" label="Mask Y" step={1} />
-          <NumberRow clip={clip} prop="mask.w" label="Mask W" step={1} min={2} />
-          <NumberRow clip={clip} prop="mask.h" label="Mask H" step={1} min={2} />
-          <NumberRow clip={clip} prop="mask.feather" label="Feather" step={1} min={0} max={200} />
-        </>
+      <NumberRow clip={clip} prop={p('x')} label="Mask X" step={1} />
+      <NumberRow clip={clip} prop={p('y')} label="Mask Y" step={1} />
+      <NumberRow clip={clip} prop={p('w')} label="Mask W" step={1} min={2} />
+      <NumberRow clip={clip} prop={p('h')} label="Mask H" step={1} min={2} />
+      <NumberRow clip={clip} prop={p('feather')} label="Feather" step={1} min={0} max={200} />
+    </>
+  )
+}
+
+// Effect presets: a named copy of the whole stack in the app-level SQLite
+// settings table (key fxPresets). Apply = replace target stack, fresh ids.
+function FxPresets({ clip }: { clip: Clip }) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const [presets, setPresets] = useState<{ name: string; effects: Effect[] }[]>([])
+  const s = useStore.getState()
+  const load = async () => {
+    const raw = await invoke<string | null>('get_setting', { key: 'fxPresets' }).catch(() => null)
+    setPresets(raw ? (JSON.parse(raw) as { name: string; effects: Effect[] }[]) : [])
+  }
+  const persist = (next: { name: string; effects: Effect[] }[]) => {
+    setPresets(next)
+    void invoke('set_setting', { key: 'fxPresets', value: JSON.stringify(next) }).catch(() => {})
+  }
+  return (
+    <>
+      <button
+        className="topbar__btn"
+        title="Effect presets"
+        onPointerDown={(e) => {
+          setAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())
+          void load()
+        }}
+      >
+        Presets
+      </button>
+      {anchor && (
+        <Popover anchorRect={anchor} onClose={() => setAnchor(null)}>
+          <button
+            className="menu__item"
+            disabled={clip.effects.length === 0}
+            onClick={() => {
+              const name = `Preset ${presets.length + 1} (${clip.effects.map((e) => e.type).join('+')})`
+              persist([...presets, { name, effects: structuredClone(clip.effects) }])
+            }}
+          >
+            Save stack as preset
+          </button>
+          {presets.map((pr, i) => (
+            <div key={i} className="menu__item menu__item--row">
+              <button
+                className="menu__inline"
+                onClick={() => {
+                  for (const fx of pr.effects)
+                    s.addEffect(clip.id, fx.type) // placeholder ids…
+                  // …then overwrite the placeholders with the preset params in
+                  // one history step less; simpler: rebuild via update
+                  const added = useStore
+                    .getState()
+                    .project.tracks.flatMap((t) => t.clips)
+                    .find((c) => c.id === clip.id)!
+                    .effects.slice(-pr.effects.length)
+                  added.forEach((fx, j) =>
+                    s.updateEffectParams(clip.id, fx.id, { ...pr.effects[j].params }),
+                  )
+                  setAnchor(null)
+                }}
+              >
+                {pr.name}
+              </button>
+              <button
+                className="menu__inline menu__inline--danger"
+                title="Delete preset"
+                onClick={() => persist(presets.filter((_, j) => j !== i))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {presets.length === 0 && <div className="menu__empty">No presets yet</div>}
+        </Popover>
       )}
-      <NumberRow clip={clip} prop="blur" label="Blur/Sharp" step={0.5} min={-20} max={40} />
-      <NumberRow clip={clip} prop="vignette" label="Vignette" step={0.02} min={0} max={1} />
     </>
   )
 }
@@ -810,9 +933,10 @@ function staticDisplay(clip: Clip, prop: string): number | undefined {
     const v = (clip.transform as unknown as Record<string, unknown>)[prop.slice(10)]
     return typeof v === 'number' ? v : undefined
   }
-  if (prop.startsWith('grade.')) {
-    const g = clip.grade as unknown as Record<string, number> | undefined
-    return g?.[prop.slice(6)] ?? 0
+  if (prop.startsWith('fx.')) {
+    const [, id, param] = prop.split('.')
+    const v = clip.effects.find((e) => e.id === id)?.params[param]
+    return typeof v === 'number' ? v : 0
   }
   return undefined
 }

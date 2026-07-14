@@ -123,6 +123,12 @@ export async function openProjectPath(path: string): Promise<void> {
       if (recovered) source = recoveryJson
     }
     const project = JSON.parse(source) as Project
+    // Effect-stack migration (pro-editor session, Phase 2): pre-stack
+    // projects carry fixed effect fields; convert SHAPE-BASED (no version
+    // bump — the stack is additive and old fields are deleted on convert).
+    const { migrateProjectEffects } = await import('../engine/effectStack')
+    const migrated = migrateProjectEffects(project)
+    if (migrated > 0) console.info(`effect-stack migration: ${migrated} clip(s) converted`)
     const missing = new Set(missingMedia)
     for (const m of project.media) {
       if (m.path.startsWith('/') && !missing.has(m.path)) {

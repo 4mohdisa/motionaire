@@ -4,6 +4,9 @@ import { current } from 'immer'
 import type {
   Clip,
   Ease,
+  Effect,
+  EffectType,
+  Transform,
   Shape,
   Track,
   MediaAsset,
@@ -13,7 +16,8 @@ import type {
   TextStyle,
   Transition,
 } from '../types/project'
-import { createProject, defaultGrade, defaultTransform, uid } from '../types/project'
+import { createProject, defaultTransform, uid } from '../types/project'
+import { mkEffect } from '../engine/effectStack'
 import {
   clampStartToGaps,
   clipDuration,
@@ -162,14 +166,22 @@ export interface StoreState {
   // Title templates (foundation, Phase 8): composed from existing text/shape
   // primitives — no new render paths.
   addTitleTemplate: (kind: 'lowerThird' | 'centered' | 'caption') => void
-  updateClipFx: (
+  // Effect stack (pro-editor session, Phase 2): ordered, mutable.
+  addEffect: (clipId: string, type: EffectType) => void
+  removeEffect: (clipId: string, effectId: string) => void
+  toggleEffect: (clipId: string, effectId: string) => void
+  moveEffect: (clipId: string, effectId: string, dir: 1 | -1) => void
+  duplicateEffect: (clipId: string, effectId: string) => void
+  updateEffectParams: (
     clipId: string,
-    patch: {
-      key?: Clip['key'] | null
-      blend?: Clip['blend'] | null
-      mask?: Clip['mask'] | null
-    },
+    effectId: string,
+    patch: Record<string, number | string | boolean>,
   ) => void
+  setClipBlend: (clipId: string, blend: Clip['blend']) => void
+  // Copy/paste attributes (transform + stack + blend) across clips.
+  attrClipboard: { transform: Transform; effects: Effect[]; blend?: Clip['blend'] } | null
+  copyAttributes: (clipId: string) => void
+  pasteAttributes: (targetIds: string[]) => void
   updateShape: (clipId: string, patch: Partial<Shape>) => void
   updateTextClip: (
     clipId: string,
@@ -924,18 +936,14 @@ export const useStore = create<StoreState>()(
 
           if (prop === 'volume' && isNumeric) clip.volume = value
           else if (prop === 'pan' && isNumeric) clip.pan = Math.min(1, Math.max(-1, value))
-          else if (prop === 'blur' && isNumeric) clip.blur = Math.min(40, Math.max(-20, value))
-          else if (prop === 'vignette' && isNumeric) clip.vignette = Math.min(1, Math.max(0, value))
-          else if (prop.startsWith('key.') && isNumeric && clip.key)
-            (clip.key as unknown as Record<string, number>)[prop.slice('key.'.length)] = value
-          else if (prop.startsWith('mask.') && isNumeric && clip.mask)
-            (clip.mask as unknown as Record<string, number>)[prop.slice('mask.'.length)] = value
-          else if (prop.startsWith('transform.')) {
+          else if (prop.startsWith('fx.') && isNumeric) {
+            // Effect-stack param (Phase 2): fx.<effectId>.<param>.
+            const [, id, param] = prop.split('.')
+            const fx = clip.effects.find((e) => e.id === id)
+            if (fx) fx.params[param] = value
+          } else if (prop.startsWith('transform.')) {
             const key = prop.slice('transform.'.length)
             ;(clip.transform as unknown as Record<string, unknown>)[key] = value
-          } else if (prop.startsWith('grade.') && isNumeric) {
-            if (!clip.grade) clip.grade = defaultGrade()
-            ;(clip.grade as unknown as Record<string, number>)[prop.slice('grade.'.length)] = value
           }
         }),
 
@@ -1061,8 +1069,8 @@ export const useStore = create<StoreState>()(
             transform: defaultTransform(),
             keyframes: [],
             transitions: { in: null, out: null },
-            effects: [],
-            grade: defaultGrade(),
+            // The adjust layer's whole point is a grade over everything below.
+            effects: [mkEffect('grade')],
           })
         }),
 
@@ -1276,14 +1284,99 @@ export const useStore = create<StoreState>()(
 
       // Effects (foundation, Phase 4): structured patches; scalar params go
       // through setClipProperty for stopwatch semantics.
-      updateClipFx: (clipId, patch) =>
+      addEffect: (clipId, type) =>
         mutateProject((p) => {
           const found = findClip(p, clipId)
           if (!found || found.track.locked) return
-          const c = found.clip
-          if ('key' in patch) c.key = patch.key ?? undefined
-          if ('blend' in patch) c.blend = patch.blend ?? undefined
-          if ('mask' in patch) c.mask = patch.mask ?? undefined
+          found.clip.effects.push(mkEffect(type))
+        }),
+
+      removeEffect: (clipId, effectId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          found.clip.effects = found.clip.effects.filter((e) => e.id !== effectId)
+          // Orphaned keyframes go with the instance.
+          found.clip.keyframes = found.clip.keyframes.filter(
+            (k) => !k.prop.startsWith(`fx.${effectId}.`),
+          )
+        }),
+
+      toggleEffect: (clipId, effectId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const fx = found.clip.effects.find((e) => e.id === effectId)
+          if (fx) fx.enabled = !fx.enabled
+        }),
+
+      moveEffect: (clipId, effectId, dir) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const list = found.clip.effects
+          const i = list.findIndex((e) => e.id === effectId)
+          const j = i + dir
+          if (i < 0 || j < 0 || j >= list.length) return
+          ;[list[i], list[j]] = [list[j], list[i]]
+        }),
+
+      duplicateEffect: (clipId, effectId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const list = found.clip.effects
+          const i = list.findIndex((e) => e.id === effectId)
+          if (i < 0) return
+          const copy = structuredClone(current(list[i])) as Effect
+          copy.id = uid('fx')
+          list.splice(i + 1, 0, copy)
+        }),
+
+      updateEffectParams: (clipId, effectId, patch) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const fx = found.clip.effects.find((e) => e.id === effectId)
+          if (fx) Object.assign(fx.params, patch)
+        }),
+
+      setClipBlend: (clipId, blend) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          found.clip.blend = blend && blend !== 'normal' ? blend : undefined
+        }),
+
+      attrClipboard: null,
+      copyAttributes: (clipId) => {
+        const found = findClip(get().project, clipId)
+        if (!found) return
+        set((s) => {
+          s.attrClipboard = structuredClone({
+            transform: found.clip.transform,
+            effects: found.clip.effects as Effect[],
+            blend: found.clip.blend,
+          })
+        })
+      },
+
+      pasteAttributes: (targetIds) =>
+        mutateProject((p) => {
+          const attrs = useStore.getState().attrClipboard
+          if (!attrs) return
+          for (const id of targetIds) {
+            const found = findClip(p, id)
+            if (!found || found.track.locked) continue
+            const c = found.clip
+            c.transform = structuredClone(attrs.transform)
+            // Fresh instance ids per target: keyframes/panel address instances.
+            c.effects = attrs.effects.map((e) => ({ ...structuredClone(e), id: uid('fx') }))
+            c.blend = attrs.blend
+            // Stale fx keyframes from the clip's previous stack die here;
+            // transform keyframes are the CLIP's animation and survive.
+            c.keyframes = c.keyframes.filter((k) => !k.prop.startsWith('fx.'))
+          }
         }),
 
       updateShape: (clipId, patch) =>

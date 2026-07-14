@@ -8,14 +8,14 @@ import type { Ease } from '../types/project'
 // the dev:f1_parity_test e2e keeps TS and Rust agreeing with each other.
 
 describe('staticValue', () => {
-  it('reads transform, volume, effect scalars, and defaults to 0', () => {
-    const c = mkClip({ volume: 0.5, blur: 3, vignette: 0.2 })
+  it('reads transform, volume, stack params, and defaults to 0', () => {
+    const c = mkClip({ volume: 0.5 })
     c.transform.scale = 2
+    c.effects.push({ id: 'fx1', type: 'blur', enabled: true, params: { amount: 3 } })
     expect(staticValue(c, 'transform.scale')).toBe(2)
     expect(staticValue(c, 'volume')).toBe(0.5)
-    expect(staticValue(c, 'blur')).toBe(3)
-    expect(staticValue(c, 'vignette')).toBe(0.2)
-    expect(staticValue(c, 'grade.exposure')).toBe(0) // no grade set
+    expect(staticValue(c, 'fx.fx1.amount')).toBe(3)
+    expect(staticValue(c, 'fx.nope.amount')).toBe(0) // unknown instance
     expect(staticValue(c, 'nonsense')).toBe(0)
   })
 })

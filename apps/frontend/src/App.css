@@ -2152,3 +2152,84 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- Effect stack cards (pro-editor session, Phase 2) ---- */
+
+.fxcard {
+  border: 1px solid var(--border-seam);
+  border-radius: 6px;
+  margin: 6px 0;
+  padding: 4px 6px 6px;
+  background: var(--bg-control);
+}
+
+.fxcard--off {
+  opacity: 0.45;
+}
+
+.fxcard__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.fxcard__label {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fxcard__btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.fxcard__btn:hover:not(:disabled) {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.fxcard__btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.menu__item--row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.menu__inline {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+  padding: 0;
+}
+
+.menu__inline--danger {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.menu__inline--danger:hover {
+  color: var(--danger);
+}
+
+.menu__empty {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-disabled);
+}

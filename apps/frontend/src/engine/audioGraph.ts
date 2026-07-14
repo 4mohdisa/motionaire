@@ -48,6 +48,13 @@ export function ensureGraph(): boolean {
   } catch {
     return false
   }
+  // Release the hardware on page teardown. WebKit caps live AudioContexts
+  // per web process; without this, every dev-reload strands one until GC
+  // and deep test sequences saw analysers go silent (Phase 2 gate flake).
+  window.addEventListener('pagehide', () => {
+    void ctx?.close().catch(() => {})
+    ctx = null
+  })
   master = ctx.createGain()
   const splitter = ctx.createChannelSplitter(2)
   analyserL = ctx.createAnalyser()

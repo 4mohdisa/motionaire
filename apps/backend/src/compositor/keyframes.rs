@@ -1,4 +1,4 @@
-use super::types::{Kf, Layer, ResolvedLayer};
+use super::types::{ChainOp, Kf, Layer, ResolvedLayer};
 
 // THE single source of truth for property resolution (foundation session,
 // Phase 1): every rendered and exported pixel resolves through this file and
@@ -64,60 +64,86 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
         crop: tr.crop,
         shadow: tr.shadow.clone(),
         grade: {
-            let g = layer.grade.unwrap_or_default();
-            [
-                resolve(kf, "grade.exposure", g.exposure, t_rel) as f32,
-                resolve(kf, "grade.contrast", g.contrast, t_rel) as f32,
-                resolve(kf, "grade.saturation", g.saturation, t_rel) as f32,
-                resolve(kf, "grade.temperature", g.temperature, t_rel) as f32,
-                resolve(kf, "grade.tint", g.tint, t_rel) as f32,
-            ]
+            // Adjustment layers fold their stack GRADES onto lower layers via
+            // the composite pass; a normal layer's grade rides its chain.
+            let mut g = [0.0f32; 5];
+            if layer.adjust {
+                for fx in layer.stack.iter().filter(|f| f.enabled && f.kind == "grade") {
+                    for (i, name) in ["exposure", "contrast", "saturation", "temperature", "tint"]
+                        .iter()
+                        .enumerate()
+                    {
+                        let prop = format!("fx.{}.{}", fx.id, name);
+                        g[i] += resolve(kf, &prop, fx.num(name), t_rel) as f32;
+                    }
+                }
+            }
+            g
         },
-        key_tolerance: layer
-            .key
-            .as_ref()
-            .map(|k| resolve(kf, "key.tolerance", k.tolerance, t_rel) as f32)
-            .unwrap_or(0.0),
-        key_softness: layer
-            .key
-            .as_ref()
-            .map(|k| resolve(kf, "key.softness", k.softness, t_rel) as f32)
-            .unwrap_or(0.0),
-        key_spill: layer
-            .key
-            .as_ref()
-            .map(|k| resolve(kf, "key.spill", k.spill, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_x: layer
-            .mask
-            .as_ref()
-            .map(|m| resolve(kf, "mask.x", m.x, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_y: layer
-            .mask
-            .as_ref()
-            .map(|m| resolve(kf, "mask.y", m.y, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_w: layer
-            .mask
-            .as_ref()
-            .map(|m| resolve(kf, "mask.w", m.w, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_h: layer
-            .mask
-            .as_ref()
-            .map(|m| resolve(kf, "mask.h", m.h, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_feather: layer
-            .mask
-            .as_ref()
-            .map(|m| resolve(kf, "mask.feather", m.feather, t_rel) as f32)
-            .unwrap_or(0.0),
-        mask_invert: layer.mask.as_ref().map(|m| m.invert).unwrap_or(false),
-        mask_ellipse: layer.mask.as_ref().map(|m| m.kind == "ellipse").unwrap_or(false),
-        blur: resolve(kf, "blur", layer.blur, t_rel) as f32,
-        vignette: resolve(kf, "vignette", layer.vignette, t_rel) as f32,
+        chain: layer
+            .stack
+            .iter()
+            .filter(|fx| fx.enabled)
+            .filter_map(|fx| {
+                let rp = |name: &str| {
+                    resolve(kf, &format!("fx.{}.{}", fx.id, name), fx.num(name), t_rel) as f32
+                };
+                let mut op = ChainOp { op: 0, p: [0.0; 8], color: [0.0; 3] };
+                match fx.kind.as_str() {
+                    "chromaKey" => {
+                        op.op = 1;
+                        op.p[0] = rp("tolerance");
+                        op.p[1] = rp("softness");
+                        op.p[2] = rp("spill");
+                        op.color = parse_rgb(fx.text("color"));
+                    }
+                    "grade" => {
+                        op.op = 2;
+                        op.p[0] = rp("exposure");
+                        op.p[1] = rp("contrast");
+                        op.p[2] = rp("saturation");
+                        op.p[3] = rp("temperature");
+                        op.p[4] = rp("tint");
+                    }
+                    "blur" => {
+                        op.op = 3;
+                        op.p[0] = rp("amount");
+                        if op.p[0].abs() < 0.01 {
+                            return None; // identity — skip the pass entirely
+                        }
+                    }
+                    "mask" => {
+                        op.op = 4;
+                        op.p[0] = rp("x");
+                        op.p[1] = rp("y");
+                        op.p[2] = (rp("w") / 2.0).max(1.0);
+                        op.p[3] = (rp("h") / 2.0).max(1.0);
+                        op.p[4] = rp("feather");
+                        op.p[5] = if fx.flag("invert") { 1.0 } else { 0.0 };
+                        op.p[6] = if fx.text("kind") == "ellipse" { 1.0 } else { 0.0 };
+                    }
+                    "vignette" => {
+                        op.op = 5;
+                        op.p[0] = rp("amount");
+                        if op.p[0] <= 0.001 {
+                            return None;
+                        }
+                    }
+                    _ => return None,
+                }
+                Some(op)
+            })
+            .collect(),
     }
+}
+
+fn parse_rgb(hex: &str) -> [f32; 3] {
+    let h = hex.trim_start_matches('#');
+    if h.len() < 6 {
+        return [0.0, 1.0, 0.0];
+    }
+    let c = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0) as f32 / 255.0;
+    [c(0), c(2), c(4)]
 }
 
 #[cfg(test)]
@@ -177,27 +203,57 @@ mod tests {
     }
 
     #[test]
-    fn resolve_layer_covers_effect_scalars() {
+    fn resolve_layer_resolves_stack_instances_in_order() {
+        // Two instances of the SAME type with different params + a keyframed
+        // param addressed per instance (fx.<id>.<param>) — the Phase 2 model.
         let layer: Layer = serde_json::from_str(
             r##"{
               "id":"c1","z":0,"mediaPath":"/x.mp4","start":0,"in":0,"out":10,"speed":1,
               "transform":{"x":0,"y":0,"scale":1,"rotation":0,"opacity":1,"cornerRadius":0},
               "keyframes":[
-                {"prop":"blur","t":0,"v":0,"ease":"linear"},
-                {"prop":"blur","t":2,"v":8,"ease":"linear"},
-                {"prop":"mask.x","t":0,"v":-100,"ease":"linear"},
-                {"prop":"mask.x","t":2,"v":100,"ease":"linear"}
+                {"prop":"fx.b1.amount","t":0,"v":0,"ease":"linear"},
+                {"prop":"fx.b1.amount","t":2,"v":8,"ease":"linear"}
               ],
-              "mask":{"kind":"ellipse","x":0,"y":0,"w":400,"h":300,"feather":20,"invert":false},
-              "blur":0,"vignette":0.4
+              "stack":[
+                {"id":"b1","type":"blur","enabled":true,"params":{"amount":0}},
+                {"id":"g1","type":"grade","enabled":true,"params":{"exposure":0.5}},
+                {"id":"b2","type":"blur","enabled":true,"params":{"amount":2}},
+                {"id":"m1","type":"mask","enabled":true,
+                 "params":{"kind":"ellipse","x":0,"y":0,"w":400,"h":300,"feather":20,"invert":false}},
+                {"id":"dead","type":"vignette","enabled":false,"params":{"amount":0.9}}
+              ]
             }"##,
         )
         .unwrap();
         let mid = resolve_layer(&layer, 1.0);
-        assert!((mid.blur - 4.0).abs() < 1e-9, "blur mid {}", mid.blur);
-        assert!((mid.vignette - 0.4).abs() < 1e-9); // static, no keyframes
-        assert!((mid.mask_x - 0.0).abs() < 1e-9, "mask.x mid {}", mid.mask_x);
-        assert!((mid.mask_w - 400.0).abs() < 1e-9);
-        assert!(mid.mask_ellipse);
+        // Order preserved; disabled instance dropped; identity blur kept
+        // because its KEYFRAME makes it non-identity at t=1 (amount 4).
+        assert_eq!(mid.chain.len(), 4, "chain {:?}", mid.chain);
+        assert_eq!(mid.chain[0].op, 3);
+        assert!((mid.chain[0].p[0] - 4.0).abs() < 1e-6, "kf blur {}", mid.chain[0].p[0]);
+        assert_eq!(mid.chain[1].op, 2);
+        assert!((mid.chain[1].p[0] - 0.5).abs() < 1e-9);
+        assert_eq!(mid.chain[2].op, 3);
+        assert!((mid.chain[2].p[0] - 2.0).abs() < 1e-9);
+        assert_eq!(mid.chain[3].op, 4);
+        assert!((mid.chain[3].p[2] - 200.0).abs() < 1e-9); // half-w
+        assert!((mid.chain[3].p[6] - 1.0).abs() < 1e-9); // ellipse flag
+        // Normal layer: no adjust grade fold.
+        assert_eq!(mid.grade, [0.0; 5]);
+    }
+
+    #[test]
+    fn adjust_layer_folds_stack_grades() {
+        let layer: Layer = serde_json::from_str(
+            r##"{
+              "id":"a1","z":9,"mediaPath":"","start":0,"in":0,"out":10,"speed":1,"adjust":true,
+              "transform":{"x":0,"y":0,"scale":1,"rotation":0,"opacity":1,"cornerRadius":0},
+              "keyframes":[],
+              "stack":[{"id":"g1","type":"grade","enabled":true,"params":{"saturation":-1.0}}]
+            }"##,
+        )
+        .unwrap();
+        let r = resolve_layer(&layer, 1.0);
+        assert!((r.grade[2] - (-1.0)).abs() < 1e-9);
     }
 }

@@ -171,6 +171,7 @@ struct ParitySample {
     opacity: f32,
     corner_radius: f32,
     grade: [f32; 5],
+    fx0: [f32; 2],
     src_t: f64,
 }
 
@@ -195,6 +196,9 @@ fn resolve_parity_probe(project: SyncProject, times: Vec<f64>) -> Vec<ParitySamp
                 opacity: r.opacity,
                 corner_radius: r.corner_radius,
                 grade: r.grade,
+                // First chain op's first two params (Phase 2): enough to pin
+                // per-instance fx.<id>.<param> resolution against the mirror.
+                fx0: r.chain.first().map(|c| [c.p[0], c.p[1]]).unwrap_or([0.0, 0.0]),
                 src_t: layer.source_time(t),
             });
         }

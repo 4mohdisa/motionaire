@@ -220,7 +220,7 @@ function ClipBlock({ clip, trackId }: Props) {
     clip.keyframes.length > 0 ||
     clip.transform.shadow != null ||
     c.l + c.t + c.r + c.b > 0 ||
-    clip.grade != null
+    clip.effects.length > 0
   const name = clip.adjust
     ? 'Adjustment'
     : clip.shape
@@ -249,7 +249,7 @@ function ClipBlock({ clip, trackId }: Props) {
       {clip.kind === 'audio' && <canvas ref={waveRef} className="clip__wave" />}
       <span className="clip__label">{name}</span>
       {hasFx && (
-        <span className="clip__fxbadge" title="Has effects (keyframes, crop, shadow, or grade)">
+        <span className="clip__fxbadge" title="Has effects (keyframes, crop, shadow, or stack)">
           fx
         </span>
       )}

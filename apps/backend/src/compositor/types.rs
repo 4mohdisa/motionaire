@@ -34,23 +34,44 @@ pub struct Layer {
     pub keyframes: Vec<Kf>,
     #[serde(default)]
     pub transitions: TransitionsCfg,
-    #[serde(default)]
-    pub grade: Option<GradeCfg>,
+
     // Adjustment layer (session 8, Phase 5): no source; its grade is folded
     // onto every lower-z layer for its span.
     #[serde(default)]
     pub adjust: bool,
-    // Effects (foundation session, Phase 4).
+    // Effect stack (pro-editor session, Phase 2): ordered instances, applied
+    // in USER order via chain passes; keyframes address fx.<id>.<param>.
     #[serde(default)]
-    pub key: Option<KeyCfg>,
+    pub stack: Vec<EffectCfg>,
     #[serde(default)]
-    pub blend: Option<String>, // normal | multiply | screen | add
+    pub blend: Option<String>, // normal | multiply | screen | add — clip-level
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EffectCfg {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String, // chromaKey | grade | blur | mask | vignette
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default)]
-    pub mask: Option<MaskCfg>,
-    #[serde(default)]
-    pub blur: f64, // +blur / -sharpen, px
-    #[serde(default)]
-    pub vignette: f64, // 0..1
+    pub params: serde_json::Map<String, serde_json::Value>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl EffectCfg {
+    pub fn num(&self, key: &str) -> f64 {
+        self.params.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
+    }
+    pub fn text(&self, key: &str) -> &str {
+        self.params.get(key).and_then(|v| v.as_str()).unwrap_or("")
+    }
+    pub fn flag(&self, key: &str) -> bool {
+        self.params.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -295,19 +316,17 @@ pub struct ResolvedLayer {
     pub corner_radius: f32,
     pub crop: CropCfg,
     pub shadow: Option<ShadowCfg>,
-    // exposure, contrast, saturation, temperature, tint — all-zero = identity.
+    // Adjustment-layer grade fold (composite pass); all-zero = identity.
+    // A normal layer's own grades live in `chain`, not here.
     pub grade: [f32; 5],
-    // Effects (foundation, Phase 4), resolved per frame.
-    pub key_tolerance: f32,
-    pub key_softness: f32,
-    pub key_spill: f32,
-    pub mask_x: f32,
-    pub mask_y: f32,
-    pub mask_w: f32,
-    pub mask_h: f32,
-    pub mask_feather: f32,
-    pub mask_invert: bool,
-    pub mask_ellipse: bool,
-    pub blur: f32,
-    pub vignette: f32,
+    // The resolved effect chain, in user order (pro-editor session, Phase 2).
+    pub chain: Vec<ChainOp>,
+}
+
+// One resolved chain pass. op: 1 chromaKey, 2 grade, 3 blur, 4 mask, 5 vignette.
+#[derive(Debug, Clone, Copy)]
+pub struct ChainOp {
+    pub op: u32,
+    pub p: [f32; 8],
+    pub color: [f32; 3], // key color for chromaKey
 }

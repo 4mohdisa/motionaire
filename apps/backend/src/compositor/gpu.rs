@@ -182,6 +182,129 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+// Effect-chain pass (pro-editor session, Phase 2): one effect per pass over
+// the layer's SOURCE texture, ping-ponged in USER order before the composite
+// pass. Straight alpha in/out; blur premultiplies internally per tap.
+const CHAIN_SHADER: &str = r#"
+struct FxU {
+  op: vec4<f32>,     // x: 1 key, 2 grade, 3 blur, 4 mask, 5 vignette
+  p0: vec4<f32>,
+  p1: vec4<f32>,
+  kcolor: vec4<f32>, // chroma key rgb
+  geom: vec4<f32>,   // xy = drawn half-size (layer-local px)
+}
+@group(0) @binding(0) var<uniform> u: FxU;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+@group(0) @binding(2) var samp: sampler;
+
+struct VOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
+  // Fullscreen triangle.
+  var out: VOut;
+  let x = f32(i32(vi & 1u) * 4 - 1);
+  let y = f32(i32(vi >> 1u) * 4 - 1);
+  out.pos = vec4(x, -y, 0.0, 1.0);
+  out.uv = vec2((x + 1.0) * 0.5, (y + 1.0) * 0.5);
+  return out;
+}
+
+fn key_apply(c: vec4<f32>) -> vec4<f32> {
+  // CbCr chroma distance + spill suppression (ported from the composite
+  // shader's key_sample — same constants, same look).
+  let kc = u.kcolor.rgb;
+  let cb = -0.168736 * c.r - 0.331264 * c.g + 0.5 * c.b;
+  let cr = 0.5 * c.r - 0.418688 * c.g - 0.081312 * c.b;
+  let kcb = -0.168736 * kc.r - 0.331264 * kc.g + 0.5 * kc.b;
+  let kcr = 0.5 * kc.r - 0.418688 * kc.g - 0.081312 * kc.b;
+  let dist = distance(vec2(cb, cr), vec2(kcb, kcr));
+  let tol = u.p0.x;
+  let soft = max(u.p0.y, 0.0001);
+  let a = smoothstep(tol, tol + soft, dist);
+  var rgb = c.rgb;
+  let spill = u.p0.z;
+  if (spill > 0.0) {
+    let lim = max(rgb.r, rgb.b);
+    if (rgb.g > lim) { rgb.g = mix(rgb.g, lim, spill); }
+  }
+  return vec4(rgb, c.a * a);
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+  let op = u.op.x;
+  var c = textureSample(tex, samp, in.uv);
+
+  if (op == 1.0) { // chroma key
+    return key_apply(c);
+  }
+  if (op == 2.0) { // grade — identical math to the composite pass
+    var rgb = c.rgb * exp2(u.p0.x);
+    rgb = (rgb - vec3(0.5, 0.5, 0.5)) * (1.0 + u.p0.y) + vec3(0.5, 0.5, 0.5);
+    let luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    rgb = mix(vec3(luma, luma, luma), rgb, 1.0 + u.p0.z);
+    rgb = rgb + vec3(u.p0.w * 0.1, u.p1.x * 0.1, -u.p0.w * 0.1);
+    return vec4(clamp(rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0)), c.a);
+  }
+  if (op == 3.0) { // 9-tap blur / unsharp sharpen
+    let amt = u.p0.x;
+    let dims = vec2<f32>(textureDimensions(tex));
+    let stp = (abs(amt) * 0.5) / dims;
+    var acc = vec4(0.0, 0.0, 0.0, 0.0);
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        let s = textureSampleLevel(tex, samp, in.uv + vec2(f32(dx), f32(dy)) * stp, 0.0);
+        acc += vec4(s.rgb * s.a, s.a);
+      }
+    }
+    let blurred = vec4(acc.rgb / max(acc.a, 0.0001), acc.a / 9.0);
+    if (amt > 0.0) { return blurred; }
+    let sharp = c.rgb + (c.rgb - blurred.rgb) * (abs(amt) * 0.15);
+    return vec4(clamp(sharp, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0)), c.a);
+  }
+  if (op == 4.0) { // mask (feathered SDF, layer-local px, invertible)
+    let local = (in.uv - vec2(0.5, 0.5)) * u.geom.xy * 2.0;
+    let mp = local - u.p0.xy;
+    var msd: f32;
+    if (u.p1.z > 0.5) {
+      let k = mp / u.p0.zw;
+      msd = (length(k) - 1.0) * min(u.p0.z, u.p0.w);
+    } else {
+      let q = abs(mp) - u.p0.zw;
+      msd = length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0);
+    }
+    let f = max(u.p1.x, 0.5);
+    var ma = 1.0 - smoothstep(-f * 0.5, f * 0.5, msd);
+    if (u.p1.y > 0.5) { ma = 1.0 - ma; }
+    return vec4(c.rgb, c.a * ma);
+  }
+  if (op == 5.0) { // vignette
+    let local = (in.uv - vec2(0.5, 0.5)) * u.geom.xy * 2.0;
+    let nd = length(local / max(u.geom.xy, vec2(1.0, 1.0)));
+    let rgb = c.rgb * (1.0 - u.p0.x * smoothstep(0.55, 1.35, nd));
+    return vec4(rgb, c.a);
+  }
+  return c;
+}
+"#;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct FxUniform {
+    op: [f32; 4],
+    p0: [f32; 4],
+    p1: [f32; 4],
+    kcolor: [f32; 4],
+    geom: [f32; 4],
+}
+
+const MAX_CHAIN: usize = 12;
+const FX_UNIFORM_STRIDE: u64 = 256; // min uniform buffer offset alignment
+
 #[repr(C)]
 #[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct LayerUniform {
@@ -211,6 +334,10 @@ struct LayerSlot {
     // Second uniform+bind group for the shadow pre-pass.
     bind_group_shadow: wgpu::BindGroup,
     uniform_shadow: wgpu::Buffer,
+    // Effect chain (Phase 2): ping-pong textures + per-pass uniform slab,
+    // allocated lazily the first frame a stack appears on this layer.
+    chain_tex: Option<[wgpu::Texture; 2]>,
+    chain_uniforms: Option<wgpu::Buffer>,
 }
 
 pub struct GpuCompositor {
@@ -218,6 +345,7 @@ pub struct GpuCompositor {
     queue: wgpu::Queue,
     // Indexed by blend id: 0 normal, 1 multiply, 2 screen, 3 add.
     pipelines: [wgpu::RenderPipeline; 4],
+    chain_pipeline: wgpu::RenderPipeline,
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     target: wgpu::Texture,
@@ -364,7 +492,42 @@ impl GpuCompositor {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            // Chain samples must not wrap at layer edges (blur taps).
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
+        });
+
+        // Effect-chain pipeline (Phase 2): same bind-group shape as the
+        // composite pass, no blending — each pass fully rewrites its target.
+        let chain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fx-chain"),
+            source: wgpu::ShaderSource::Wgsl(CHAIN_SHADER.into()),
+        });
+        let chain_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("fx-chain"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState {
+                module: &chain_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &chain_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
         });
 
         let out_h = out_h.clamp(144, canvas_h.max(144));
@@ -391,6 +554,7 @@ impl GpuCompositor {
             device,
             queue,
             pipelines,
+            chain_pipeline,
             bgl,
             sampler,
             target,
@@ -494,6 +658,8 @@ impl GpuCompositor {
             uniform,
             bind_group_shadow,
             uniform_shadow,
+            chain_tex: None,
+            chain_uniforms: None,
         }
     }
 
@@ -563,6 +729,11 @@ impl GpuCompositor {
 
         // Upload decoded frames + uniforms before encoding the pass.
         let mut draws: Vec<(String, bool, usize)> = Vec::new(); // (path, has_shadow, blend id)
+        // Effect chains this frame: (path, pass count). The composite pass for
+        // a chained layer binds the chain's final output instead of the source.
+        let mut chain_jobs: Vec<(String, usize)> = Vec::new();
+        let mut chained_bg: std::collections::HashMap<String, wgpu::BindGroup> =
+            std::collections::HashMap::new();
         for layer in &active {
             if layer.adjust {
                 continue; // no pixels of its own
@@ -648,6 +819,92 @@ impl GpuCompositor {
             let fit = if is_text { 0.5 } else { (cw / mw as f32).min(ch / mh as f32) };
             let (dw, dh) = (mw as f32 * fit * r.scale, mh as f32 * fit * r.scale);
 
+            // --- Effect chain (Phase 2): ping-pong the stack in user order
+            // over the source texture; the composite below binds the result.
+            if !r.chain.is_empty() {
+                let n = r.chain.len().min(MAX_CHAIN);
+                if r.chain.len() > MAX_CHAIN {
+                    log::warn!(
+                        "layer {}: {} effects, chain capped at {MAX_CHAIN} (extra passes dropped)",
+                        layer.id,
+                        r.chain.len()
+                    );
+                }
+                // Allocate/refresh chain resources.
+                {
+                    let slot = self.slots.get_mut(&layer.media_path).unwrap();
+                    if slot.chain_tex.is_none() {
+                        let mk = |label: &str| {
+                            self.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some(label),
+                                size: wgpu::Extent3d {
+                                    width: slot.dims.0,
+                                    height: slot.dims.1,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                                view_formats: &[],
+                            })
+                        };
+                        slot.chain_tex = Some([mk("chain-a"), mk("chain-b")]);
+                        slot.chain_uniforms =
+                            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("chain-uniforms"),
+                                size: FX_UNIFORM_STRIDE * MAX_CHAIN as u64,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            }));
+                    }
+                }
+                // Per-pass uniforms (geom = full drawn half-size pre-crop).
+                let slot = &self.slots[&layer.media_path];
+                let ubuf = slot.chain_uniforms.as_ref().unwrap();
+                for (i, opc) in r.chain.iter().take(n).enumerate() {
+                    let u = FxUniform {
+                        op: [opc.op as f32, 0.0, 0.0, 0.0],
+                        p0: [opc.p[0], opc.p[1], opc.p[2], opc.p[3]],
+                        p1: [opc.p[4], opc.p[5], opc.p[6], opc.p[7]],
+                        kcolor: [opc.color[0], opc.color[1], opc.color[2], 0.0],
+                        geom: [dw * 0.5, dh * 0.5, 0.0, 0.0],
+                    };
+                    self.queue.write_buffer(
+                        ubuf,
+                        i as u64 * FX_UNIFORM_STRIDE,
+                        bytemuck::bytes_of(&u),
+                    );
+                }
+                // Composite bind group pointing at the chain's final output.
+                let final_tex = &slot.chain_tex.as_ref().unwrap()[(n - 1) % 2];
+                let final_view = final_tex.create_view(&Default::default());
+                chained_bg.insert(
+                    layer.media_path.clone(),
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("composite-chained"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: slot.uniform.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&final_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+                );
+                chain_jobs.push((layer.media_path.clone(), n));
+            }
+
             // Crop cuts pixels away from the fitted rect (Premiere semantics):
             // the visible sub-rect keeps its on-canvas position; its center
             // shifts by the crop asymmetry, rotating with the layer.
@@ -664,26 +921,10 @@ impl GpuCompositor {
             let tx = r.x + off.0 * cos - off.1 * sin;
             let ty = r.y + off.0 * sin + off.1 * cos;
 
-            // Effects (foundation, Phase 4): key color parsed from hex; the
-            // mask rect is stored center+size in layer-local px.
-            let (key1, key2_xyz) = if let Some(k) = &layer.key {
-                let c = Self::parse_rgba(&k.color, 1.0);
-                ([c[0], c[1], c[2], r.key_tolerance], [r.key_softness, r.key_spill, 1.0])
-            } else {
-                ([0.0; 4], [0.0, 0.0, 0.0])
-            };
-            let (mask1, mask2_xyz) = if layer.mask.is_some() {
-                (
-                    [r.mask_x, r.mask_y, (r.mask_w * 0.5).max(0.0), (r.mask_h * 0.5).max(0.0)],
-                    [
-                        r.mask_feather,
-                        if r.mask_invert { 1.0 } else { 0.0 },
-                        if r.mask_ellipse { 1.0 } else { 0.0 },
-                    ],
-                )
-            } else {
-                ([0.0; 4], [0.0, 0.0, 0.0])
-            };
+            // Effect stack (Phase 2): the layer's own effects run as CHAIN
+            // passes before this composite; here only the adjustment-layer
+            // grade fold survives (r.grade — zero for normal layers), the
+            // rest of the legacy uniforms sit at identity.
             let content = LayerUniform {
                 rot_t: [cos, sin, tx, ty],
                 half_ro: [half_w, half_h, r.corner_radius, r.opacity.clamp(0.0, 1.0)],
@@ -692,10 +933,10 @@ impl GpuCompositor {
                 canvas: [cw, ch, 0.0, 0.0],
                 grade1: [r.grade[0], r.grade[1], r.grade[2], r.grade[3]],
                 grade2: [r.grade[4], 0.0, 0.0, 0.0],
-                key1,
-                key2: [key2_xyz[0], key2_xyz[1], key2_xyz[2], r.blur],
-                mask1,
-                mask2: [mask2_xyz[0], mask2_xyz[1], mask2_xyz[2], r.vignette],
+                key1: [0.0; 4],
+                key2: [0.0; 4],
+                mask1: [0.0; 4],
+                mask2: [0.0; 4],
                 fxmode: [
                     match layer.blend.as_deref() {
                         Some("multiply") => 1.0,
@@ -746,6 +987,62 @@ impl GpuCompositor {
 
         let view = self.target.create_view(&Default::default());
         let mut enc = self.device.create_command_encoder(&Default::default());
+        // Chain passes first: each writes chain_tex[i%2] reading the source
+        // (pass 0) or the other ping-pong texture.
+        for (path, n) in &chain_jobs {
+            let slot = &self.slots[path];
+            let texs = slot.chain_tex.as_ref().unwrap();
+            let ubuf = slot.chain_uniforms.as_ref().unwrap();
+            for i in 0..*n {
+                let input_view = if i == 0 {
+                    slot.texture.create_view(&Default::default())
+                } else {
+                    texs[(i - 1) % 2].create_view(&Default::default())
+                };
+                let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("chain-pass"),
+                    layout: &self.bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: ubuf,
+                                offset: i as u64 * FX_UNIFORM_STRIDE,
+                                size: wgpu::BufferSize::new(
+                                    std::mem::size_of::<FxUniform>() as u64
+                                ),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&input_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
+                });
+                let out_view = texs[i % 2].create_view(&Default::default());
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("fx-chain"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &out_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.chain_pipeline);
+                pass.set_bind_group(0, &bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("composite"),
@@ -770,7 +1067,7 @@ impl GpuCompositor {
                     pass.draw(0..6, 0..1);
                 }
                 pass.set_pipeline(&self.pipelines[*blend]);
-                pass.set_bind_group(0, &slot.bind_group, &[]);
+                pass.set_bind_group(0, chained_bg.get(path).unwrap_or(&slot.bind_group), &[]);
                 pass.draw(0..6, 0..1);
             }
         }

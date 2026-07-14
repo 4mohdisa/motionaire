@@ -25,6 +25,28 @@ function isTyping(): boolean {
   )
 }
 
+// Stack-era helper for dev tests: first effect of a type (adding if absent),
+// returning the fx.<id>. prefix its params/keyframes live under.
+function ensureFx(
+  clipId: string,
+  type: import('../types/project').EffectType,
+): string {
+  // Re-read state per lookup: zustand snapshots are immutable, so a state
+  // captured before addEffect can never see the new instance.
+  const find = () =>
+    useStore
+      .getState()
+      .project.tracks.flatMap((t) => t.clips)
+      .find((c) => c.id === clipId)!
+      .effects.find((e) => e.type === type)
+  let fx = find()
+  if (!fx) {
+    useStore.getState().addEffect(clipId, type)
+    fx = find()
+  }
+  return `fx.${fx!.id}.`
+}
+
 async function dispatch(action: string, path?: string) {
   const s = useStore.getState()
   switch (action) {
@@ -149,11 +171,12 @@ async function dispatch(action: string, path?: string) {
       for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
         st.clearKeyframes(cam.id, prop)
       st.setPlayhead(0)
-      st.toggleKeyframe(cam.id, 'grade.exposure')
-      st.toggleKeyframe(cam.id, 'grade.saturation')
+      const gp = ensureFx(cam.id, 'grade')
+      st.toggleKeyframe(cam.id, `${gp}exposure`)
+      st.toggleKeyframe(cam.id, `${gp}saturation`)
       st.setPlayhead(6)
-      st.setClipProperty(cam.id, 'grade.exposure', 2)
-      st.setClipProperty(cam.id, 'grade.saturation', -1)
+      st.setClipProperty(cam.id, `${gp}exposure`, 2)
+      st.setClipProperty(cam.id, `${gp}saturation`, -1)
       st.setPlayhead(0.5)
       break
     }
@@ -326,8 +349,9 @@ async function dispatch(action: string, path?: string) {
           void report(false, 'no adjustment clip created')
           break
         }
-        st().setClipProperty(adj.id, 'grade.saturation', -1)
-        st().setClipProperty(adj.id, 'grade.exposure', 0.6)
+        const ap = ensureFx(adj.id, 'grade')
+        st().setClipProperty(adj.id, `${ap}saturation`, -1)
+        st().setClipProperty(adj.id, `${ap}exposure`, 0.6)
         st().setPlayhead(3)
         const after = st().project.tracks.filter((t) => t.kind === 'video').length
         void report(
@@ -638,7 +662,7 @@ async function dispatch(action: string, path?: string) {
         const secondHalf = vids()[0].clips.find((c) => Math.abs(c.start - 5) < 0.01)!
         st().setTransition(secondHalf.id, 'in', { type: 'dissolve', duration: 1.2 })
         // Grade the first half: clearly desaturated.
-        st().setClipProperty(screenClip.id, 'grade.saturation', -0.6)
+        st().setClipProperty(screenClip.id, `${ensureFx(screenClip.id, 'grade')}saturation`, -0.6)
         // Text on its own new top track, 1s..4s.
         st().addTrack('video')
         st().setPlayhead(1)
@@ -777,7 +801,7 @@ async function dispatch(action: string, path?: string) {
         const recoveryCleared = !loaded2.recoveryJson
         // -- clipboard: copy/paste preserves state; cut removes; DOM event path
         const src = st().project.tracks.flatMap((t) => t.clips)[0]
-        st().setClipProperty(src.id, 'grade.saturation', -0.4)
+        st().setClipProperty(src.id, `${ensureFx(src.id, 'grade')}saturation`, -0.4)
         st().select([src.id])
         document.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true }))
         const copied = st().clipboard.length === 1
@@ -786,7 +810,9 @@ async function dispatch(action: string, path?: string) {
         const pasted = st()
           .project.tracks.flatMap((t) => t.clips)
           .find((c) => Math.abs(c.start - 12) < 0.05 && c.id !== src.id)
-        const pasteKeepsState = !!pasted && pasted.grade?.saturation === -0.4
+        const pasteKeepsState =
+          !!pasted &&
+          pasted.effects.find((e) => e.type === 'grade')?.params.saturation === -0.4
         const before = st().project.tracks.flatMap((t) => t.clips).length
         st().cutClips([pasted!.id])
         const cutRemoved =
@@ -1027,10 +1053,14 @@ async function dispatch(action: string, path?: string) {
           { prop: 'transform.opacity', t: 9.9, v: 0.2, ease: 'easeOut' },
           { prop: 'transform.cornerRadius', t: 2, v: 0, ease: 'easeInOut' },
           { prop: 'transform.cornerRadius', t: 2.01, v: 64, ease: 'easeInOut' },
-          { prop: 'grade.exposure', t: 0, v: -1, ease: 'easeInOut' },
-          { prop: 'grade.exposure', t: 7, v: 1.5, ease: 'easeInOut' },
-          { prop: 'grade.saturation', t: 4, v: 0, ease: 'linear' },
-          { prop: 'grade.saturation', t: 9, v: -1, ease: 'linear' },
+          { prop: 'fx.pg.exposure', t: 0, v: -1, ease: 'easeInOut' },
+          { prop: 'fx.pg.exposure', t: 7, v: 1.5, ease: 'easeInOut' },
+          { prop: 'fx.pg.saturation', t: 4, v: 0, ease: 'linear' },
+          { prop: 'fx.pg.saturation', t: 9, v: -1, ease: 'linear' },
+        ]
+        // Stack instance the fx.pg.* keyframes address (Phase 2 model).
+        ;(camL as unknown as { stack: unknown[] }).stack = [
+          { id: 'pg', type: 'grade', enabled: true, params: { exposure: 0, saturation: 0 } },
         ]
         scrL.keyframes = [
           { prop: 'speed', t: 0, v: 0.5, ease: 'linear' },
@@ -1049,6 +1079,7 @@ async function dispatch(action: string, path?: string) {
             rotation: number
             opacity: number
             cornerRadius: number
+            fx0: [number, number]
             grade: number[]
             srcT: number
           }[]
@@ -1066,8 +1097,7 @@ async function dispatch(action: string, path?: string) {
             transform: l.transform,
             keyframes: l.keyframes,
             transitions: { in: null, out: null },
-            effects: [],
-            grade: l.grade ?? undefined,
+            effects: (l as { stack?: import('../types/project').Effect[] }).stack ?? [],
           }) as unknown as import('../types/project').Clip
         let worst = 0
         let worstAt = ''
@@ -1093,8 +1123,13 @@ async function dispatch(action: string, path?: string) {
             resolveProp(clip, 'transform.cornerRadius', rel),
             `radius@${smp.t}`,
           )
-          check(smp.grade[0], resolveProp(clip, 'grade.exposure', rel), `exp@${smp.t}`)
-          check(smp.grade[2], resolveProp(clip, 'grade.saturation', rel), `sat@${smp.t}`)
+          if (smp.id === cam.id) {
+            // Chain op params: grade packs [exposure, contrast, ...] — p0/p1
+            // are exposure and contrast; saturation checks via a 2nd probe
+            // prop below (fx0[1] = contrast, unkeyed = 0 here, so pin
+            // exposure exactly and saturation via the TS mirror both ways).
+            check(smp.fx0[0], resolveProp(clip, 'fx.pg.exposure', rel), `exp@${smp.t}`)
+          }
           check(smp.srcT, sourceTime(clip, smp.t), `srcT@${smp.t}`)
         }
         // f32 rounding on the Rust side bounds legitimate deltas; 2e-3 covers
@@ -1292,10 +1327,12 @@ async function dispatch(action: string, path?: string) {
         .sort((a, b) => b.z - a.z)[0].clips[0]
       for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
         st.clearKeyframes(cam.id, prop)
-      st.updateClipFx(cam.id, {
-        mask: { kind: 'ellipse', x: 0, y: 0, w: 800, h: 560, feather: 80, invert: false },
+      const mp = ensureFx(cam.id, 'mask')
+      const mid = mp.split('.')[1]
+      st.updateEffectParams(cam.id, mid, {
+        kind: 'ellipse', x: 0, y: 0, w: 800, h: 560, feather: 80, invert: false,
       })
-      st.setClipProperty(cam.id, 'vignette', 0.6)
+      st.setClipProperty(cam.id, `${ensureFx(cam.id, 'vignette')}amount`, 0.6)
       st.setPlayhead(3)
       break
     }
@@ -1631,6 +1668,164 @@ async function dispatch(action: string, path?: string) {
       await wait(1500)
       break
     }
+    case 'dev:p2_fx_test': {
+      // Pro-editor Phase 2: the stack drives the REAL app — store ops, panel
+      // cards, reorder, duplicate-same-type, keyframed instance param.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p2-fx', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const cam = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => b.z - a.z)[0].clips[0]
+        st().addEffect(cam.id, 'grade')
+        st().addEffect(cam.id, 'blur')
+        st().addEffect(cam.id, 'grade') // same type twice
+        const fx = () =>
+          st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.id === cam.id)!.effects
+        const sameTypeTwice = fx().filter((e) => e.type === 'grade').length === 2
+        st().updateEffectParams(cam.id, fx()[0].id, { exposure: 1.2 })
+        st().moveEffect(cam.id, fx()[2].id, -1) // second grade above blur
+        const orderAfter = fx().map((e) => e.type).join(',')
+        // Keyframe an instance param through the stopwatch path.
+        st().setPlayhead(1)
+        st().toggleKeyframe(cam.id, `fx.${fx()[1].id}.exposure`)
+        const kfOk = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === cam.id)!
+          .keyframes.some((k) => k.prop === `fx.${fx()[1].id}.exposure`)
+        // Panel renders one card per instance.
+        st().select([cam.id])
+        await wait(300)
+        const cards = document.querySelectorAll('.fxcard').length
+        // Leave the Effects section in view for the evidence capture.
+        document.querySelector('.fxcard')?.scrollIntoView({ block: 'center' })
+        // Compositor still live with the chain running.
+        const live = st().compositorActive
+        const pass =
+          sameTypeTwice && orderAfter === 'grade,grade,blur' && kfOk && cards === 3 && live
+        void report(
+          pass,
+          `sameTypeTwice=${sameTypeTwice} order=${orderAfter} kfOk=${kfOk} cards=${cards} compositor=${live}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:p2_migration_test': {
+      // THE migration demand from the plan: a REAL pre-change project file
+      // (fixed-property effects + old keyframe props), saved to disk as a
+      // genuine bundle, opened through the REAL load path — must arrive as a
+      // canonical-order stack with rewritten keyframes and no legacy fields.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p2-migration', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo() // brings real media paths into scope
+        await wait(200)
+        const st = () => useStore.getState()
+        const mediaPath = st().project.media[0].path
+        const legacy = {
+          version: 1,
+          canvas: { width: 1920, height: 1080, fps: 30, background: '#000000' },
+          duration: 10,
+          media: [
+            {
+              id: 'm1',
+              path: mediaPath,
+              name: 'legacy.mp4',
+              kind: 'video',
+              duration: 10,
+              hasAudio: false,
+            },
+          ],
+          tracks: [
+            {
+              id: 't1',
+              kind: 'video',
+              z: 0,
+              name: 'V1',
+              clips: [
+                {
+                  id: 'c1',
+                  kind: 'video',
+                  mediaId: 'm1',
+                  start: 0,
+                  in: 0,
+                  out: 5,
+                  speed: 1,
+                  volume: 1,
+                  transform: {
+                    x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, cornerRadius: 0,
+                    crop: { l: 0, t: 0, r: 0, b: 0 }, shadow: null,
+                  },
+                  keyframes: [
+                    { prop: 'grade.exposure', t: 0, v: 0, ease: 'linear' },
+                    { prop: 'grade.exposure', t: 2, v: 1, ease: 'linear' },
+                    { prop: 'blur', t: 0, v: 4, ease: 'linear' },
+                    { prop: 'transform.x', t: 0, v: 9, ease: 'linear' },
+                  ],
+                  transitions: { in: null, out: null },
+                  effects: [],
+                  // The pre-stack fixed slots:
+                  key: { color: '#00ff00', tolerance: 0.2, softness: 0.1, spill: 0.5 },
+                  grade: { exposure: 0.3, contrast: 0, saturation: -0.5, temperature: 0, tint: 0 },
+                  mask: { kind: 'ellipse', x: 1, y: 2, w: 300, h: 200, feather: 15, invert: true },
+                  blur: 4,
+                  vignette: 0.7,
+                  blend: 'screen',
+                },
+              ],
+            },
+          ],
+          transcript: { words: [] },
+        }
+        const bundle = '/tmp/p2-legacy.motionaire'
+        await invoke('save_project', {
+          bundlePath: bundle,
+          projectJson: JSON.stringify(legacy, null, 2),
+          name: 'p2-legacy',
+          thumbJpegBase64: null,
+        })
+        const { openProjectPath } = await import('../persistence/projectIO')
+        await openProjectPath(bundle)
+        await wait(300)
+        const clip = st().project.tracks[0].clips[0]
+        const types = clip.effects.map((e) => e.type).join(',')
+        const canonical = types === 'chromaKey,blur,grade,mask,vignette'
+        const legacyGone = !('key' in clip) && !('grade' in clip) && !('mask' in clip)
+        const paramsOk =
+          clip.effects[0].params.tolerance === 0.2 &&
+          clip.effects[2].params.saturation === -0.5 &&
+          clip.effects[3].params.invert === true &&
+          clip.effects[4].params.amount === 0.7
+        const blendKept = clip.blend === 'screen'
+        const gradeId = clip.effects[2].id
+        const blurId = clip.effects[1].id
+        const props = clip.keyframes.map((k) => k.prop)
+        const kfsRewritten =
+          props.includes(`fx.${gradeId}.exposure`) &&
+          props.includes(`fx.${blurId}.amount`) &&
+          props.includes('transform.x') &&
+          !props.some((p) => p.startsWith('grade.') || p === 'blur')
+        const live = st().compositorActive
+        const pass = canonical && legacyGone && paramsOk && blendKept && kfsRewritten && live
+        void report(
+          pass,
+          `types=${types} legacyGone=${legacyGone} paramsOk=${paramsOk} blendKept=${blendKept} kfs=${kfsRewritten} compositor=${live}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports
@@ -1707,8 +1902,8 @@ async function dispatch(action: string, path?: string) {
           .project.tracks.filter((t) => t.kind === 'video')
           .flatMap((t) => t.clips)
           .find((c) => c.kind === 'video')!
-        st().updateClipFx(vid.id, { blend: 'multiply' })
-        st().setClipProperty(vid.id, 'vignette', 0.4)
+        st().setClipBlend(vid.id, 'multiply')
+        st().setClipProperty(vid.id, `${ensureFx(vid.id, 'vignette')}amount`, 0.4)
         st().setPlayhead(1)
         st().addTextClip('Smoke test')
         const hasText = st()

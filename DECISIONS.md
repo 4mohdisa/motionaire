@@ -1652,3 +1652,61 @@ visual = SUITE GREEN.
   survives export: volumedetect shows ~14dB drop between g=1 and g=0.2
   m4a exports. Suite: 62 unit + 22 cargo + 20/20 e2e + visual GREEN
   (vr baselines refreshed after the intentional transport-bar additions).
+
+## Phase 2 — effect stack (ARCHITECTURAL)
+
+- **The model**: Clip.effects is now an ordered Effect[] stack — {id, type,
+  enabled, params}; reorder, toggle, duplicate, same type twice. Keyframes
+  address instances as `fx.<effectId>.<param>` (per-instance animation, and
+  removing an instance removes its keyframes). Blend mode deliberately
+  STAYS a clip property: it's how the finished layer composites against
+  what's below, not a step inside the layer's own chain. Types: chromaKey,
+  grade, blur(±sharpen), mask, vignette — Phase 5's wheels/curves/LUT will
+  join as new types, not new special cases.
+- **The renderer went genuinely multi-pass** (the plan's sanctioned "if a
+  real multi-pass is required for correctness, do it properly" branch —
+  in-shader reordering of spatial ops is O(taps^blurs) fakery). Each layer
+  with a stack ping-pongs through two layer-sized textures, one WGSL pass
+  per enabled effect in USER order, then the untouched composite pass does
+  transform/crop/shadow/rounded/opacity/blend. Effect math is ported
+  verbatim from the old composite shader (same constants, same look). The
+  composite's legacy effect uniforms sit at identity; its grade slot
+  survives solely for the adjustment-layer fold, which now sums the adjust
+  layer's stack grades and applies AFTER the target's own chain.
+  Measured cost: spike sustained 480 frames at 352.7 fps (p50 2.63ms, p95
+  3.31ms) with chains live — the multi-pass is invisible at draft res.
+- **Ordering is provably real end to end**: spike_check dumps
+  grade(+1.6ev)→blur(30) and blur(30)→grade(+1.6ev) and ASSERTS the PNGs
+  differ (clamp-before-smear vs smear-before-clamp); a unit test pins
+  resolve_layer preserving user order incl. two blurs with different
+  params; the in-app p2-fx test reorders through the real store and panel.
+- **Migration is output-preserving and tested against a REAL pre-change
+  bundle** (the plan's explicit demand): canonical order = the old
+  single-pass shader's application order chromaKey → blur → grade → mask →
+  vignette; old keyframe props rewritten onto the new instances
+  (grade.exposure → fx.<id>.exposure, blur → fx.<id>.amount, …); legacy
+  fields deleted after convert; shape-based detection, NO version bump
+  (the stack is additive; loading is the only migration point — bundle
+  open and untitled-recovery restore both call it, the restore path
+  synchronously because replaceProject freezes the object). p2-migration
+  e2e: writes a genuine legacy bundle to disk via save_project, opens it
+  through the REAL load path, asserts canonical types, params, kf rewrite,
+  legacy-gone, blend kept, compositor live.
+- **Presets + paste attributes**: whole-stack presets persist in app SQLite
+  (fxPresets key) with apply-with-fresh-ids; copy/paste attributes
+  (transform + stack + blend) onto many clips, deep-copied, fresh instance
+  ids, stale fx keyframes dropped on targets — unit-tested including the
+  mutate-source-after-paste leak check.
+- **Break-testing finds**: (a) ensureFx helper read a zustand snapshot
+  captured before addEffect — immutable snapshots never see later writes;
+  house-rule corollary: always re-getState after a store write. (b) The
+  deep-sequence gate flaked with analysers going silent (f3 pan, p1 track
+  meter) while solo runs passed: every webview reload strands the old
+  page's AudioContext until GC and WebKit caps live contexts per process —
+  fixed by closing the graph's context on pagehide (a page should release
+  audio hardware at teardown; also the right behavior outside tests).
+  (c) The panel Color section died with the fixed slots; grade cards render
+  per instance — evidence capture shows TWO grade cards on one clip with a
+  keyframed exposure on the second.
+- Gate: 66 unit + 23 cargo + 22/22 e2e (incl. new p2-fx, p2-migration) +
+  visual SSIM 1.0 — SUITE GREEN.

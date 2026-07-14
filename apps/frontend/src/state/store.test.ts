@@ -446,19 +446,114 @@ describe('markers', () => {
   })
 })
 
-describe('fx patch', () => {
-  it('updateClipFx sets and clears key/blend/mask', () => {
+describe('effect stack (pro-editor P2)', () => {
+  it('add/toggle/duplicate/remove, same type twice, order user-controlled', () => {
     const c = mkClip({ start: 0 })
     fresh((p) => void p.tracks[1].clips.push(c))
-    st().updateClipFx(c.id, {
-      key: { color: '#00ff00', tolerance: 0.3, softness: 0.1, spill: 0.5 },
-      blend: 'multiply',
-    })
-    expect(clipById(c.id)!.key?.color).toBe('#00ff00')
+    st().addEffect(c.id, 'blur')
+    st().addEffect(c.id, 'grade')
+    st().addEffect(c.id, 'blur') // same type twice is the POINT
+    let fx = clipById(c.id)!.effects
+    expect(fx.map((e) => e.type)).toEqual(['blur', 'grade', 'blur'])
+    expect(new Set(fx.map((e) => e.id)).size).toBe(3)
+    st().moveEffect(c.id, fx[1].id, -1) // grade before first blur
+    fx = clipById(c.id)!.effects
+    expect(fx.map((e) => e.type)).toEqual(['grade', 'blur', 'blur'])
+    st().toggleEffect(c.id, fx[0].id)
+    expect(clipById(c.id)!.effects[0].enabled).toBe(false)
+    st().duplicateEffect(c.id, fx[0].id)
+    fx = clipById(c.id)!.effects
+    expect(fx).toHaveLength(4)
+    expect(fx[1].type).toBe('grade')
+    expect(fx[1].id).not.toBe(fx[0].id)
+    st().removeEffect(c.id, fx[0].id)
+    expect(clipById(c.id)!.effects).toHaveLength(3)
+  })
+
+  it('removeEffect drops the instance keyframes; setClipProperty writes fx params', () => {
+    const c = mkClip({ start: 0 })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().addEffect(c.id, 'blur')
+    const fx = clipById(c.id)!.effects[0]
+    st().setClipProperty(c.id, `fx.${fx.id}.amount`, 12)
+    expect(clipById(c.id)!.effects[0].params.amount).toBe(12)
+    st().setPlayhead(1)
+    st().toggleKeyframe(c.id, `fx.${fx.id}.amount`)
+    expect(clipById(c.id)!.keyframes.some((k) => k.prop === `fx.${fx.id}.amount`)).toBe(true)
+    st().removeEffect(c.id, fx.id)
+    expect(clipById(c.id)!.keyframes.some((k) => k.prop.startsWith('fx.'))).toBe(false)
+  })
+
+  it('setClipBlend sets and normalizes back to undefined', () => {
+    const c = mkClip({ start: 0 })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    st().setClipBlend(c.id, 'multiply')
     expect(clipById(c.id)!.blend).toBe('multiply')
-    st().updateClipFx(c.id, { key: null, blend: null })
-    expect(clipById(c.id)!.key).toBeUndefined()
+    st().setClipBlend(c.id, 'normal')
     expect(clipById(c.id)!.blend).toBeUndefined()
+  })
+
+  it('copy/paste attributes: deep copy, fresh instance ids, many targets', () => {
+    const a = mkClip({ start: 0, out: 2 })
+    const b = mkClip({ start: 3, out: 2 })
+    const d = mkClip({ start: 6, out: 2 })
+    fresh((p) => void p.tracks[1].clips.push(a, b, d))
+    st().addEffect(a.id, 'grade')
+    st().setClipProperty(a.id, `fx.${clipById(a.id)!.effects[0].id}.exposure`, 0.5)
+    st().setClipBlend(a.id, 'screen')
+    st().setClipProperty(a.id, 'transform.scale', 0.5)
+    st().copyAttributes(a.id)
+    st().pasteAttributes([b.id, d.id])
+    for (const id of [b.id, d.id]) {
+      const t = clipById(id)!
+      expect(t.transform.scale).toBe(0.5)
+      expect(t.blend).toBe('screen')
+      expect(t.effects).toHaveLength(1)
+      expect(t.effects[0].params.exposure).toBe(0.5)
+      expect(t.effects[0].id).not.toBe(clipById(a.id)!.effects[0].id)
+    }
+    // mutating the source afterwards must not leak into targets (deep copy)
+    st().setClipProperty(a.id, `fx.${clipById(a.id)!.effects[0].id}.exposure`, -1)
+    expect(clipById(b.id)!.effects[0].params.exposure).toBe(0.5)
+  })
+})
+
+describe('effect migration (pre-stack projects)', () => {
+  it('converts legacy fixed fields in canonical shader order with kf rewrite', async () => {
+    const { migrateClipEffects } = await import('../engine/effectStack')
+    const legacy = mkClip({
+      start: 0,
+      keyframes: [
+        { prop: 'grade.exposure', t: 0, v: 0, ease: 'linear' },
+        { prop: 'blur', t: 1, v: 8, ease: 'linear' },
+        { prop: 'mask.x', t: 0, v: -50, ease: 'linear' },
+        { prop: 'transform.x', t: 0, v: 5, ease: 'linear' },
+      ],
+    }) as Clip & Record<string, unknown>
+    legacy.key = { color: '#00ff00', tolerance: 0.2, softness: 0.1, spill: 0.4 }
+    legacy.grade = { exposure: 0.3, contrast: 0, saturation: 0, temperature: 0, tint: 0 }
+    legacy.mask = { kind: 'ellipse', x: 0, y: 0, w: 300, h: 200, feather: 10, invert: false }
+    legacy.blur = 4
+    legacy.vignette = 0.5
+    const changed = migrateClipEffects(legacy as Clip)
+    expect(changed).toBe(true)
+    const types = (legacy as Clip).effects.map((e) => e.type)
+    // Canonical legacy order = old single-pass order: key → blur → grade → mask → vignette
+    expect(types).toEqual(['chromaKey', 'blur', 'grade', 'mask', 'vignette'])
+    const fx = (legacy as Clip).effects
+    expect(fx[0].params.tolerance).toBe(0.2)
+    expect(fx[1].params.amount).toBe(4)
+    expect(fx[2].params.exposure).toBe(0.3)
+    expect(fx[4].params.amount).toBe(0.5)
+    // keyframe props rewritten onto instances; transform untouched
+    const props = (legacy as Clip).keyframes.map((k) => k.prop)
+    expect(props).toContain(`fx.${fx[2].id}.exposure`)
+    expect(props).toContain(`fx.${fx[1].id}.amount`)
+    expect(props).toContain(`fx.${fx[3].id}.x`)
+    expect(props).toContain('transform.x')
+    // legacy fields gone; second run is a no-op
+    expect((legacy as Record<string, unknown>).key).toBeUndefined()
+    expect(migrateClipEffects(legacy as Clip)).toBe(false)
   })
 })
 

@@ -562,6 +562,14 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     { label: 'Copy', onClick: () => s.copyClips(ids) },
     { label: 'Paste at playhead', onClick: () => s.pasteAtPlayhead(), disabled: !s.clipboard.length },
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
+    // Copy/paste attributes (pro-editor, Phase 2): transform + effect stack +
+    // blend, one source onto the whole selection.
+    { label: 'Copy attributes', onClick: () => s.copyAttributes(clipId) },
+    {
+      label: 'Paste attributes',
+      onClick: () => s.pasteAttributes(ids),
+      disabled: !s.attrClipboard,
+    },
     {
       label: clip?.disabled ? 'Enable' : 'Disable',
       onClick: () => s.setClipDisabled(ids, !clip?.disabled),

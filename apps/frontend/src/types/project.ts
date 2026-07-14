@@ -40,6 +40,17 @@ export interface Keyframe {
 
 export type TransitionType = 'cut' | 'dissolve' | 'fade' | 'slide' | 'wipe'
 
+// Effect stack (pro-editor session, Phase 2). Ordered, mutable, duplicable;
+// keyframes address instances as `fx.<effectId>.<param>`.
+export type EffectType = 'chromaKey' | 'grade' | 'blur' | 'mask' | 'vignette'
+
+export interface Effect {
+  id: string
+  type: EffectType
+  enabled: boolean
+  params: Record<string, number | string | boolean>
+}
+
 export interface Transition {
   type: TransitionType
   duration: number
@@ -109,29 +120,17 @@ export interface Clip {
   transform: Transform
   keyframes: Keyframe[]
   transitions: { in: Transition | null; out: Transition | null }
-  effects: unknown[]
+  effects: Effect[] // THE ordered effect stack (Phase 2); replaces the old fixed slots
   linkId?: string // shared between clips produced by detach-audio
   text?: TextStyle
   animation?: TextAnimation
-  grade?: Grade // color grade; undefined = no grade pass
-  adjust?: boolean // adjustment layer: no source; grade applies to all lower z
+  adjust?: boolean // adjustment layer: no source; its stack GRADES apply to all lower z
   shape?: Shape // shape clip: raster overlay, no source media
   disabled?: boolean // excluded from compositing/audio without deleting (foundation, Phase 2)
   pan?: number // stereo balance -1..1 (foundation, Phase 3); not keyframed
-  // Effects (foundation, Phase 4) — all scalar params keyframeable.
-  key?: { color: string; tolerance: number; softness: number; spill: number }
+  // Blend mode stays a CLIP property: it's how the finished layer composites
+  // against what's below, not a step inside the layer's own chain.
   blend?: 'normal' | 'multiply' | 'screen' | 'add'
-  mask?: {
-    kind: 'rect' | 'ellipse'
-    x: number // center offset, layer-local px
-    y: number
-    w: number // full size, layer-local px
-    h: number
-    feather: number
-    invert: boolean
-  }
-  blur?: number // +blur / -sharpen px
-  vignette?: number // 0..1
 }
 
 export interface MediaAsset {
