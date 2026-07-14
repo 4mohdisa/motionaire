@@ -1,6 +1,7 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
+import { effectiveProject } from '../engine/compound'
 import { useStore } from '../state/store'
-import type { Project } from '../types/project'
+import type { Track, Project } from '../types/project'
 
 // Sync split per the spike brief: structure (tracks/clips/keyframes) goes over
 // IPC only when it changes, debounced; the playhead is a cheap (t, playing)
@@ -20,7 +21,10 @@ interface SpikeMedia {
 // file-input imports) stays DOM-only until native import fully replaces it.
 export function flatten(project: Project, opts?: { originals?: boolean }) {
   const layers = []
-  for (const track of project.tracks) {
+  // Compound clips inline here (Phase 8): render consumers see the
+  // effective project; z scales ×1000 so nested layers stack between hosts.
+  const eff = effectiveProject(project)
+  for (const track of eff.tracks) {
     if (track.kind !== 'video' || track.hidden) continue
     for (const clip of track.clips) {
       if (clip.disabled) continue // enable/disable (foundation, Phase 2)
@@ -32,7 +36,7 @@ export function flatten(project: Project, opts?: { originals?: boolean }) {
       if (!clip.adjust && !isRaster && (!asset || !asset.path.startsWith('/'))) continue
       layers.push({
         id: clip.id,
-        z: track.z,
+        z: track.z * 1000 + ((track as Track & { __nestedZ?: number }).__nestedZ ?? 0),
         // THE proxy rule (foundation, Phase 5): preview decodes proxies,
         // export decodes originals — never the reverse.
         mediaPath: isRaster

@@ -10,6 +10,7 @@ import {
   transitionTail,
 } from './time'
 import { resolveProp } from './keyframes'
+import { effectiveProject } from './compound'
 import { attachElement, resumeGraph, setMasterGain, setTrackBusFx, setTrackBusGain } from './audioGraph'
 import type { Clip, Project } from '../types/project'
 
@@ -29,7 +30,8 @@ export let lastPlaybackError: string | null = null
 // Clips whose media elements should be mounted: active now or starting soon
 // (pre-decode upcoming cuts), plus a trailing window so outgoing clips can keep
 // playing through cross transitions.
-export function clipsToMount(p: Project, t: number): Clip[] {
+export function clipsToMount(pRaw: Project, t: number): Clip[] {
+  const p = effectiveProject(pRaw)
   const out: Clip[] = []
   for (const tr of p.tracks) {
     for (const c of tr.clips) {
@@ -162,7 +164,7 @@ function elementClipId(map: ElementMap, el: HTMLVideoElement): string | null {
 
 function syncElements(map: ElementMap, lastReverseSeek: React.MutableRefObject<number>) {
   const s = useStore.getState()
-  const p = s.project
+  const p = effectiveProject(s.project)
   const t = s.playhead
   const forward = s.playing && s.shuttle > 0
   const nowS = performance.now() / 1000

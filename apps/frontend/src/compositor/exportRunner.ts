@@ -5,6 +5,7 @@ import type { Clip, Project } from '../types/project'
 import { flatten } from './bridge'
 import { resolveProp } from '../engine/keyframes'
 import { audioFxChain } from '../engine/audioFx'
+import { effectiveProject } from '../engine/compound'
 import { clipDuration } from '../engine/time'
 
 // Export job assembly (session 9, Phase 5). Video structure reuses flatten()
@@ -27,7 +28,8 @@ interface AudioClipSpec {
 
 // Clamp clips to the export range and re-express them range-relative, so
 // the Rust graph needs no range awareness at all (foundation, Phase 6).
-function audioSpecs(project: Project, rangeStart: number, rangeEnd: number): AudioClipSpec[] {
+function audioSpecs(projectRaw: Project, rangeStart: number, rangeEnd: number): AudioClipSpec[] {
+  const project = effectiveProject(projectRaw)
   const specs: AudioClipSpec[] = []
   for (const track of project.tracks) {
     const anySolo = project.tracks.some((t) => t.kind === track.kind && t.solo)
@@ -131,6 +133,11 @@ export async function runExport(outPathOverride?: string): Promise<string | null
       format,
       quality: s.exportSettings.quality,
       masterVolume: s.project.masterVolume ?? 1,
+      // Chapter markers inside the export range, re-based (Phase 8).
+      chapters: (s.project.markers ?? [])
+        .filter((m) => m.t >= rangeStart && m.t < rangeEnd)
+        .sort((a, b) => a.t - b.t)
+        .map((m) => [m.t - rangeStart, m.label || 'Chapter'] as [number, string]),
     },
   })
   return outputPath

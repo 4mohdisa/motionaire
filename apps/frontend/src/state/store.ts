@@ -212,6 +212,15 @@ export interface StoreState {
   setClipBlend: (clipId: string, blend: Clip['blend']) => void
   setClipMatte: (clipId: string, matte: Clip['matte']) => void
   setClipMotionBlur: (clipId: string, v: boolean) => void
+  // Organization (Phase 8).
+  setClipLabel: (ids: string[], label: string | null) => void
+  selectByLabel: (label: string) => void
+  setMediaFolder: (mediaId: string, folder: string | null) => void
+  // Compound clips (Phase 8): group a selection into a nested timeline.
+  makeCompound: (ids: string[]) => void
+  ungroupCompound: (clipId: string) => void
+  openCompound: (compoundId: string | null) => void
+  editingCompound: string | null
   // Auto-reframe (Phase 7, context.md §2.2): 'center' = cover-fit for the
   // current canvas; 'activity' = luma-change centroids drive x/y keyframes.
   autoReframe: (clipId: string, mode: 'center' | 'activity') => Promise<void>
@@ -1735,6 +1744,136 @@ export const useStore = create<StoreState>()(
         mutateProject((p) => {
           const found = findClip(p, clipId)
           if (found && !found.track.locked) found.clip.motionBlur = v || undefined
+        }),
+
+      setClipLabel: (ids, label) =>
+        mutateProject((p) => {
+          for (const tr of p.tracks)
+            for (const c of tr.clips)
+              if (ids.includes(c.id)) c.label = label ?? undefined
+        }),
+
+      selectByLabel: (label) =>
+        set((s) => {
+          s.selection = s.project.tracks
+            .flatMap((t) => t.clips)
+            .filter((c) => c.label === label)
+            .map((c) => c.id)
+        }),
+
+      setMediaFolder: (mediaId, folder) =>
+        mutateProject((p) => {
+          const m = p.media.find((a) => a.id === mediaId)
+          if (m) m.folder = folder ?? undefined
+        }),
+
+      editingCompound: null,
+      openCompound: (compoundId) =>
+        set((s) => {
+          s.editingCompound = compoundId
+          s.selection = []
+        }),
+
+      makeCompound: (ids) =>
+        mutateProject((p) => {
+          // Pull the selected clips out into a nested timeline; drop ONE
+          // compound clip spanning their extent where they were.
+          const members: { clip: Clip; track: Track }[] = []
+          for (const tr of p.tracks)
+            for (const c of tr.clips)
+              if (ids.includes(c.id)) members.push({ clip: c, track: tr })
+          if (members.length < 2) return
+          if (members.some(({ track }) => track.locked)) return
+          const start = Math.min(...members.map((m) => m.clip.start))
+          const end = Math.max(...members.map((m) => clipEnd(m.clip)))
+          const id = uid('cmp')
+          // Nested tracks mirror the members' tracks (order + kind).
+          const trackIds = [...new Set(members.map((m) => m.track.id))]
+          const nestedTracks: Track[] = trackIds.map((tid, i) => {
+            const src = p.tracks.find((t) => t.id === tid)!
+            return {
+              id: uid('t'),
+              kind: src.kind,
+              z: src.kind === 'video' ? trackIds.length - i : 0,
+              name: src.name,
+              clips: members
+                .filter((m) => m.track.id === tid)
+                .map((m) => {
+                  const c = structuredClone(current(m.clip)) as Clip
+                  c.start = snapToFrame(c.start - start, p.canvas.fps)
+                  return c
+                }),
+            }
+          })
+          if (!p.compounds) p.compounds = {}
+          p.compounds[id] = {
+            name: `Compound ${Object.keys(p.compounds).length + 1}`,
+            duration: end - start,
+            tracks: nestedTracks,
+          }
+          // Remove members; place the compound clip on the topmost involved
+          // video track (or the first track if all-audio).
+          for (const tr of p.tracks) tr.clips = tr.clips.filter((c) => !ids.includes(c.id))
+          const host =
+            p.tracks
+              .filter((t) => trackIds.includes(t.id) && t.kind === 'video')
+              .sort((a, b) => b.z - a.z)[0] ?? p.tracks.find((t) => trackIds.includes(t.id))!
+          host.clips.push({
+            id: uid('c'),
+            kind: 'video',
+            compoundId: id,
+            start: snapToFrame(start, p.canvas.fps),
+            in: 0,
+            out: end - start,
+            speed: 1,
+            volume: 1,
+            transform: defaultTransform(),
+            keyframes: [],
+            transitions: { in: null, out: null },
+            effects: [],
+          })
+        }),
+
+      ungroupCompound: (clipId) =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          const cmpId = found?.clip.compoundId
+          if (!found || !cmpId || !p.compounds?.[cmpId] || found.track.locked) return
+          const cmp = p.compounds[cmpId]
+          const base = found.clip.start - found.clip.in
+          // Remove the compound clip FIRST — it must not block its own
+          // members' return (the p8 e2e caught overlapping members being
+          // DROPPED because the compound still occupied the host track).
+          found.track.clips = found.track.clips.filter((c) => c.id !== clipId)
+          for (const nt of cmp.tracks) {
+            for (const nc of nt.clips) {
+              const back = structuredClone(current(nc)) as Clip
+              back.id = uid('c')
+              back.start = snapToFrame(nc.start + base, p.canvas.fps)
+              const dur = clipDuration(back)
+              let host = p.tracks.find(
+                (t) =>
+                  t.kind === nt.kind &&
+                  !t.locked &&
+                  !t.clips.some((c) => back.start < clipEnd(c) && c.start < back.start + dur),
+              )
+              if (!host) {
+                // NEVER drop content: grow a track for the returning clip.
+                const same = p.tracks.filter((t) => t.kind === nt.kind)
+                host = {
+                  id: uid('t'),
+                  kind: nt.kind,
+                  z: same.length ? Math.max(...same.map((t) => t.z)) + 1 : 0,
+                  name: `${nt.kind === 'video' ? 'V' : 'A'}${same.length + 1}`,
+                  clips: [],
+                }
+                if (nt.kind === 'video') p.tracks.unshift(host)
+                else p.tracks.push(host)
+              }
+              host.clips.push(back)
+            }
+          }
+          delete p.compounds[cmpId]
         }),
 
       autoReframe: async (clipId, mode) => {

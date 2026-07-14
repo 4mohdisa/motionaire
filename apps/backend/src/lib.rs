@@ -457,6 +457,8 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "meanDb": grab("mean_volume"),
         "maxDb": grab("max_volume"),
+        // Container chapters show in the input dump (Phase 8 verification).
+        "chapters": text.lines().filter(|l| l.trim_start().starts_with("Chapter #")).count(),
     }))
 }
 

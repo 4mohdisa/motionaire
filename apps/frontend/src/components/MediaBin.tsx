@@ -55,6 +55,14 @@ function BinThumb({ asset }: { asset: MediaAsset }) {
 
 function MediaBin() {
   const media = useStore((s) => s.project.media)
+  const [query, setQuery] = useState('')
+  const [folder, setFolder] = useState<string | null>(null)
+  const folders = [...new Set(media.map((x) => x.folder).filter(Boolean))] as string[]
+  const shown = media.filter(
+    (x) =>
+      (folder === null || x.folder === folder) &&
+      (!query || x.name.toLowerCase().includes(query.toLowerCase())),
+  )
   const binOpen = useStore((s) => s.binOpen)
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
 
@@ -77,6 +85,13 @@ function MediaBin() {
       {
         label: 'Open in source monitor',
         onClick: () => useStore.getState().openSource(id),
+      },
+      {
+        label: 'Move to folder…',
+        onClick: () => {
+          const f = window.prompt('Folder name (empty = root):', asset.folder ?? '')
+          if (f !== null) useStore.getState().setMediaFolder(id, f.trim() || null)
+        },
       },
       {
         label: 'Add to timeline at playhead',
@@ -152,6 +167,35 @@ function MediaBin() {
           />
         </div>
       </div>
+      {/* Folders + search (Phase 8). Folders come from asset.folder values;
+          right-click an asset to move it. */}
+      <div className="bin__filters">
+        <input
+          className="bin__search selectable"
+          placeholder="Search…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {folders.length > 0 && (
+          <div className="bin__folders">
+            <button
+              className={`chip${folder === null ? ' chip--on' : ''}`}
+              onClick={() => setFolder(null)}
+            >
+              All
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f}
+                className={`chip${folder === f ? ' chip--on' : ''}`}
+                onClick={() => setFolder(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="bin__list">
         {media.length === 0 && (
           <div className="bin__empty">
@@ -163,7 +207,7 @@ function MediaBin() {
             </div>
           </div>
         )}
-        {media.map((m) => (
+        {shown.map((m) => (
           <div
             key={m.id}
             className={`bin__item${m.missing ? ' bin__item--missing' : ''}`}

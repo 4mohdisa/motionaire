@@ -262,7 +262,12 @@ function ClipBlock({ clip, trackId }: Props) {
     clip.transform.shadow != null ||
     c.l + c.t + c.r + c.b > 0 ||
     clip.effects.length > 0
-  const name = clip.adjust
+  const compound = useStore((s) =>
+    clip.compoundId ? s.project.compounds?.[clip.compoundId] : undefined,
+  )
+  const name = clip.compoundId
+    ? (compound?.name ?? 'Compound')
+    : clip.adjust
     ? 'Adjustment'
     : clip.shape
       ? clip.shape.kind.charAt(0).toUpperCase() + clip.shape.kind.slice(1)
@@ -273,7 +278,12 @@ function ClipBlock({ clip, trackId }: Props) {
   return (
     <div
       className={`clip clip--${clip.kind}${clip.adjust ? ' clip--adjust' : ''}${clip.shape ? ' clip--shape' : ''}${asset && /\.(png|jpe?g)$/i.test(asset.path) ? ' clip--image' : ''}${selected ? ' clip--selected' : ''}${missing ? ' clip--missing' : ''}${clip.disabled ? ' clip--disabled' : ''}`}
-      style={{ left: clip.start * pxPerSec, width: widthPx }}
+      style={{
+        left: clip.start * pxPerSec,
+        width: widthPx,
+        // Label colors (Phase 8): tint rides above the kind styling.
+        ...(clip.label ? { boxShadow: `inset 0 2px 0 var(--label-${clip.label})` } : {}),
+      }}
       data-clip-id={clip.id}
       data-track-id={trackId}
       onPointerDown={onPointerDown}

@@ -34,6 +34,10 @@ pub struct ExportSettings {
     // mp4 (h264) | hevc | prores | m4a | gif | png (foundation, Phase 6)
     #[serde(default = "default_format")]
     pub format: String,
+    // Chapter markers (pro-editor Phase 8): (seconds-from-export-start,
+    // title) — embedded as FFMETADATA chapters in container formats.
+    #[serde(default)]
+    pub chapters: Vec<(f64, String)>,
 }
 
 fn default_format() -> String {
@@ -324,6 +328,37 @@ fn export_inner(
     for c in &audio {
         args.push("-i".into());
         args.push(c.path.clone());
+    }
+    // Embedded chapters (Phase 8): an FFMETADATA side input after the audio
+    // inputs; container formats only.
+    let mut meta_input: Option<usize> = None;
+    if !settings.chapters.is_empty()
+        && matches!(settings.format.as_str(), "mp4" | "hevc" | "prores" | "m4a")
+    {
+        let mut meta = String::from(";FFMETADATA1\n");
+        for (i, (t, title)) in settings.chapters.iter().enumerate() {
+            let start_ms = (t * 1000.0).round().max(0.0) as u64;
+            let end_ms = settings
+                .chapters
+                .get(i + 1)
+                .map(|(t2, _)| (t2 * 1000.0).round() as u64)
+                .unwrap_or(((settings.duration) * 1000.0).round() as u64)
+                .max(start_ms + 1);
+            meta.push_str(&format!(
+                "[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_ms}\nEND={end_ms}\ntitle={}\n",
+                title.replace(['\n', '\r'], " ")
+            ));
+        }
+        let meta_path = std::env::temp_dir().join("motionaire-chapters.ffmeta");
+        if std::fs::write(&meta_path, meta).is_ok() {
+            args.push("-i".into());
+            args.push(meta_path.to_string_lossy().into_owned());
+            meta_input = Some(1 + audio.len());
+        }
+    }
+    if let Some(mi) = meta_input {
+        args.push("-map_metadata".into());
+        args.push(mi.to_string());
     }
     if !audio.is_empty() {
         args.push("-filter_complex".into());

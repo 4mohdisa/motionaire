@@ -140,3 +140,15 @@ describe('formatTimecode', () => {
     expect(formatTimecode(-5, 30)).toBe('00:00:00') // clamped, never negative
   })
 })
+
+describe('parseTimecode (pro-editor P8)', () => {
+  it('parses all accepted shapes', async () => {
+    const { parseTimecode } = await import('./time')
+    expect(parseTimecode('90', 30)).toBe(90)
+    expect(parseTimecode('01:02:15', 30)).toBeCloseTo(62.5, 6) // mm:ss:ff
+    expect(parseTimecode('1:00:02:15', 30)).toBeCloseTo(3602.5, 6)
+    expect(parseTimecode('05:12', 30)).toBeCloseTo(5.4, 6) // ss:ff
+    expect(parseTimecode('junk', 30)).toBeNull()
+    expect(parseTimecode('1:2:3:4:5', 30)).toBeNull()
+  })
+})

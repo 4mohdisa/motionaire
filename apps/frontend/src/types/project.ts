@@ -173,6 +173,11 @@ export interface Clip {
   // is consumed). Motion blur: directional smear along keyframed velocity.
   matte?: 'luma' | 'alpha'
   motionBlur?: boolean
+  // Organization (Phase 8): label color for timeline organization.
+  label?: string // one of LABEL_COLORS keys
+  // Compound clip (Phase 8): renders project.compounds[compoundId] inlined
+  // at flatten time — the compositor never learns about nesting.
+  compoundId?: string
 }
 
 export interface MediaAsset {
@@ -188,6 +193,7 @@ export interface MediaAsset {
   fps?: number
   hasAudio: boolean
   proxyPath?: string
+  folder?: string // media bin folder (Phase 8); undefined = root
 }
 
 export interface Track {
@@ -243,6 +249,9 @@ export interface Project {
   fonts?: ProjectFont[]
   markers?: Marker[]
   masterVolume?: number // project output gain (foundation, Phase 3); default 1
+  // Compound clips (Phase 8): sub-timelines by id; clips reference them via
+  // compoundId and flatten() inlines their layers.
+  compounds?: Record<string, { name: string; duration: number; tracks: Track[] }>
 }
 
 let uidCounter = 0

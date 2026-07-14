@@ -797,3 +797,65 @@ describe('trim tools — exact semantics (pro-editor P4)', () => {
     expect(clipById(B.id)!.start).toBeCloseTo(4, 6)
   })
 })
+
+describe('organization (pro-editor P8)', () => {
+  it('labels set/clear and select-by-label', () => {
+    const a = mkClip({ start: 0, out: 2 })
+    const b = mkClip({ start: 3, out: 2 })
+    fresh((p) => void p.tracks[1].clips.push(a, b))
+    st().setClipLabel([a.id, b.id], 'blue')
+    expect(clipById(a.id)!.label).toBe('blue')
+    st().setClipLabel([b.id], null)
+    st().selectByLabel('blue')
+    expect(useStore.getState().selection).toEqual([a.id])
+  })
+
+  it('compound: group → inline render view → ungroup round trip', async () => {
+    const a = mkClip({ start: 2, in: 1, out: 3 }) // [2..4)
+    const b = mkClip({ start: 4, in: 0, out: 2 }) // [4..6)
+    fresh((p) => void p.tracks[1].clips.push(a, b))
+    st().makeCompound([a.id, b.id])
+    const track = st().project.tracks[1]
+    expect(track.clips).toHaveLength(1)
+    const cmp = track.clips[0]
+    expect(cmp.compoundId).toBeTruthy()
+    expect(cmp.start).toBe(2)
+    expect(clipEnd(cmp)).toBeCloseTo(6, 6)
+    const nested = st().project.compounds![cmp.compoundId!]
+    expect(nested.tracks.flatMap((t) => t.clips)).toHaveLength(2)
+    // The render view inlines nested clips back at absolute positions.
+    const { effectiveProject } = await import('../engine/compound')
+    const eff = effectiveProject(st().project)
+    const inlined = eff.tracks.flatMap((t) => t.clips).filter((c) => !c.compoundId)
+    const starts = inlined.map((c) => c.start).sort((x, y) => x - y)
+    expect(starts[0]).toBeCloseTo(2, 6)
+    expect(starts[1]).toBeCloseTo(4, 6)
+    expect(inlined[0].in).toBeCloseTo(1, 6) // source mapping preserved
+    // Trimming the compound clip windows the nested content.
+    st().trimClip(cmp.id, 'out', 5)
+    const eff2 = (await import('../engine/compound')).effectiveProject(st().project)
+    const tail = eff2.tracks
+      .flatMap((t) => t.clips)
+      .filter((c) => !c.compoundId)
+      .sort((x, y) => x.start - y.start)[1]
+    expect(clipEnd(tail)).toBeCloseTo(5, 6) // nested clip trimmed to window
+    st().trimClip(cmp.id, 'out', 6)
+    // Ungroup restores loose clips at original absolute times.
+    st().ungroupCompound(cmp.id)
+    const loose = st()
+      .project.tracks.flatMap((t) => t.clips)
+      .sort((x, y) => x.start - y.start)
+    expect(loose).toHaveLength(2)
+    expect(loose[0].start).toBeCloseTo(2, 6)
+    expect(loose[1].start).toBeCloseTo(4, 6)
+    expect(Object.keys(st().project.compounds ?? {})).toHaveLength(0)
+  })
+
+  it('media folders set/clear', () => {
+    fresh()
+    st().setMediaFolder('m1', 'B-roll')
+    expect(st().project.media[0].folder).toBe('B-roll')
+    st().setMediaFolder('m1', null)
+    expect(st().project.media[0].folder).toBeUndefined()
+  })
+})

@@ -622,6 +622,27 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     // Copy/paste attributes (pro-editor, Phase 2): transform + effect stack +
     // blend, one source onto the whole selection.
     { label: 'Copy attributes', onClick: () => s.copyAttributes(clipId) },
+    // Organization (Phase 8): label colors + compounds.
+    ...(['red', 'orange', 'yellow', 'green', 'blue', 'purple'].map((c) => ({
+      label: `Label: ${c}`,
+      onClick: () => s.setClipLabel(ids, c),
+    })) as MenuItem[]),
+    { label: 'Label: none', onClick: () => s.setClipLabel(ids, null) },
+    {
+      label: 'Select all with this label',
+      onClick: () => clip?.label && s.selectByLabel(clip.label),
+      disabled: !clip?.label,
+    },
+    {
+      label: `Make compound (${ids.length} clips)`,
+      onClick: () => s.makeCompound(ids),
+      disabled: ids.length < 2,
+    },
+    {
+      label: 'Ungroup compound',
+      onClick: () => s.ungroupCompound(clipId),
+      disabled: !clip?.compoundId,
+    },
     {
       label: 'Paste attributes',
       onClick: () => s.pasteAttributes(ids),

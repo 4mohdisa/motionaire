@@ -2516,3 +2516,53 @@
 .preview__guide--center {
   background: rgba(120, 180, 255, 0.55);
 }
+
+/* ---- Clip labels (pro-editor session, Phase 8) ---- */
+:root {
+  --label-red: #e5484d;
+  --label-orange: #f76b15;
+  --label-yellow: #ffe629;
+  --label-green: #46a758;
+  --label-blue: #3e63dd;
+  --label-purple: #8e4ec6;
+}
+
+.transport__time--click {
+  cursor: text;
+}
+
+.transport__tcinput {
+  width: 92px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* ---- Media bin folders + search (pro-editor session, Phase 8) ---- */
+
+.bin__filters {
+  padding: 6px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bin__search {
+  width: 100%;
+  font-size: 12px;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  border: 1px solid var(--border-seam);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.bin__folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

@@ -2300,6 +2300,121 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:p8_org_test': {
+      // Pro-editor Phase 8: labels tint real blocks, timecode entry drives
+      // the playhead through REAL input events, folder chips filter the bin,
+      // compounds render inlined through the live compositor and ungroup
+      // cleanly, and exported mp4s carry embedded chapters.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'p8-org', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        const vids = st().project.tracks.filter((t) => t.kind === 'video')
+        const cam = vids.sort((a, b) => b.z - a.z)[0].clips[0]
+        const screen = vids.sort((a, b) => a.z - b.z)[0].clips[0]
+
+        // Labels.
+        st().setClipLabel([cam.id], 'red')
+        await wait(200)
+        const block = document.querySelector<HTMLElement>(`[data-clip-id="${cam.id}"]`)
+        const labelOk = !!block && getComputedStyle(block).boxShadow !== 'none'
+        st().selectByLabel('red')
+        const selByLabel = st().selection.length === 1 && st().selection[0] === cam.id
+
+        // Timecode entry via real events.
+        const tc = document.querySelector<HTMLElement>('.transport__time--click')
+        let tcOk = false
+        if (tc) {
+          tc.click()
+          await wait(150)
+          const input = document.querySelector<HTMLInputElement>('.transport__tcinput')
+          if (input) {
+            const setter = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              'value',
+            )!.set!
+            setter.call(input, '00:04:00')
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            input.dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+            )
+            await wait(150)
+            tcOk = Math.abs(st().playhead - 4) < 0.05
+          }
+        }
+
+        // Folders + search filter the bin DOM.
+        st().setMediaFolder(st().project.media[0].id, 'Screens')
+        await wait(200)
+        const chips = [...document.querySelectorAll('.bin__folders .chip')]
+        const chip = chips.find((c) => c.textContent === 'Screens') as HTMLElement
+        let folderOk = false
+        if (chip) {
+          chip.click()
+          await wait(200)
+          folderOk = document.querySelectorAll('.bin__item').length === 1
+          const all = chips.find((c) => c.textContent === 'All') as HTMLElement
+          all?.click()
+        }
+
+        // Compound: group both video clips, compositor still renders them.
+        st().makeCompound([cam.id, screen.id])
+        const cmpClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.compoundId)!
+        st().setPlayhead(1)
+        st().play()
+        const liveCompound = await until(
+          () => st().compositorActive && st().compositorFps > 5,
+          6000,
+        )
+        st().pause()
+        st().ungroupCompound(cmpClip.id)
+        const looseAgain =
+          st().project.tracks.flatMap((t) => t.clips).filter((c) => c.mediaId).length === 2
+
+        // Chapters embedded in the exported container.
+        st().addMarkerAtPlayhead() // t=1 (playhead from above)
+        st().setPlayhead(2)
+        st().addMarkerAtPlayhead()
+        st().setMarkIn(0.5)
+        st().setMarkOut(3)
+        st().setExportSettings({ format: 'mp4', height: 720, fps: 30, quality: 60 })
+        const done = new Promise<boolean>((resolve) => {
+          void import('@tauri-apps/api/event').then(({ listen }) => {
+            void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+              (un) => setTimeout(un, 120000),
+            )
+          })
+        })
+        const { runExport } = await import('../compositor/exportRunner')
+        await runExport('/tmp/p8-chapters.mp4')
+        const okExp = await done
+        const info = await invoke<{ chapters: number }>('analyze_audio', {
+          path: '/tmp/p8-chapters.mp4',
+        })
+        const chaptersOk = okExp && info.chapters >= 2
+
+        const pass = labelOk && selByLabel && tcOk && folderOk && liveCompound &&
+          looseAgain && chaptersOk
+        void report(
+          pass,
+          `label=${labelOk} selByLabel=${selByLabel} tc=${tcOk} folder=${folderOk} compound=${liveCompound} ungroup=${looseAgain} chapters=${info.chapters}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

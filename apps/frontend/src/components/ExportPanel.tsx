@@ -195,6 +195,31 @@ function ExportPanel() {
           />
           Show safe-zone guides on preview
         </label>
+        <div className="modal__actions" style={{ justifyContent: 'flex-start', marginTop: 4 }}>
+          <button
+            className="topbar__btn"
+            title="Copy markers as YouTube chapter text"
+            onClick={() => {
+              const p = useStore.getState().project
+              const fmtYt = (t: number) => {
+                const s = Math.floor(t)
+                const m = Math.floor(s / 60)
+                const h = Math.floor(m / 60)
+                const pad = (n: number) => String(n).padStart(2, '0')
+                return h > 0 ? `${h}:${pad(m % 60)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`
+              }
+              const lines = [...(p.markers ?? [])]
+                .sort((a, b) => a.t - b.t)
+                .map((mk) => `${fmtYt(mk.t)} ${mk.label || 'Chapter'}`)
+              // YouTube requires a chapter at 0:00.
+              if (!lines.length || !lines[0].startsWith('0:00')) lines.unshift('0:00 Intro')
+              void navigator.clipboard.writeText(lines.join('\n'))
+              useStore.getState().pushToast('success', `${lines.length} chapters copied`)
+            }}
+          >
+            Copy YouTube chapters
+          </button>
+        </div>
         <label className="modal__check">
           <input
             type="checkbox"

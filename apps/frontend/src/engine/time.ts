@@ -190,3 +190,17 @@ export function formatTimecode(t: number, fps: number): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}:${pad(f)}` : `${pad(m)}:${pad(s)}:${pad(f)}`
 }
+
+// Timecode entry (pro-editor session, Phase 8): parse hh:mm:ss:ff, mm:ss:ff,
+// ss:ff, or plain seconds. Returns null on garbage.
+export function parseTimecode(text: string, fps: number): number | null {
+  const t = text.trim()
+  if (!t) return null
+  if (/^\d+(\.\d+)?$/.test(t)) return Number(t)
+  const parts = t.split(':').map((s) => Number(s))
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return null
+  const padded = [0, 0, 0, 0].slice(parts.length).concat(parts)
+  if (parts.length < 2 || parts.length > 4) return null
+  const [h, m, s, f] = padded
+  return h * 3600 + m * 60 + s + f / fps
+}

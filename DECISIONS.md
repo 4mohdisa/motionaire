@@ -1912,3 +1912,48 @@ visual = SUITE GREEN.
 - **Guides**: rule-of-thirds + center cross overlay, toggle beside safe
   zones. Custom draggable guides deferred (logged).
 - Gate: 88 unit + 27 cargo + 27/27 e2e + visual GREEN.
+
+## Phase 8 — organization & workflow
+
+- **Clip labels**: six colors as a top-edge tint on blocks (context menu),
+  select-all-by-label. **Timecode entry**: the transport counter is
+  click-to-edit — parseTimecode accepts hh:mm:ss:ff / mm:ss:ff / ss:ff /
+  plain seconds (unit-tested); Enter jumps, Escape cancels. Display was
+  already timecode everywhere.
+- **Media bin**: search field + folder chips (folder set via the bin
+  context menu; chips appear only when folders exist). Flat folders, not
+  nested trees — logged as enough for now.
+- **Compound clips**: makeCompound pulls a multi-selection into a nested
+  timeline (project.compounds) and drops ONE spanning clip where they
+  were. THE seam: effectiveProject() — render/audio consumers (flatten,
+  playback mount/sync, export audio specs) see nested clips inlined,
+  time-shifted, trimmed to the compound's window, z-stacked between host
+  tracks (flatten scales z ×1000) — the compositor NEVER learns about
+  nesting. Trimming the compound clip windows the content (unit-tested).
+  v1 limits, logged: the compound's own transform/effects don't apply to
+  the group (needs an offscreen group pass); open-to-edit-inside deferred
+  (the editing layer is hard-wired to p.tracks) — the round trip is
+  group ↔ ungroup. THE E2E CAUGHT REAL DATA LOSS: ungroup reinserted
+  members while the compound clip still occupied its track, so
+  time-overlapping members found no home and were silently dropped —
+  fixed by removing the compound first and GROWING a track when no lane
+  has space (content is never dropped).
+- **Chapters → export**: markers inside the export range embed as
+  FFMETADATA chapters in mp4/hevc/prores/m4a (verified by counting
+  Chapter entries in the exported file's ffmpeg dump); "Copy YouTube
+  chapters" button emits 0:00-anchored chapter text to the clipboard.
+- **Batch operations**: covered by existing multi-select machinery —
+  paste-attributes onto a whole selection (Phase 2), setClipDisabled/
+  setClipLabel/deleteClips/rippleDeleteClips all take id lists. Logged as
+  satisfied-by-composition rather than a new subsystem.
+- **Render cache: DEFERRED — the only Phase 8 item cut** (from the end,
+  per the brief). Honest justification: preview already holds 60fps via
+  proxies and the compositor sustains 352fps at draft res with chains
+  live — there is no section on current hardware where playback can't
+  keep up, so the cache has no measurable payoff tonight. Design sketch
+  for the future session: bake flagged ranges through the existing export
+  path at proxy resolution into bundle cache/, key by a hash of the
+  flattened layer slice, swap the layer set for baked ranges in
+  flatten(), invalidate on any intersecting edit.
+- Final gate: 92 unit + 27 cargo + 28/28 e2e + visual GREEN (baselines
+  refreshed after the intentional bin-chrome additions).

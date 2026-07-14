@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Pause, Play, SkipBack, StepBack, StepForward, Volume2, SlidersVertical, Activity } from 'lucide-react'
 import { useStore } from '../state/store'
-import { formatTimecode } from '../engine/time'
+import { formatTimecode, parseTimecode } from '../engine/time'
 import { meterFrac, readPeaks } from '../engine/audioGraph'
 import IconBtn from './IconBtn'
 
@@ -72,6 +72,39 @@ function AudioMeters() {
   )
 }
 
+// Timecode entry (Phase 8): click the counter, type a timecode, Enter jumps.
+function TimecodeEntry({ playhead, fps }: { playhead: number; fps: number }) {
+  const [editing, setEditing] = useState(false)
+  if (!editing)
+    return (
+      <span
+        className="transport__time transport__time--click"
+        title="Click to type a timecode"
+        onClick={() => setEditing(true)}
+      >
+        {formatTimecode(playhead, fps)}
+      </span>
+    )
+  return (
+    <input
+      className="transport__tcinput selectable"
+      autoFocus
+      defaultValue={formatTimecode(playhead, fps)}
+      onFocus={(e) => e.target.select()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          const t = parseTimecode((e.target as HTMLInputElement).value, fps)
+          if (t !== null) useStore.getState().setPlayhead(t)
+          setEditing(false)
+        }
+        if (e.key === 'Escape') setEditing(false)
+        e.stopPropagation()
+      }}
+      onBlur={() => setEditing(false)}
+    />
+  )
+}
+
 function TransportControls() {
   const playing = useStore((s) => s.playing)
   const playhead = useStore((s) => s.playhead)
@@ -94,7 +127,7 @@ function TransportControls() {
 
   return (
     <div className="transport">
-      <span className="transport__time">{formatTimecode(playhead, fps)}</span>
+      <TimecodeEntry playhead={playhead} fps={fps} />
       <span
         className={`transport__status${compositorActive ? ' transport__status--ok' : ''}`}
         title="Compositor status"
