@@ -58,6 +58,10 @@ formalized that into the runner instead. Logged in DECISIONS.md.
    listener (seen as doubled toasts).
 4. **Unit-test fixtures live outside `*.test.ts`** (`engine/testUtils.ts`) —
    importing a test file re-registers its tests in the importer.
-5. **e2e scenes derive positions from actual state** — placement helpers
+5. **Never let a test reach a native modal.** `runExport` on an empty
+   timeline opens a "nothing to export" dialog and awaits it — nobody clicks
+   OK at 3am, so the test hangs to its timeout instead of failing. Build a
+   real scene (`loadPipDemo()`) before any path that can prompt.
+6. **e2e scenes derive positions from actual state** — placement helpers
    clamp/snap/shift (`clampStartToGaps`, lane fallbacks), so a hardcoded
    expected position is usually fiction.

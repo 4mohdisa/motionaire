@@ -21,6 +21,7 @@ KEEP=0
 # fast. Every entry prints exactly one WEBVIEW-TEST PASS/FAIL line.
 DEFAULT_TESTS=(
   smoke
+  p1_shell_test p5_export_test p5_cancel_test f8_restore_test
   p2_bin_test p3_tracks_test p4_text_test p6_safety_test p7_test
   p5_select_test p5_marker_test p5_freeze_test p5_thumb_test
   f0_popover_test f0_ctx_test f1_parity_test f2_edit_test f3_audio_test

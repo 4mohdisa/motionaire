@@ -150,36 +150,9 @@ async function dispatch(action: string, path?: string) {
       await loadPipDemo()
       break
     // Dev-remote passthroughs (debug builds drive these via the trigger file).
-    case 'dev:play':
-      s.play()
-      break
-    case 'dev:pause':
-      s.pause()
-      break
     case 'dev:reload':
       window.location.reload()
       break
-    case 'dev:grade_demo': {
-      // Keyframed grade on the fullscreen cam layer: exposure 0→2 and
-      // saturation 0→-1 across 0..6s — Phase 3 animation verification.
-      await loadPipDemo()
-      const st = useStore.getState()
-      const cam = st.project.tracks
-        .filter((t) => t.kind === 'video')
-        .sort((a, b) => b.z - a.z)[0]?.clips[0]
-      if (!cam) break
-      for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
-        st.clearKeyframes(cam.id, prop)
-      st.setPlayhead(0)
-      const gp = ensureFx(cam.id, 'grade')
-      st.toggleKeyframe(cam.id, `${gp}exposure`)
-      st.toggleKeyframe(cam.id, `${gp}saturation`)
-      st.setPlayhead(6)
-      st.setClipProperty(cam.id, `${gp}exposure`, 2)
-      st.setClipProperty(cam.id, `${gp}saturation`, -1)
-      st.setPlayhead(0.5)
-      break
-    }
     case 'dev:p5_select_test': {
       // Phase 5 item 1 check: marquee via real pointer events on the lane DOM,
       // group drag via a real drag on a clip block, collision rejection via
@@ -329,40 +302,6 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
-    case 'dev:p5_adjust_demo': {
-      // Phase 5 item 4 scene: adjustment layer (sat -1, exposure +0.6) over
-      // the PiP demo from t=2..6 — capture inside vs outside the span.
-      const report = (pass: boolean, detail: string) =>
-        invoke('report_test', { name: 'p5-adjust', pass, detail }).catch(() => {})
-      try {
-        await loadPipDemo()
-        await new Promise((r) => setTimeout(r, 300))
-        const st = () => useStore.getState()
-        st().pause()
-        st().setPlayhead(2)
-        const before = st().project.tracks.filter((t) => t.kind === 'video').length
-        st().addAdjustmentLayer()
-        const adj = st()
-          .project.tracks.flatMap((t) => t.clips)
-          .find((c) => c.adjust)
-        if (!adj) {
-          void report(false, 'no adjustment clip created')
-          break
-        }
-        const ap = ensureFx(adj.id, 'grade')
-        st().setClipProperty(adj.id, `${ap}saturation`, -1)
-        st().setClipProperty(adj.id, `${ap}exposure`, 0.6)
-        st().setPlayhead(3)
-        const after = st().project.tracks.filter((t) => t.kind === 'video').length
-        void report(
-          after === before + 1 && adj.start === 2,
-          `newTrack=${after > before} start=${adj.start} span=[2,6)`,
-        )
-      } catch (e) {
-        void report(false, String(e))
-      }
-      break
-    }
     case 'dev:p5_thumb_test': {
       // Phase 5 item 5 check: strip extraction (20 tiles), then a real
       // pointermove over a clip must float the thumb with the right tile
@@ -418,32 +357,6 @@ async function dispatch(action: string, path?: string) {
         )
       } catch (e) {
         void report(false, String(e))
-      }
-      break
-    }
-    case 'dev:p5_thumb_show': {
-      // Leave a hover thumb on screen for a native capture.
-      await loadPipDemo()
-      await new Promise((r) => setTimeout(r, 300))
-      const st = useStore.getState()
-      st.pause()
-      const asset = st.project.media.find((m) => m.name === 'cam.mp4')!
-      const { getFilmstrip } = await import('../engine/filmstrip')
-      await getFilmstrip(asset)
-      const clip = st.project.tracks
-        .filter((t) => t.kind === 'video')
-        .sort((a, b) => b.z - a.z)[0].clips[0]
-      const el = document.querySelector<HTMLElement>(`[data-clip-id="${clip.id}"]`)!
-      const rect = el.getBoundingClientRect()
-      for (let i = 0; i < 2; i++) {
-        el.dispatchEvent(
-          new PointerEvent('pointermove', {
-            clientX: rect.left + rect.width * 0.6,
-            clientY: rect.top + rect.height / 2,
-            bubbles: true,
-          }),
-        )
-        await new Promise((r) => setTimeout(r, 150))
       }
       break
     }
@@ -726,12 +639,20 @@ async function dispatch(action: string, path?: string) {
       const report = (pass: boolean, detail: string) =>
         invoke('report_test', { name: 'p5-cancel', pass, detail }).catch(() => {})
       try {
+        // Needs a REAL scene: runExport on an empty timeline opens a native
+        // "nothing to export" modal and awaits it — which blocks forever in an
+        // unattended run. This test used to inherit media from whichever test
+        // ran before it; per-test webview isolation made that dependency
+        // visible (pro-editor cleanup find).
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        useStore.getState().pause()
         const { listen } = await import('@tauri-apps/api/event')
         const { runExport } = await import('../compositor/exportRunner')
         const done = new Promise<{ ok: boolean; cancelled?: boolean }>((resolve) => {
           void listen<{ ok: boolean; cancelled?: boolean }>('export:done', (e) =>
             resolve(e.payload),
-          ).then((un) => setTimeout(un, 30000))
+          ).then((un) => setTimeout(un, 60000))
         })
         await runExport('/tmp/motionaire-cancel-test.mp4')
         setTimeout(() => void invoke('cancel_export'), 500)
@@ -1141,16 +1062,6 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
-    case 'dev:f2_srcmon': {
-      // Open the source monitor via the REAL bin double-click path and set an
-      // in/out range for the capture.
-      const item = document.querySelector<HTMLElement>('.bin__item')
-      item?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
-      await new Promise((r) => setTimeout(r, 400))
-      useStore.getState().setSourceRange('in', 2)
-      useStore.getState().setSourceRange('out', 7)
-      break
-    }
     case 'dev:f2_edit_test': {
       // Foundation Phase 2: overwrite carves, insert ripples, source-range
       // insertion honors in/out, disable drops the layer, nudge moves by
@@ -1313,28 +1224,6 @@ async function dispatch(action: string, path?: string) {
       } catch (e) {
         void report(false, String(e))
       }
-      break
-    }
-    case 'dev:f4_fx_demo': {
-      // Foundation Phase 4: apply key-less effects through the REAL store
-      // (ellipse mask + vignette + blur on the cam layer, screen blend on it)
-      // so the capture proves the frontend→flatten→compositor round trip.
-      await loadPipDemo()
-      await new Promise((r) => setTimeout(r, 300))
-      const st = useStore.getState()
-      st.pause()
-      const cam = st.project.tracks
-        .filter((t) => t.kind === 'video')
-        .sort((a, b) => b.z - a.z)[0].clips[0]
-      for (const prop of ['transform.scale', 'transform.x', 'transform.y', 'transform.cornerRadius'])
-        st.clearKeyframes(cam.id, prop)
-      const mp = ensureFx(cam.id, 'mask')
-      const mid = mp.split('.')[1]
-      st.updateEffectParams(cam.id, mid, {
-        kind: 'ellipse', x: 0, y: 0, w: 800, h: 560, feather: 80, invert: false,
-      })
-      st.setClipProperty(cam.id, `${ensureFx(cam.id, 'vignette')}amount`, 0.6)
-      st.setPlayhead(3)
       break
     }
     case 'dev:f5_proxy_test': {
@@ -1627,46 +1516,6 @@ async function dispatch(action: string, path?: string) {
       } catch (e) {
         void report(false, `threw: ${e}`)
       }
-      break
-    }
-    case 'dev:small_window': {
-      const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
-      await getCurrentWindow().setSize(new LogicalSize(980, 660))
-      break
-    }
-    case 'dev:normal_window': {
-      const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
-      await getCurrentWindow().setSize(new LogicalSize(1280, 800))
-      break
-    }
-    case 'dev:p1_show': {
-      // Evidence scene for Phase 1 captures: tone waveform on the timeline,
-      // solid matte under the playhead, mixer open, playing for live meters.
-      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
-      await loadPipDemo()
-      await wait(300)
-      const st = () => useStore.getState()
-      const { uid: mkid } = await import('../types/project')
-      const { convertFileSrc } = await import('@tauri-apps/api/core')
-      const tonePath = await invoke<string>('spike_audio', { pattern: null })
-      st().addMedia({
-        id: mkid('m'),
-        path: tonePath,
-        playbackUrl: convertFileSrc(tonePath),
-        name: 'tone.wav',
-        kind: 'audio',
-        duration: 10,
-        hasAudio: true,
-      })
-      const tone = st().project.media.find((m) => m.name === 'tone.wav')!
-      st().insertClipAt(tone.id, null, 0)
-      st().setPlayhead(6)
-      st().addSolidClip('#0f2233')
-      st().setMixerOpen(true)
-      st().setTimelineHeight(320) // audio lane + waveform in frame
-      st().setPlayhead(1)
-      st().play()
-      await wait(1500)
       break
     }
     case 'dev:p2_fx_test': {
@@ -2415,6 +2264,42 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:f8_restore_test': {
+      // Untitled crash recovery, end to end: stage a recovery file, remount
+      // the launcher so it re-checks on mount, then click Restore for real.
+      // Must land in the editor, dirty, still path-less — so the close guard
+      // and untitled autosave keep protecting it.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'f8-restore', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        await invoke('save_untitled_recovery', {
+          projectJson: JSON.stringify(createProject()),
+        })
+        // Remount the Launcher: its recovery check runs on mount.
+        st().setAppView('editor')
+        await wait(50)
+        st().setAppView('launcher')
+        await wait(400)
+        const btn = document.querySelector<HTMLButtonElement>(
+          '.launcher__recovery .shell__primary',
+        )
+        if (!btn) {
+          void report(false, 'recovery banner did not render at the launcher')
+          break
+        }
+        btn.click()
+        await wait(300)
+        const s2 = st()
+        const pass = s2.appView === 'editor' && s2.dirty && !s2.projectPath
+        void report(pass, `view=${s2.appView} dirty=${s2.dirty} path=${String(s2.projectPath)}`)
+        await invoke('clear_untitled_recovery').catch(() => {})
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports
@@ -2525,62 +2410,6 @@ async function dispatch(action: string, path?: string) {
       } catch (e) {
         void report(false, `threw: ${e}`)
       }
-      break
-    }
-    case 'dev:f8_demo': {
-      // Visual evidence scene: all three title templates over the pip demo,
-      // centered title dogfooding the Phase 8 gradient + shadow.
-      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
-      await loadPipDemo()
-      await wait(300)
-      const st = () => useStore.getState()
-      st().pause()
-      st().setPlayhead(1)
-      st().addTitleTemplate('lowerThird')
-      st().addTitleTemplate('caption')
-      st().setPlayhead(2)
-      st().addTitleTemplate('centered')
-      const cen = st()
-        .project.tracks.flatMap((t) => t.clips)
-        .find((c) => c.text?.content === 'Title')
-      if (cen)
-        st().updateTextClip(cen.id, {
-          style: { gradient: { from: '#ffd75e', to: '#ff5e8a' } },
-        })
-      st().setPlayhead(2.2)
-      break
-    }
-    case 'dev:f8_recovery': {
-      // Simulate a crash-orphaned untitled project so the launcher banner can
-      // be captured after a reload.
-      await invoke('save_untitled_recovery', {
-        projectJson: JSON.stringify(createProject()),
-      })
-      break
-    }
-    case 'dev:f8_restore_click': {
-      // Real click on the launcher banner's Restore: must land in the editor,
-      // dirty, still path-less (so autosave + close guard keep protecting it).
-      const report = (pass: boolean, detail: string) =>
-        invoke('report_test', { name: 'f8-restore', pass, detail }).catch(() => {})
-      const btn = document.querySelector<HTMLButtonElement>(
-        '.launcher__recovery .shell__primary',
-      )
-      if (!btn) {
-        void report(false, 'no banner button in DOM')
-        break
-      }
-      btn.click()
-      await new Promise((r) => setTimeout(r, 300))
-      const s2 = useStore.getState()
-      void report(
-        s2.appView === 'editor' && s2.dirty && !s2.projectPath,
-        `view=${s2.appView} dirty=${s2.dirty} path=${String(s2.projectPath)}`,
-      )
-      break
-    }
-    case 'dev:f8_recovery_clear': {
-      await invoke('clear_untitled_recovery')
       break
     }
     case 'dev:f8_test': {
@@ -2760,38 +2589,6 @@ async function dispatch(action: string, path?: string) {
       } catch (e) {
         void report(false, String(e))
       }
-      break
-    }
-    case 'dev:transition_demo': {
-      // Two adjacent clips on ONE track with a dissolve on the cut — the
-      // compositor-transition verification scene.
-      await loadPipDemo()
-      const st = useStore.getState()
-      const tracks = st.project.tracks.filter((t) => t.kind === 'video').sort((a, b) => a.z - b.z)
-      const [v1, v2] = tracks
-      const a = v1?.clips[0]
-      const b = v2?.clips[0]
-      if (!a || !b) break
-      st.trimClip(a.id, 'out', 5)
-      st.moveClip(b.id, 5, v1!.id)
-      const moved = useStore
-        .getState()
-        .project.tracks.flatMap((t) => t.clips)
-        .find((c) => c.id === b.id)
-      if (moved) {
-        useStore.getState().trimClip(b.id, 'out', 10)
-        useStore.getState().setClipProperty(b.id, 'transform.scale', 1) // clear PiP keyframes? kfs remain; scale kf overrides — clear all:
-      }
-      // Strip the PiP keyframes so the incoming clip is fullscreen.
-      for (const prop of [
-        'transform.scale',
-        'transform.x',
-        'transform.y',
-        'transform.cornerRadius',
-      ])
-        useStore.getState().clearKeyframes(b.id, prop)
-      useStore.getState().setTransition(b.id, 'in', { type: 'dissolve', duration: 1.2 })
-      useStore.getState().setPlayhead(4.5)
       break
     }
   }

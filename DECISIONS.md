@@ -1957,3 +1957,60 @@ visual = SUITE GREEN.
   flatten(), invalidate on any intersecting edit.
 - Final gate: 92 unit + 27 cargo + 28/28 e2e + visual GREEN (baselines
   refreshed after the intentional bin-chrome additions).
+
+## Cleanup pass — dead code, stale docs, orphaned tests
+
+User asked for a debt sweep across the whole tree. Surveyed first, deleted
+second; the Phase 0 suite was the safety net that made aggressive deletion
+safe. What the survey found is worth recording: the code itself was already
+lean — **137 exported symbols scanned, 0 unused; 55 modules, 0 orphaned; all
+7 JS deps and all 22 Rust crates in use; no console.log, no commented-out
+code, no duplicate/empty CSS rules.** The debt was concentrated in three
+places instead.
+
+- **One-off dev scaffolding (−211 lines, menuBridge 2905 → 2694).** 15 dev
+  cases that each captured one evidence PNG in some past session and then
+  rotted: grade_demo, transition_demo, p5_adjust_demo, p5_thumb_show,
+  f2_srcmon, f4_fx_demo, f8_demo, p1_show, small_window, normal_window, plus
+  dev:play/dev:pause (never wired to any script — only dev:reload is). The
+  f8_recovery/f8_recovery_clear/f8_restore_click trio folded into ONE
+  self-contained f8_restore_test (stages recovery → remounts the launcher so
+  its on-mount check re-runs → clicks Restore for real).
+- **Four REAL tests had fallen out of the runner** — the opposite of debt,
+  and the best find here. p1_shell_test (license activate/deactivate
+  lifecycle), p5_export_test (full-scene export verified element by
+  element), p5_cancel_test (cancel mid-export), f8_restore_test. Nothing
+  else covers any of them. Registered rather than deleted: an unregistered
+  test is strictly worse than no test, because it looks like coverage.
+- **p5_cancel_test was RED on arrival, and it was rotting silently.** It
+  called runExport on an EMPTY project; that path opens a native "nothing to
+  export" modal and awaits it, so an unattended run hangs to its 240s
+  timeout instead of failing. It only ever passed because a previous test
+  had loaded media into the shared webview — the SAME hidden-order
+  dependency class the Phase 0 per-test isolation exposed in f0_popover/
+  f0_ctx. Bug was in the TEST, not the feature: fixed by building its own
+  scene, and export-cancel now genuinely verifies (cancelled=true, partial
+  file removed) for the first time in several sessions. New house rule #5 in
+  TESTING.md: never let a test reach a native modal.
+- **Stale docs.** README still opened with "This is currently a **scaffold**:
+  ... no editing features are wired up yet" (true in session 1, absurd now)
+  and documented SPIKE_PERSIST_TEST / SPIKE_CLOCK_TEST / SPIKE_REOPEN_TEST —
+  env vars that no longer exist — as the way to test. Rewritten around
+  `npm test`. PRO_EDITOR_PLAN.md untracked as a completed work order
+  (FOUNDATION.md precedent). CONTEXT/DECISIONS/TESTING kept: spec, log, and
+  the suite's own manual.
+- **Dead CSS: 4 rules** (.topbar__recents, .preview__fps, .transport__btn,
+  .transport__btn--play). The other 10 "unused" hits the scan reported were
+  template-literal constructions (`clip--${clip.kind}`, `toast--${kind}`,
+  `resizer--${direction}`, `tl__lane--${t.kind}`) — verified before touching;
+  deleting those would have silently unstyled half the timeline.
+- **Rust warnings: 3 → 0**, both profiles. Duplicate `use std::hash::Hasher`
+  (already in scope in the same fn); SERVICE/ACCOUNT keychain constants moved
+  into the release-only `store` module they belong to instead of warning as
+  dead in every debug build. `cargo check --release` verified — the keychain
+  path still compiles.
+- **Fixture duplication**: store.test.ts carried its own copy of mkClip;
+  now imports the shared engine/testUtils one. Removed 316K of stale
+  gitignored dist/ build output.
+- Verified: full suite GREEN — 92 unit + 27 cargo + 32/32 e2e (up from 28;
+  the 4 recovered tests now run every time) + 2/2 visual.

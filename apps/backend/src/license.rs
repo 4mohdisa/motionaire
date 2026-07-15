@@ -34,9 +34,6 @@ pub fn validator() -> Box<dyn LicenseValidator> {
     Box::new(TestValidator)
 }
 
-const SERVICE: &str = "com.motionaire.app";
-const ACCOUNT: &str = "license-key";
-
 // Release builds: OS keychain, per CONTEXT.md §8.2 (never SQLite plaintext).
 // Debug builds: a marker file instead — an ad-hoc-signed dev binary changes
 // identity on every rebuild, so keychain reads trigger blocking permission
@@ -64,7 +61,9 @@ mod store {
 
 #[cfg(not(debug_assertions))]
 mod store {
-    use super::{ACCOUNT, SERVICE};
+    const SERVICE: &str = "com.motionaire.app";
+    const ACCOUNT: &str = "license-key";
+
     fn entry() -> Result<keyring::Entry, String> {
         keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())
     }

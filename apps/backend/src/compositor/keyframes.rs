@@ -446,7 +446,6 @@ fn bake_curves(fx: &super::types::EffectCfg) -> super::types::LutData {
             rgba[px + 3] = 255;
         }
     }
-    use std::hash::Hasher as _;
     super::types::LutData { w: 256, h: 4, rgba, rev: hasher.finish() }
 }
 

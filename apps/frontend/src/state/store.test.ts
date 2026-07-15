@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useStore } from './store'
-import { createProject, defaultTransform, uid } from '../types/project'
+import { createProject } from '../types/project'
+import { mkClip } from '../engine/testUtils'
 import type { Clip, MediaAsset, Project } from '../types/project'
 import { clipDuration, clipEnd } from '../engine/time'
 import { resolveProp } from '../engine/keyframes'
@@ -9,23 +10,6 @@ import { resolveProp } from '../engine/keyframes'
 // editing semantics that e2e tests can only sample. View-state setters
 // (dialogs, toasts, panel sizes) are deliberately untested — no semantics.
 
-function mkClip(patch: Partial<Clip> = {}): Clip {
-  return {
-    id: uid('c'),
-    kind: 'video',
-    mediaId: 'm1',
-    start: 0,
-    in: 0,
-    out: 4,
-    speed: 1,
-    volume: 1,
-    transform: defaultTransform(),
-    keyframes: [],
-    transitions: { in: null, out: null },
-    effects: [],
-    ...patch,
-  }
-}
 
 const media: MediaAsset = {
   id: 'm1',
