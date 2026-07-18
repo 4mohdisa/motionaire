@@ -22,7 +22,7 @@ export default function Scopes() {
     if (!ctx) return
     const timer = window.setInterval(() => {
       const frame = getLastFrame()
-      ctx.fillStyle = '#0c0c0e'
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-app')
       ctx.fillRect(0, 0, W, H)
       if (!frame) return
       draw(ctx, frame, mode)

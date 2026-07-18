@@ -67,7 +67,7 @@
 .topbar__btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--text-bright);
+  color: var(--text-on-accent);
 }
 
 /* ---------- Icon buttons + tooltips ---------- */
@@ -107,7 +107,7 @@
 .iconbtn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--text-bright);
+  color: var(--text-on-accent);
 }
 
 .iconbtn--primary:hover:not(:disabled) {
@@ -487,7 +487,7 @@
 
 .menu__item:hover:not(:disabled) {
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--text-on-accent);
 }
 
 .menu__item:disabled {
@@ -1149,7 +1149,7 @@
 .shell__primary {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: var(--text-bright);
+  color: var(--text-on-accent);
 }
 
 .shell__primary:hover:not(:disabled) {
@@ -2094,13 +2094,13 @@
 
 .mixer__tog--on {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-bright);
   border-color: var(--danger);
 }
 
 .mixer__tog--solo {
   background: var(--warning);
-  color: #000;
+  color: var(--text-on-accent);
   border-color: var(--warning);
 }
 
@@ -2291,8 +2291,8 @@
 }
 
 .graph__marquee {
-  fill: rgba(80, 140, 255, 0.12);
-  stroke: rgba(80, 140, 255, 0.7);
+  fill: var(--accent-muted);
+  stroke: var(--accent-border);
   stroke-dasharray: 3 3;
 }
 
@@ -2319,7 +2319,7 @@
 .toolchip--on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .th__btn--target {
@@ -2403,7 +2403,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--text-primary);
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
@@ -2458,7 +2458,7 @@
 
 .preview__guide {
   position: absolute;
-  background: rgba(120, 180, 255, 0.35);
+  background: var(--accent-muted);
 }
 
 .preview__guide--v {
@@ -2474,7 +2474,7 @@
 }
 
 .preview__guide--center {
-  background: rgba(120, 180, 255, 0.55);
+  background: var(--accent-border);
 }
 
 /* ---- Clip labels (pro-editor session, Phase 8) ---- */

@@ -100,7 +100,7 @@ export function startCompositorClient(canvas: HTMLCanvasElement): () => void {
         canvas.width = w
         canvas.height = h
         // Never display a freshly-reallocated (uninitialized) backing.
-        ctx.fillStyle = '#000'
+        ctx.fillStyle = '#000' // = --frame-letterbox: pure black is correct INSIDE the frame
         ctx.fillRect(0, 0, w, h)
       }
       if (!frameBuf || frameBuf.width !== w || frameBuf.height !== h) {

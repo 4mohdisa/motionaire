@@ -2014,3 +2014,50 @@ places instead.
   gitignored dist/ build output.
 - Verified: full suite GREEN — 92 unit + 27 cargo + 32/32 e2e (up from 28;
   the 4 recovered tests now run every time) + 2/2 visual.
+
+# Run 1 — demoable AI editor (session 13)
+
+Work order: PLAN_RUN_1.md. Read-first: DECISIONS through session 12, suite
+GREEN at 92+27+32+2 on entry. NOTE: the brief says design-reference/ holds
+competitor screenshots to view before Phase 1 — THE DIRECTORY DOES NOT EXIST
+in the repo. Logged here; Phase 1 works from the plan's own written specs
+(1a–1i), which are detailed enough to execute without paraphrase risk.
+
+## Phase 0 — monochrome design system
+
+- **Tokens replaced wholesale in index.css :root** with the plan's set.
+  Existing token NAMES kept where they exist (every component already
+  routes through them — the F-session audits paid off); new tokens added:
+  --text-tertiary, --text-on-accent, --accent-border, --focus-ring,
+  --frame-letterbox, --meter-*, --clip-selected-border, --clip-adjust-alt.
+- **The accent inversion is the real work of this phase**: accent went
+  BLUE→WHITE, so "white text on accent fill" became white-on-white in four
+  places (primary buttons, icon-primary, menu hover, shell primary) plus
+  .toolchip--on's hardcoded #fff. New token --text-on-accent (#0a0a0a)
+  for accent fills; --text-bright stays for DANGER fills (red bg, bright
+  text). Mixer solo (warning bg) also flips to dark text.
+- **Where color SURVIVES, with reasons logged**: meters/playhead/status
+  (the plan's list); PLUS three judgment calls — (1) offline-media clip
+  fill stays muted red: missing = error, error is meaning; (2) user-
+  assigned clip labels keep their six hues: their entire purpose is hue;
+  (3) GraphEditor's per-property curve palette: overlaid curves are
+  distinguished BY color — greyscale curves on one graph are unreadable.
+  Same class as labels. Keyframe gold and marker green did NOT survive —
+  shape (diamond, flag) carries their meaning; now white/grey.
+- **Native controls**: :root { accent-color: #fafafa } — range sliders,
+  checkboxes, radios rendered OS-default BLUE otherwise (caught in the
+  after-capture: the master volume slider was the last blue pixel in the
+  app).
+- **Canvas-drawn colors**: scope background now reads --bg-app via
+  getComputedStyle (same pattern as clip waveforms); the preview canvas
+  backing keeps literal #000 with a comment — it IS --frame-letterbox,
+  the one sanctioned pure black.
+- **Monitor surround** (--bg-monitor) set to #0a0a0a (= chrome), letterbox
+  pure #000 inside the frame — the near-black-chrome rule from the plan,
+  frame edge stays readable.
+- Contrast eyeballed on real captures: secondary #a3a3a3 on #121212 ≈
+  7.9:1, tertiary #737373 ≈ 4.3:1 (secondary UI only), disabled
+  intentionally low. Dialog + editor captures confirm.
+- Visual baselines refreshed AFTER direct eyeball of both screens
+  (before/after captures kept: p0-before-editor / p0-after-editor /
+  p0-after-sheet in the spike dir).
