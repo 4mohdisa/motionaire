@@ -8,11 +8,12 @@ import { useStore } from '../state/store'
 
 const AUTO_DISMISS_MS = 4500
 
-function Toast({ id, kind, text, progress }: {
+function Toast({ id, kind, text, progress, action }: {
   id: string
   kind: 'info' | 'success' | 'error' | 'progress'
   text: string
   progress?: number
+  action?: { label: string; onClick: () => void }
 }) {
   const timer = useRef<number | undefined>(undefined)
   useEffect(() => {
@@ -30,6 +31,17 @@ function Toast({ id, kind, text, progress }: {
       <Icon size={14} className="toast__icon" />
       <div className="toast__body">
         <span className="toast__text">{text}</span>
+        {action && (
+          <button
+            className="toast__action"
+            onClick={() => {
+              action.onClick()
+              useStore.getState().dismissToast(id)
+            }}
+          >
+            {action.label}
+          </button>
+        )}
         {kind === 'progress' && (
           <div className="toast__bar">
             <div

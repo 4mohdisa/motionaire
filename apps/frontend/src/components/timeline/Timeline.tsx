@@ -256,6 +256,10 @@ function Timeline() {
           <DropdownItem label="Ellipse" onClick={() => useStore.getState().addShapeClip('ellipse')} />
           <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
           <DropdownItem
+            label="Generate with AI…"
+            onClick={() => useStore.getState().setDialog('generate')}
+          />
+          <DropdownItem
             label="Solid color"
             onClick={() => useStore.getState().addSolidClip()}
           />

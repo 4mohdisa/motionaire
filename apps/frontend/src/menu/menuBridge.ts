@@ -2646,6 +2646,67 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p6_gen_test': {
+      // Run 1 Phase 6: the generation job lifecycle, fully offline via the
+      // mockgen backend — submit → progress events → local render →
+      // import pipeline → bin flagged AI → chat-tool compound placement.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p6-gen', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(200)
+        return cond()
+      }
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock', aiVideoProvider: 'none' })
+        const { startGenListeners, startGeneration } = await import('../persistence/genManager')
+        startGenListeners()
+        const binBefore = st().project.media.length
+        // 1. Direct generation (panel path): lands in the bin, flagged.
+        await startGeneration({ prompt: 'sunrise over mountains', durationSecs: 2, aspect: '16:9' })
+        const landed = await until(
+          () => st().project.media.length === binBefore + 1,
+          60000,
+        )
+        const gen = st().project.media.at(-1)
+        const flagged = !!gen?.aiGenerated
+        const probed = (gen?.duration ?? 0) > 1.5 && (gen?.width ?? 0) === 1280
+        // The completion toast carries the one-click place action.
+        const toastAction = st().toasts.some((t) => t.action?.label === 'Add at playhead')
+        // 2. Compound path (6c): the chat starts a generation that places
+        //    itself at 0 when it arrives.
+        const clipsBefore = st().project.tracks.flatMap((t) => t.clips).length
+        const { runTool } = await import('../ai/tools')
+        const r = runTool('generate_video', {
+          prompt: 'ocean waves',
+          duration_secs: 2,
+          aspect: '16:9',
+          place_at: 0,
+        })
+        const toolOk = r.ok && (r.diff ?? '').includes('will land at 0s')
+        const placed = await until(
+          () => st().project.tracks.flatMap((t) => t.clips).length === clipsBefore + 1,
+          60000,
+        )
+        const placedClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => st().project.media.find((m) => m.id === c.mediaId)?.aiGenerated && c.start < 0.5)
+        const pass =
+          landed && flagged && probed && toastAction && toolOk && placed && !!placedClip
+        void report(
+          pass,
+          `landed=${landed} flagged=${flagged} probed=${probed} toastAction=${toastAction} toolOk=${toolOk} placedAt0=${!!placedClip}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

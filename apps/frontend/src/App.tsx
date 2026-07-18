@@ -91,6 +91,7 @@ function App() {
     startCompositorBridge()
     startMenuBridge()
     void import('./persistence/proxyManager').then((m) => m.startProxyListeners())
+    void import('./persistence/genManager').then((m) => m.startGenListeners())
   }, [])
   // Project safety plumbing: titlebar edited dot, autosave, close guard.
   useEffect(() => {

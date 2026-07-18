@@ -126,11 +126,12 @@ export interface StoreState {
 
   // Toasts (foundation session, Phase 0): the app-wide non-blocking notice
   // channel — errors, completions, and background-job progress.
-  toasts: { id: string; kind: 'info' | 'success' | 'error' | 'progress'; text: string; progress?: number }[]
+  toasts: { id: string; kind: 'info' | 'success' | 'error' | 'progress'; text: string; progress?: number; action?: { label: string; onClick: () => void } }[]
   pushToast: (
     kind: 'info' | 'success' | 'error' | 'progress',
     text: string,
     id?: string,
+    action?: { label: string; onClick: () => void },
   ) => string
   updateToast: (id: string, patch: { text?: string; progress?: number }) => void
   dismissToast: (id: string) => void
@@ -155,8 +156,10 @@ export interface StoreState {
   previewOriginal: boolean
   setPreviewOriginal: (v: boolean) => void
   // Workflow dialogs + app prefs (foundation, Phase 7)
-  dialog: 'projectSettings' | 'preferences' | 'shortcuts' | null
-  setDialog: (d: 'projectSettings' | 'preferences' | 'shortcuts' | null) => void
+  dialog: 'projectSettings' | 'preferences' | 'shortcuts' | 'generate' | null
+  setDialog: (d: 'projectSettings' | 'preferences' | 'shortcuts' | 'generate' | null) => void
+  lastGenPrompt: string | null
+  setLastGenPrompt: (p: string) => void
   prefs: Prefs
   setPrefs: (patch: Partial<Prefs>) => void
   setAiConfigured: (v: boolean) => void
@@ -534,15 +537,16 @@ export const useStore = create<StoreState>()(
         }),
 
       toasts: [],
-      pushToast: (kind, text, id) => {
+      pushToast: (kind, text, id, action) => {
         const tid = id ?? uid('toast')
         set((s) => {
           const existing = s.toasts.find((t) => t.id === tid)
           if (existing) {
             existing.kind = kind
             existing.text = text
+            existing.action = action
           } else {
-            s.toasts.push({ id: tid, kind, text })
+            s.toasts.push({ id: tid, kind, text, action })
           }
         })
         return tid
@@ -710,6 +714,11 @@ export const useStore = create<StoreState>()(
           s.binOpen = p === 'media'
         }),
       aiConfigured: false,
+      lastGenPrompt: null,
+      setLastGenPrompt: (p) =>
+        set((s) => {
+          s.lastGenPrompt = p
+        }),
       chatLog: [],
       chatBusy: false,
       pushChatEntry: (e) =>

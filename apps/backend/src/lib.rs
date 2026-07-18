@@ -463,6 +463,16 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+// Video generation job (Run 1, Phase 6): async, minutes-long — the proxy
+// system's background pattern. Results land in app_data/generated/.
+#[tauri::command]
+fn ai_generate_video(app: tauri::AppHandle, req: ai::videogen::GenRequest) -> Result<(), String> {
+    use tauri::Manager as _;
+    let out = app.path().app_data_dir().map_err(|e| e.to_string())?.join("generated");
+    ai::videogen::run_generation(app, out, req);
+    Ok(())
+}
+
 // Long demo fixtures (Run 1, Phase 5): the flagship prompt spans 0:10–0:45,
 // so the scene needs ≥46s of footage. Same generators as the pip demo,
 // 60s variants, cached.
@@ -996,6 +1006,7 @@ pub fn run() {
             analyze_audio,
             measure_loudness,
             analyze_activity,
+            ai_generate_video,
             spike_long_fixtures,
             ai_history_append,
             ai_history_read,

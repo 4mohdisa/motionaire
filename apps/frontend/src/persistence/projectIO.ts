@@ -233,6 +233,46 @@ export async function importImageNative(): Promise<void> {
 }
 
 // Native media import: real file paths that survive reloads, probed by ffprobe.
+// Import one absolute path through the full pipeline (VFR normalize, probe,
+// proxy request) and add it to the bin. Shared by the native dialog and the
+// AI generation completion path (Run 1, Phase 6).
+export async function importPathAsAsset(
+  rawPath: string,
+  extra?: Partial<MediaAsset>,
+): Promise<MediaAsset | null> {
+  try {
+    const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>(
+      'normalize_media',
+      { path: rawPath },
+    ).catch(() => ({ path: rawPath, wasVfr: false }))
+    if (wasVfr)
+      useStore
+        .getState()
+        .pushToast('info', `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`)
+    const info = await invoke<ProbeResult>('probe_media', { path })
+    const asset: MediaAsset = {
+      id: uid('m'),
+      path,
+      playbackUrl: convertFileSrc(path),
+      name: rawPath.split('/').pop() ?? rawPath,
+      kind: info.width > 0 ? 'video' : 'audio',
+      duration: info.duration,
+      width: info.width || undefined,
+      height: info.height || undefined,
+      fps: info.fps || undefined,
+      hasAudio: info.hasAudio,
+      ...extra,
+    }
+    useStore.getState().addMedia(asset)
+    const { maybeRequestProxy } = await import('./proxyManager')
+    maybeRequestProxy(asset)
+    return asset
+  } catch (e) {
+    useStore.getState().pushToast('error', `Import failed for ${rawPath.split('/').pop()}: ${e}`)
+    return null
+  }
+}
+
 export async function importMediaNative(): Promise<void> {
   const picked = await open({
     title: 'Import media',

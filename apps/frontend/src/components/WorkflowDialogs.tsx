@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { CHAT_MODELS, clearAiKey, saveAiKey, testConnection } from '../persistence/aiSettings'
+import GeneratePanel from './GeneratePanel'
 import { CANVAS_PRESETS, useStore, type CanvasPresetId } from '../state/store'
 
 // Workflow dialogs (foundation session, Phase 7): project settings (canvas
@@ -223,6 +224,7 @@ export function WorkflowDialogs() {
   if (dialog === 'projectSettings') return <ProjectSettingsDialog />
   if (dialog === 'preferences') return <PreferencesDialog />
   if (dialog === 'shortcuts') return <ShortcutSheet />
+  if (dialog === 'generate') return <GeneratePanel />
   return null
 }
 

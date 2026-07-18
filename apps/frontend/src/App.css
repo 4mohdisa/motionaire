@@ -3042,3 +3042,35 @@
   font: inherit;
   text-align: left;
 }
+
+
+/* AI-generated bin badge + toast action (Run 1, Phase 6) */
+.bin__aibadge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 4px;
+  margin-right: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  vertical-align: 1px;
+}
+
+.toast__action {
+  align-self: flex-start;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.toast__action:hover {
+  background: var(--bg-control-hover);
+}

@@ -70,6 +70,48 @@ const LAYOUT_PROPS = [
   'transform.opacity',
 ]
 
+// generate_video (Phase 6c): the chat can start a generation job. The turn
+// returns immediately (generation is minutes-long); placement on arrival is
+// handled by the job's placeAt. COST HONESTY: the tool description tells
+// the model to warn the user, and the diff names the credit spend.
+export function installGenerateTool(): void {
+  registerTool(
+    {
+      name: 'generate_video',
+      description:
+        "Generate a video clip from a text prompt with the user's configured provider (THIS SPENDS THE USER'S API CREDITS — only call when the user explicitly asked to generate). Optional place_at drops it on the timeline when ready. Returns immediately; the clip lands in the media bin after a few minutes.",
+      schema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string' },
+          duration_secs: { type: 'number' },
+          aspect: { type: 'string' },
+          place_at: { type: 'number' },
+        },
+        required: ['prompt'],
+      },
+    },
+    (a): ToolResult => {
+      const prompt = typeof a.prompt === 'string' ? a.prompt.trim() : ''
+      if (!prompt) return { ok: false, error: 'prompt required' }
+      const s = useStore.getState()
+      const provider = s.prefs.aiVideoProvider === 'none' ? 'mockgen' : s.prefs.aiVideoProvider
+      void import('../persistence/genManager').then((m) =>
+        m.startGeneration({
+          prompt,
+          durationSecs: typeof a.duration_secs === 'number' ? a.duration_secs : 5,
+          aspect: typeof a.aspect === 'string' ? a.aspect : '16:9',
+          placeAt: typeof a.place_at === 'number' ? a.place_at : undefined,
+        }),
+      )
+      return {
+        ok: true,
+        diff: `Started ${provider} generation: "${prompt.slice(0, 40)}"${typeof a.place_at === 'number' ? ` → will land at ${a.place_at}s` : ' → media bin'}${provider === 'mockgen' ? '' : ' (uses API credits)'}`,
+      }
+    },
+  )
+}
+
 export function installLayoutTool(): void {
   registerTool(
     {

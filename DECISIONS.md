@@ -2267,3 +2267,40 @@ above).
   first, flagship second), setup, mock-safe variants marked, evidence
   paths, presenter notes.
 - Suite: 95 unit + 33 cargo + 36/36 e2e + visual GREEN.
+
+## Phase 6 — AI video generation
+
+- **Live docs read + recorded (videogen.rs header)**: Seedance 2.0 on
+  BytePlus ModelArk (create task POST …/api/v3/contents/generations/tasks,
+  Bearer, model dreamina-seedance-2-0-260128, poll …/tasks/{id}, status
+  queued|running|succeeded|failed|expired|cancelled, video at
+  content.video_url — temporary 24h URL) and Google Veo 3.1 on the Gemini
+  API (:predictLongRunning with x-goog-api-key, durationSeconds "4"|"6"|"8"
+  clamped, poll /v1beta/{operation} to done:true, file at
+  response.generateVideoResponse.generatedSamples[0].video.uri; the
+  DOWNLOAD itself also needs the api-key header).
+- **Job architecture = the proxy pattern**: Rust thread per job; events
+  videogen:progress/:done/:failed; 15-minute ceiling; the user keeps
+  editing throughout. Completion runs the FULL existing import pipeline
+  (VFR normalize → probe → proxy request) via importPathAsAsset — a
+  refactor that the native-dialog import now shares. Assets flagged
+  aiGenerated → "AI" badge in the bin.
+- **MockGen backend** (ffmpeg-local testsrc2): the suite runs the whole
+  submit→poll→"download"(file adopt)→import→place lifecycle offline. Break
+  find on first run: the fancy mock filter chain (gradients+drawtext) hit
+  "Filter not found" — not every ffmpeg build carries those; the mock's
+  job is pipeline plumbing, not pixels. testsrc2 only now.
+- **One-click placement**: toasts grew an optional action button (small,
+  generic); the completion toast offers "Add at playhead". The chat tool
+  generate_video (6c) returns immediately (generation is minutes-long —
+  a turn cannot block on it) and carries place_at, honored on arrival:
+  "generate a clip and put it at the start" works end to end (e2e-proven
+  with mockgen).
+- **Cost honesty (6d)**: the dialog's submit button is labeled
+  "Generate — uses API credits", the notice names the provider and YOUR
+  key, and the generate_video tool description forbids the model from
+  calling it unprompted. Failures surface the provider's real error and
+  the prompt survives in the panel for retry (lastGenPrompt).
+- r1p6-gen e2e: direct path (lands in bin, flagged, probed 1280×720) +
+  toast action + compound chat path (placed at 0s). All offline.
+- Suite: 95 unit + 33 cargo + 37/37 e2e + visual GREEN.

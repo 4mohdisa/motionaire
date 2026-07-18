@@ -193,6 +193,7 @@ export interface MediaAsset {
   fps?: number
   hasAudio: boolean
   proxyPath?: string
+  aiGenerated?: boolean // Run 1, Phase 6: landed from a generation job
   folder?: string // media bin folder (Phase 8); undefined = root
 }
 

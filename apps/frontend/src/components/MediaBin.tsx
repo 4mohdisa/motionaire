@@ -217,7 +217,10 @@ function MediaBin() {
               {m.missing && <span className="bin__badge">offline</span>}
             </div>
             <div className="bin__meta">
-              <span className="bin__name">{m.name}</span>
+              <span className="bin__name">
+                {m.aiGenerated && <span className="bin__aibadge">AI</span>}
+                {m.name}
+              </span>
               <span className="bin__info">
                 {fmtDur(m.duration)}
                 {m.width ? ` · ${m.width}×${m.height}` : ''} · {m.kind}

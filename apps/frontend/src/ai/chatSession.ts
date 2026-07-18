@@ -3,9 +3,10 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { beginAiTransaction, endAiTransaction, useStore } from '../state/store'
 import { uid } from '../types/project'
 import { buildTimelineContext, runTool, toolSpecs } from './tools'
-import { installLayoutTool } from './layouts'
+import { installGenerateTool, installLayoutTool } from './layouts'
 
 installLayoutTool() // set_layout registers alongside the core tools
+installGenerateTool() // generate_video (Phase 6c)
 import type { NeutralMsg, TurnEvents, TurnOutcome } from './types'
 
 // The streamed AI turn, frontend side (Run 1, Phase 3).
