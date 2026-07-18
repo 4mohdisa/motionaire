@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../state/store'
+import { refreshAiConfigured } from '../persistence/aiSettings'
 import { isTauri } from '../compositor/bridge'
 
 // Boot: resolve activation + first-run state once at startup.
@@ -14,6 +15,9 @@ export function useBootFlow() {
         return
       }
       // App prefs (foundation, Phase 7) load once at boot.
+      // AI configured = a key exists for the chosen chat provider (or mock,
+      // which needs none). Checked at boot and after settings changes.
+      void refreshAiConfigured()
       void invoke<string | null>('get_setting', { key: 'prefs' })
         .then((raw) => {
           if (raw) st.setPrefs(JSON.parse(raw) as Partial<{ autosaveSecs: number; autoProxy: boolean }>)

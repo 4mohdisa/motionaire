@@ -1,4 +1,5 @@
 pub mod capture;
+pub mod ai;
 pub mod compositor;
 pub mod export;
 pub mod license;
@@ -462,6 +463,39 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+// ---- AI layer (Run 1, Phase 2): keys in keychain, read only here. ----
+
+#[tauri::command]
+fn ai_set_key(provider: String, key: String) -> Result<(), String> {
+    ai::keys::set(&provider, &key)
+}
+
+#[tauri::command]
+fn ai_has_key(provider: String) -> bool {
+    ai::keys::has(&provider)
+}
+
+#[tauri::command]
+fn ai_clear_key(provider: String) -> Result<(), String> {
+    ai::keys::clear(&provider)
+}
+
+// Blocking network on a worker thread: tauri commands marked async run on
+// the async runtime; spawn_blocking keeps reqwest::blocking legal there.
+#[tauri::command]
+async fn ai_test_connection(provider: String, model: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if ai::CHAT_PROVIDERS.contains(&provider.as_str()) || provider == "mock" {
+            ai::chat::provider_for(&provider)?
+                .test_connection(model.as_deref().unwrap_or("claude-sonnet-4-5"))
+        } else {
+            ai::videogen::provider_for(&provider)?.test_connection()
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn save_recovery(bundle_path: String, project_json: String) -> Result<(), String> {
     persistence::save_recovery(std::path::Path::new(&bundle_path), &project_json)
@@ -866,6 +900,10 @@ pub fn run() {
             analyze_audio,
             measure_loudness,
             analyze_activity,
+            ai_set_key,
+            ai_has_key,
+            ai_clear_key,
+            ai_test_connection,
             save_recovery,
             save_untitled_recovery,
             check_untitled_recovery,

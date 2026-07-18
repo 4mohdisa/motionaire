@@ -2119,3 +2119,45 @@ above).
   5s (the poll-don't-sleep rule caught sleeping in one more place).
 - Suite: 92 unit + 27 cargo + 32/32 e2e + visual GREEN (baselines refreshed
   for the intentional relayout).
+
+## Phase 2 — API keys and provider settings
+
+- **Live docs read BEFORE implementing (the plan's rule), both fetched
+  2026-07-18 and recorded in ai/mod.rs**: Anthropic Messages API
+  (POST /v1/messages, x-api-key + anthropic-version: 2023-06-01, tools via
+  input_schema, tool_use/tool_result blocks, six SSE event types) and
+  OpenAI Chat Completions (POST /v1/chat/completions, Bearer auth,
+  tools[{type:function}], tool_calls with JSON-STRING arguments, role:tool
+  results, delta streaming). Current model lists captured; defaults
+  claude-sonnet-4-5 / gpt-5.4.
+- **Keys: keychain via `keyring` in BOTH profiles** — deliberately NOT the
+  license key's debug-marker-file pattern, and the difference is the whole
+  point: the license debug store only ever holds the public TEST key,
+  while AI keys are the user's REAL credentials — a plaintext dev fallback
+  is unacceptable. Debug cost: one macOS confirm on first read after a
+  rebuild (ad-hoc signing changes binary identity). Tests dodge it by
+  creating+deleting their own 'ai-test' entry in-process; the MOCK
+  provider needs no key at all. Service com.motionaire.app.ai, account =
+  provider id, provider allowlist enforced (no arbitrary keychain writes).
+- **The webview only ever learns BOOLEANS.** ai_set_key / ai_has_key /
+  ai_clear_key / ai_test_connection; the key input in Preferences is
+  write-only (value → Rust → cleared). r1p2-keys e2e asserts the security
+  property directly: after a round trip, nothing key-shaped exists in the
+  persisted prefs OR the serialized store state.
+- **Mock chat provider** registered like a real one (never a silent
+  fallback): offline, deterministic, key-less — it is how the suite
+  exercises every AI surface and the demo fallback if no real key is
+  present on the machine.
+- **Test connection makes a REAL minimal call** per provider (Anthropic:
+  1-token message; OpenAI: GET /v1/models/{model} — free) and error text
+  surfaces the provider's actual error.message: invalid key / model not
+  available / rate limited / outage each mapped from status (unit-tested).
+- **reqwest added** (blocking+json+stream, rustls) — the first HTTP client
+  in the app; provider calls are Rust-only per the architecture. cargo add
+  updated only Cargo.lock without writing the manifest (?!) — dependency
+  added by hand; logged in case it recurs.
+- Break-find while capturing: the dev license marker ($TMPDIR file) had
+  been cleaned by macOS temp reaping → app booted to the activation gate.
+  Not a regression — known debug-only storage; the activation flow itself
+  proved healthy (p1_shell PASS re-activated).
+- Suite: 92 unit + 30 cargo + 33/33 e2e + visual GREEN.

@@ -35,6 +35,16 @@ const HISTORY_LIMIT = 100
 
 export type LeftPanel = 'media' | 'effects' | 'chat' | 'mixer' | null
 
+// App preferences (SQLite settings blob). AI additions (Run 1, Phase 2):
+// provider CHOICES and model names only — never key material.
+export interface Prefs {
+  autosaveSecs: number
+  autoProxy: boolean
+  aiChatProvider: 'anthropic' | 'openai' | 'mock'
+  aiChatModel: string
+  aiVideoProvider: 'none' | 'seedance' | 'gemini'
+}
+
 export interface ExportSettings {
   width: number
   height: number
@@ -105,8 +115,9 @@ export interface StoreState {
   // Workflow dialogs + app prefs (foundation, Phase 7)
   dialog: 'projectSettings' | 'preferences' | 'shortcuts' | null
   setDialog: (d: 'projectSettings' | 'preferences' | 'shortcuts' | null) => void
-  prefs: { autosaveSecs: number; autoProxy: boolean }
-  setPrefs: (patch: Partial<{ autosaveSecs: number; autoProxy: boolean }>) => void
+  prefs: Prefs
+  setPrefs: (patch: Partial<Prefs>) => void
+  setAiConfigured: (v: boolean) => void
   compositorFps: number
   projectPath: string | null
   previewFull: boolean
@@ -550,7 +561,13 @@ export const useStore = create<StoreState>()(
         set((s) => {
           s.dialog = d
         }),
-      prefs: { autosaveSecs: 30, autoProxy: true },
+      prefs: {
+        autosaveSecs: 30,
+        autoProxy: true,
+        aiChatProvider: 'anthropic',
+        aiChatModel: 'claude-sonnet-4-5',
+        aiVideoProvider: 'none',
+      },
       setPrefs: (patch) =>
         set((s) => {
           Object.assign(s.prefs, patch)
@@ -630,6 +647,10 @@ export const useStore = create<StoreState>()(
           s.binOpen = p === 'media'
         }),
       aiConfigured: false,
+      setAiConfigured: (v) =>
+        set((s) => {
+          s.aiConfigured = v
+        }),
       binOpen: true,
       setBinOpen: (v) =>
         set((s) => {

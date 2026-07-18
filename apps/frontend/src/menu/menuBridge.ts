@@ -2324,6 +2324,71 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p2_keys_test': {
+      // Run 1 Phase 2: keychain round trip through the real commands, mock
+      // provider test-connection, prefs persistence, and the security
+      // property that the webview only ever learns BOOLEANS about keys.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p2-keys', pass, detail }).catch(() => {})
+      try {
+        // Round trip on the dedicated test account (created+deleted by this
+        // process → no keychain prompt even on ad-hoc-signed dev builds).
+        await invoke('ai_clear_key', { provider: 'ai-test' })
+        const before = await invoke<boolean>('ai_has_key', { provider: 'ai-test' })
+        await invoke('ai_set_key', { provider: 'ai-test', key: 'sk-e2e-round-trip' })
+        const after = await invoke<boolean>('ai_has_key', { provider: 'ai-test' })
+        await invoke('ai_clear_key', { provider: 'ai-test' })
+        const cleared = await invoke<boolean>('ai_has_key', { provider: 'ai-test' })
+        // Unknown providers refused (no arbitrary keychain writes).
+        let refused = false
+        try {
+          await invoke('ai_set_key', { provider: 'evil', key: 'x' })
+        } catch {
+          refused = true
+        }
+        // Empty keys refused.
+        let emptyRefused = false
+        try {
+          await invoke('ai_set_key', { provider: 'ai-test', key: '   ' })
+        } catch {
+          emptyRefused = true
+        }
+        // Mock provider: test connection with zero keys / zero network.
+        const msg = await invoke<string>('ai_test_connection', {
+          provider: 'mock',
+          model: null,
+        })
+        const mockOk = msg.includes('mock provider')
+        // Prefs persist provider/model choices (no key material).
+        const st = () => useStore.getState()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock' })
+        await invoke('set_setting', { key: 'prefs', value: JSON.stringify(st().prefs) })
+        const raw = (await invoke<string | null>('get_setting', { key: 'prefs' })) ?? '{}'
+        const stored = JSON.parse(raw) as Record<string, unknown>
+        const prefsOk = stored.aiChatProvider === 'mock'
+        // SECURITY: nothing key-shaped in the persisted prefs or the store.
+        const noKeys =
+          !raw.includes('sk-') &&
+          !JSON.stringify({ ...st(), project: null }).includes('sk-e2e-round-trip')
+        // aiConfigured flips with the mock provider selected.
+        const { refreshAiConfigured } = await import('../persistence/aiSettings')
+        await refreshAiConfigured()
+        const configured = st().aiConfigured
+        // restore defaults
+        st().setPrefs({ aiChatProvider: 'anthropic', aiChatModel: 'claude-sonnet-4-5' })
+        await invoke('set_setting', { key: 'prefs', value: JSON.stringify(st().prefs) })
+        const pass =
+          !before && after && !cleared && refused && emptyRefused && mockOk && prefsOk &&
+          noKeys && configured
+        void report(
+          pass,
+          `roundTrip=${!before && after && !cleared} refused=${refused} emptyRefused=${emptyRefused} mock=${mockOk} prefs=${prefsOk} noKeys=${noKeys} configured=${configured}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

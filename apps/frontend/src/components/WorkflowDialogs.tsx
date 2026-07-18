@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { CHAT_MODELS, clearAiKey, saveAiKey, testConnection } from '../persistence/aiSettings'
 import { CANVAS_PRESETS, useStore, type CanvasPresetId } from '../state/store'
 
 // Workflow dialogs (foundation session, Phase 7): project settings (canvas
@@ -116,6 +118,33 @@ export function PreferencesDialog() {
           />
           Create proxies automatically for footage above 1080p
         </label>
+        <div className="modal__section">AI — chat provider</div>
+        <AiProviderBlock
+          key={prefs.aiChatProvider}
+          kind="chat"
+          value={prefs.aiChatProvider}
+          options={[
+            ['anthropic', 'Anthropic (Claude)'],
+            ['openai', 'OpenAI'],
+            ['mock', 'Mock (offline)'],
+          ]}
+          onSelect={(v) => save({ aiChatProvider: v as typeof prefs.aiChatProvider })}
+          model={prefs.aiChatModel}
+          onModel={(m) => save({ aiChatModel: m })}
+        />
+        <div className="modal__section">AI — video generation</div>
+        <AiProviderBlock
+          key={prefs.aiVideoProvider}
+          kind="video"
+          value={prefs.aiVideoProvider}
+          options={[
+            ['none', 'None'],
+            ['seedance', 'Seedance'],
+            ['gemini', 'Google (Veo)'],
+          ]}
+          onSelect={(v) => save({ aiVideoProvider: v as typeof prefs.aiVideoProvider })}
+        />
+
         <div className="modal__section">License</div>
         <div className="modal__actions" style={{ justifyContent: 'flex-start', marginTop: 4 }}>
           <button
@@ -195,4 +224,134 @@ export function WorkflowDialogs() {
   if (dialog === 'preferences') return <PreferencesDialog />
   if (dialog === 'shortcuts') return <ShortcutSheet />
   return null
+}
+
+
+// AI provider selection + key management (Run 1, Phase 2). The key input is
+// WRITE-ONLY: its value goes straight to ai_set_key (Rust → keychain) and
+// the field clears — nothing key-shaped stays in JS state or the DOM.
+function AiProviderBlock({
+  kind,
+  value,
+  options,
+  onSelect,
+  model,
+  onModel,
+}: {
+  kind: 'chat' | 'video'
+  value: string
+  options: [string, string][]
+  onSelect: (v: string) => void
+  model?: string
+  onModel?: (m: string) => void
+}) {
+  const [keyDraft, setKeyDraft] = useState('')
+  const [hasKey, setHasKey] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const needsKey = value !== 'mock' && value !== 'none'
+  const { pushToast } = useStore.getState()
+
+  useEffect(() => {
+    if (!needsKey) return
+    let dead = false
+    void invoke<boolean>('ai_has_key', { provider: value })
+      .then((v) => !dead && setHasKey(v))
+      .catch(() => !dead && setHasKey(false))
+    return () => {
+      dead = true
+    }
+  }, [value, needsKey])
+
+  return (
+    <>
+      <div className="modal__chips">
+        {options.map(([id, label]) => (
+          <button
+            key={id}
+            className={`chip${value === id ? ' chip--on' : ''}`}
+            onClick={() => onSelect(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {needsKey && (
+        <>
+          <div className="modal__grid">
+            <label className="modal__field modal__field--wide">
+              <span>
+                API key{' '}
+                {hasKey === null ? '' : hasKey ? '· saved ✓' : '· not set'}
+              </span>
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder={hasKey ? '••••••••  (enter to replace)' : 'Paste key…'}
+                value={keyDraft}
+                onChange={(e) => setKeyDraft(e.target.value)}
+              />
+            </label>
+            {model !== undefined && onModel && (
+              <label className="modal__field">
+                <span>Model</span>
+                <select value={model} onChange={(e) => onModel(e.target.value)}>
+                  {(CHAT_MODELS[value] ?? [model]).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <div className="modal__actions" style={{ justifyContent: 'flex-start', marginTop: 4 }}>
+            <button
+              className="topbar__btn"
+              disabled={!keyDraft.trim() || busy}
+              onClick={() => {
+                setBusy(true)
+                void saveAiKey(value, keyDraft)
+                  .then(() => {
+                    setKeyDraft('')
+                    setHasKey(true)
+                    pushToast('success', 'Key saved to the system keychain')
+                  })
+                  .catch((e) => pushToast('error', String(e)))
+                  .finally(() => setBusy(false))
+              }}
+            >
+              Save key
+            </button>
+            <button
+              className="topbar__btn"
+              disabled={!hasKey || busy}
+              onClick={() => {
+                setBusy(true)
+                void testConnection(value, model)
+                  .then((msg) => pushToast('success', msg))
+                  .catch((e) => pushToast('error', String(e)))
+                  .finally(() => setBusy(false))
+              }}
+            >
+              Test connection
+            </button>
+            <button
+              className="topbar__btn"
+              disabled={!hasKey || busy}
+              onClick={() => {
+                void clearAiKey(value).then(() => setHasKey(false))
+              }}
+            >
+              Remove key
+            </button>
+          </div>
+        </>
+      )}
+      {kind === 'chat' && !needsKey && (
+        <div className="modal__notice">
+          Mock provider: offline, deterministic — for demos and tests. No key, no network.
+        </div>
+      )}
+    </>
+  )
 }
