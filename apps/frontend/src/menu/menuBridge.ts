@@ -2707,6 +2707,37 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p7_ready_test': {
+      // Run 1 Phase 7: the sample project builds through the SAME layout
+      // tool the AI uses and lands demo-ready in one click.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p7-ready', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        st().setAppView('launcher')
+        await wait(400)
+        const btn = [...document.querySelectorAll<HTMLButtonElement>('.shell__secondary')].find(
+          (b) => b.textContent?.includes('Sample project'),
+        )
+        if (!btn) {
+          void report(false, 'no sample button on the launcher')
+          break
+        }
+        btn.click()
+        await wait(2500)
+        const clips = st().project.tracks.flatMap((t) => t.clips)
+        const kf = clips.reduce((n, c) => n + c.keyframes.length, 0)
+        const hasTitle = clips.some((c) => c.text?.content === 'Motionaire')
+        const inEditor = st().appView === 'editor'
+        const live = st().compositorActive
+        const pass = inEditor && clips.length >= 3 && kf >= 20 && hasTitle && live
+        void report(pass, `editor=${inEditor} clips=${clips.length} kf=${kf} title=${hasTitle} compositor=${live}`)
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

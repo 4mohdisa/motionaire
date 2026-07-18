@@ -12,6 +12,21 @@ preview and export, an ordered effect stack (grades, keys, masks, wheels, curves
 audio EQ/compressor/gate), a bezier keyframe graph editor, scopes, an audio mixer,
 proxies for 4K footage, and hardware-accelerated export.
 
+**And it edits from plain English.** The AI chat (left rail) turns
+"From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom right…" into real,
+undoable keyframes on the timeline — the AI calls the same mutations the UI uses, every
+prompt lands as ONE undo step, and it never touches pixels (the deterministic compositor
+renders). AI video generation (Seedance / Google Veo) drops generated clips straight
+into the media bin. See [DEMO.md](DEMO.md) for the presenter script.
+
+## AI setup
+
+⌘, → **AI — chat provider**: pick Anthropic or OpenAI, paste your API key, Test
+connection. Keys go to the **macOS keychain and are only ever read by Rust** — the UI
+learns booleans, never key material. No key? The **Mock (offline)** provider runs the
+demo-family prompts deterministically, free. Video generation configures the same way
+(Seedance or Google) and always says so before spending your credits.
+
 ## Layout
 
 ```

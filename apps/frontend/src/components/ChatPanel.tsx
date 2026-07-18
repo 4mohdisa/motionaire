@@ -39,6 +39,11 @@ export default function ChatPanel() {
         {log.length === 0 && (
           <div className="chatpanel__empty">
             <p className="chatpanel__emptylead">Edit the timeline in plain English.</p>
+            {useStore.getState().project.duration <= 0 && (
+              <p className="chatpanel__tip">
+                The timeline is empty — import footage first (the AI edits what's there).
+              </p>
+            )}
             {!configured && (
               <button
                 className="topbar__btn"

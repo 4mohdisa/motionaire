@@ -2304,3 +2304,23 @@ above).
 - r1p6-gen e2e: direct path (lands in bin, flagged, probed 1280×720) +
   toast action + compound chat path (placed at 0s). All offline.
 - Suite: 95 unit + 33 cargo + 37/37 e2e + visual GREEN.
+
+## Phase 7 — demo readiness
+
+- **AI onboarding**: one-time toast on first editor entry without a key
+  ("AI editing is ready to set up…" + Open AI settings action); flag in
+  SQLite settings so it never nags.
+- **Empty states**: chat-no-key (disabled composer + configure button,
+  from Phase 1h), chat-empty-timeline tip ("the AI edits what's there"),
+  generation-no-provider (mock notice + relabeled button, from Phase 6).
+- **Sample project**: launcher one-click — 60s screen+cam scene built
+  through the SAME set_layout tool the AI calls (pip in at 4s, back at
+  20s) + a title. Deterministic, offline, demo-ready in seconds.
+  r1p7-ready e2e drives the real launcher button: 3+ clips, 20+
+  keyframes, title present, compositor live.
+- **README**: leads with the plain-English editing story + AI setup
+  section (keychain guarantee, mock fallback, cost honesty).
+- **FINAL COLD SUITE: GREEN — 95 unit + 33 cargo + 38/38 e2e + 2/2
+  visual.** Six r1 e2e tests joined the permanent suite this session
+  (keys, tool loop, chat UI, FLAGSHIP, generation lifecycle, sample
+  project).

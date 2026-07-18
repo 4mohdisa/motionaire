@@ -3074,3 +3074,9 @@
 .toast__action:hover {
   background: var(--bg-control-hover);
 }
+
+.chatpanel__tip {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin: 0;
+}

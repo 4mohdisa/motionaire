@@ -144,6 +144,47 @@ export function Onboarding() {
   )
 }
 
+// Sample project (Run 1, Phase 7): impressive within ten seconds of opening.
+// Deterministic and offline: 60s screen+cam scene, a pip window already
+// keyframed via the SAME layout macro the AI uses, and a title.
+async function openSampleProject(): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core')
+  const s = useStore.getState()
+  try {
+    const [screenPath, camPath] = await invoke<[string, string]>('spike_long_fixtures')
+    const p = createProject()
+    s.replaceProject(p, null)
+    s.setAppView('editor')
+    const add = (path: string, name: string, w: number, h: number) => {
+      const id = `m_${name.replace(/\W/g, '')}`
+      useStore.getState().addMedia({
+        id, path, playbackUrl: convertFileSrc(path), name,
+        kind: 'video', duration: 60, width: w, height: h, hasAudio: false,
+      })
+      return id
+    }
+    const mScreen = add(screenPath, 'screen-share.mp4', 1280, 720)
+    const mCam = add(camPath, 'webcam.mp4', 640, 360)
+    const st2 = useStore.getState()
+    const vids = st2.project.tracks.filter((t) => t.kind === 'video')
+    st2.insertClipAt(mScreen, vids[1].id, 0)
+    st2.insertClipAt(mCam, vids[0].id, 0)
+    // The pip move, through the same tool the AI calls.
+    const { runTool } = await import('../ai/tools')
+    await import('../ai/chatSession') // side effect: registers set_layout
+    runTool('set_layout', {
+      layout: 'pip', track: 'auto-cam', corner: 'bottom_right',
+      scale: 0.22, radius: 18, margin: 40, at: 4, duration: 1,
+    })
+    runTool('set_layout', { layout: 'fullscreen', track: 'auto-cam', at: 20, duration: 1 })
+    runTool('add_text', { content: 'Motionaire', start: 0.8, duration: 3.5, size: 96 })
+    useStore.getState().setPlayhead(10)
+    useStore.getState().select([])
+  } catch (e) {
+    s.pushToast('error', `Couldn't build the sample project: ${e}`)
+  }
+}
+
 export function Launcher() {
   const [recents, setRecents] = useState<RecentProject[]>([])
   const [creating, setCreating] = useState(false)
@@ -218,6 +259,9 @@ export function Launcher() {
           </button>
           <button className="shell__secondary" onClick={() => void openProject()}>
             <FolderOpen size={14} /> Open…
+          </button>
+          <button className="shell__secondary" onClick={() => void openSampleProject()}>
+            <Clapperboard size={14} /> Sample project
           </button>
         </div>
       </header>
