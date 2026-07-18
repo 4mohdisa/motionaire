@@ -463,6 +463,36 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+// Long demo fixtures (Run 1, Phase 5): the flagship prompt spans 0:10–0:45,
+// so the scene needs ≥46s of footage. Same generators as the pip demo,
+// 60s variants, cached.
+#[tauri::command]
+fn spike_long_fixtures() -> Result<(String, String), String> {
+    let dir = compositor::demo::spike_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mk = |name: &str, filter: &str| -> Result<String, String> {
+        let p = dir.join(name);
+        if !p.exists() {
+            let out = std::process::Command::new(compositor::decoder::ffmpeg_bin())
+                .args([
+                    "-v", "error", "-y", "-f", "lavfi", "-i", filter,
+                    "-t", "60", "-pix_fmt", "yuv420p", "-an",
+                    p.to_str().ok_or("bad path")?,
+                ])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err(String::from_utf8_lossy(&out.stderr).into());
+            }
+        }
+        Ok(p.to_string_lossy().into_owned())
+    };
+    Ok((
+        mk("screen-60.mp4", "testsrc2=size=1280x720:rate=30")?,
+        mk("cam-60.mp4", "mandelbrot=size=640x360:rate=30")?,
+    ))
+}
+
 // ---- AI chat history: history.jsonl in the bundle (CONTEXT §8.1) — one
 // line per turn, replayed sequentially on load. No query engine for a log
 // only ever read in order. ----
@@ -966,6 +996,7 @@ pub fn run() {
             analyze_audio,
             measure_loudness,
             analyze_activity,
+            spike_long_fixtures,
             ai_history_append,
             ai_history_read,
             ai_chat_send,

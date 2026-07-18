@@ -235,6 +235,9 @@ export interface StoreState {
   setClipProperty: (clipId: string, prop: string, value: unknown, transient?: boolean) => void
   // Stopwatch/diamond click: arm with first keyframe, or add/remove at playhead.
   toggleKeyframe: (clipId: string, prop: string) => void
+  // Direct keyframe upsert at a clip-relative time (Run 1, Phase 5): the
+  // layout macro writes coordinated pairs without touching the playhead.
+  writeKeyframe: (clipId: string, prop: string, relT: number, v: number, ease?: Ease) => void
   clearKeyframes: (clipId: string, prop: string) => void
   setKeyframeEase: (clipId: string, prop: string, t: number, ease: Ease | 'bezier') => void
   // Graph editor (pro-editor session, Phase 3).
@@ -1359,6 +1362,24 @@ export const useStore = create<StoreState>()(
           },
           { history: transient ? false : true }, // label scrubs coalesce via beginGesture
         ),
+
+      writeKeyframe: (clipId, prop, relT, v, ease = 'easeInOut') =>
+        mutateProject((p) => {
+          const found = findClip(p, clipId)
+          if (!found || found.track.locked) return
+          const { clip } = found
+          const fps = p.canvas.fps
+          const t = snapToFrame(Math.min(Math.max(0, relT), clipDuration(clip)), fps)
+          const existing = clip.keyframes.find(
+            (k) => k.prop === prop && Math.abs(k.t - t) < 1 / fps / 2,
+          )
+          if (existing) {
+            existing.v = v
+            existing.ease = ease
+          } else {
+            clip.keyframes.push({ prop, t, v, ease })
+          }
+        }),
 
       toggleKeyframe: (clipId, prop) =>
         mutateProject((p) => {

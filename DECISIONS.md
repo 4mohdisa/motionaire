@@ -2228,3 +2228,42 @@ above).
   history.jsonl → clearChat + loadChatHistory repopulates. Nine
   assertions, one shot.
 - Suite: 95 unit + 33 cargo + 35/35 e2e + visual GREEN.
+
+## Phase 5 — layout macros and THE FLAGSHIP DEMO ★
+
+- **set_layout (5a)**: registered like any other tool; ONE call emits
+  coordinated keyframe PAIRS (current resolved value at `at`, target at
+  `at+duration`) across every affected video track — so moves animate from
+  wherever things are, and "then back" is just a second call. Layouts:
+  fullscreen/pip/side_by_side/top_bottom/grid/hidden. Track refs: id, clip
+  id, or "auto-cam"/"auto-screen" (smallest/largest active source — the
+  webcam IS the smaller source). All math flows from the compositor's
+  object-fit:contain (fitted size × scale → corner offsets minus margin).
+  New store action writeKeyframe (direct upsert at clip-relative time) so
+  macros never touch the playhead mid-turn.
+- **THE FLAGSHIP (5b) — PASSED, CAPTURED, EXPORT-VERIFIED.** The exact
+  prompt, TYPED into the real composer via native setter + input event +
+  real Send click:
+    "From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom
+     right, screen share fills the rest, then back to fullscreen."
+  Scene: fresh 60s two-layer project (spike_long_fixtures — the 10s pip
+  fixtures can't host a 0:45 edit). Result, all machine-verified:
+  30 keyframes total; scale@5s=1.000, scale@30s=0.100, cornerRadius@30s>1,
+  x@30s>100 && y@30s>100 (bottom-right), scale@55s=1.000 (back to full);
+  ONE undo step; 2 diff cards; export of 28–32s → 4.00s file probed, and a
+  frame EXTRACTED FROM THE EXPORTED MP4 shows the rounded 10% pip over the
+  screen share. Captures: FLAGSHIP-app.png / FLAGSHIP-exported-frame.png.
+  PROVIDER HONESTY: no API key exists on this machine (env has only the
+  harness base-url var), so the turn ran on the MOCK provider — which
+  emits the same set_layout calls a real model would; the entire pipeline
+  downstream of the LLM (macro → keyframes → compositor → export) is real.
+  With a key, the identical path runs through Claude/GPT (r1p5 test's
+  provider is a pref switch).
+- Break-find on the way: after a per-test webview reload the app boots to
+  the LAUNCHER — a scene built via replaceProject alone renders no editor
+  DOM ("no composer"). setAppView('editor') is part of scene setup for any
+  test not using loadPipDemo.
+- **DEMO.md (5c)**: 7-step presenter script in story order (trust via undo
+  first, flagship second), setup, mock-safe variants marked, evidence
+  paths, presenter notes.
+- Suite: 95 unit + 33 cargo + 36/36 e2e + visual GREEN.

@@ -2524,6 +2524,128 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p5_flagship_test': {
+      // ★ THE FLAGSHIP DEMO (Run 1, Phase 5b) — the prompt the project
+      // exists for, TYPED into the real composer:
+      //   "From 0:10 to 0:45 shrink my face to 10%, rounded corners,
+      //    bottom right, screen share fills the rest, then back to
+      //    fullscreen."
+      // Must produce the real keyframed edit — on the timeline, in the
+      // preview, and SURVIVING AN EXPORT. Provider: mock (no key on this
+      // machine) — the mock emits the same set_layout calls a real model
+      // would; everything downstream is fully real.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p5-flagship', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        const st = () => useStore.getState()
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        const { createProject } = await import('../types/project')
+        // Clean 60s two-layer scene: screen fullscreen under cam fullscreen.
+        const [screenPath, camPath] = await invoke<[string, string]>('spike_long_fixtures')
+        const p = createProject()
+        useStore.getState().replaceProject(p, null)
+        st().setAppView('editor') // fresh reload boots to the launcher
+        const add = (path: string, name: string, w: number, h: number) => {
+          const id = mkid('m')
+          st().addMedia({
+            id, path, playbackUrl: convertFileSrc(path), name,
+            kind: 'video', duration: 60, width: w, height: h, hasAudio: false,
+          })
+          return id
+        }
+        const mScreen = add(screenPath, 'screen-share.mp4', 1280, 720)
+        const mCam = add(camPath, 'webcam.mp4', 640, 360)
+        const vids = st().project.tracks.filter((t) => t.kind === 'video')
+        st().insertClipAt(mScreen, vids[1].id, 0) // V1 bottom
+        st().insertClipAt(mCam, vids[0].id, 0) // V2 top (the "face")
+        st().pause()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock' })
+        const { refreshAiConfigured } = await import('../persistence/aiSettings')
+        await refreshAiConfigured()
+        const { clearChat } = await import('../ai/chatController')
+        clearChat()
+        st().setLeftPanel('chat')
+        await wait(300)
+
+        // TYPE the flagship prompt through the REAL composer.
+        const PROMPT =
+          'From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom right, screen share fills the rest, then back to fullscreen.'
+        const box = document.querySelector<HTMLTextAreaElement>('.chatpanel__input')
+        if (!box) {
+          void report(false, 'no composer')
+          break
+        }
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          'value',
+        )!.set!
+        setter.call(box, PROMPT)
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(100)
+        const undoBefore = st().past.length
+        document
+          .querySelector<HTMLButtonElement>('.chatpanel__composer .topbar__btn--primary')
+          ?.click()
+        const done = await until(() => !st().chatBusy && st().chatLog.length >= 2, 30000)
+
+        // The real keyframed edit, on the cam clip:
+        const cam = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.mediaId === mCam)!
+        const { resolveProp } = await import('../engine/keyframes')
+        const rp = (prop: string, t: number) => resolveProp(cam, prop, t - cam.start)
+        const kfCount = cam.keyframes.length
+        const beforeOk = Math.abs(rp('transform.scale', 5) - 1) < 1e-3
+        const duringScale = rp('transform.scale', 30)
+        const duringOk = Math.abs(duringScale - 0.1) < 1e-3
+        const cornerOk = rp('transform.cornerRadius', 30) > 1
+        const posOk = rp('transform.x', 30) > 100 && rp('transform.y', 30) > 100
+        const afterOk = Math.abs(rp('transform.scale', 55) - 1) < 1e-3
+        const oneStep = st().past.length === undoBefore + 1
+        const diffs = st().chatLog.at(-1)?.diffs?.length ?? 0
+
+        // Survives an export: render 28–32s (mid-pip) and probe the file.
+        st().setMarkIn(28)
+        st().setMarkOut(32)
+        st().setExportSettings({ format: 'mp4', height: 720, fps: 30, quality: 70 })
+        const exportDone = new Promise<boolean>((resolve) => {
+          void import('@tauri-apps/api/event').then(({ listen }) => {
+            void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then(
+              (un) => setTimeout(un, 180000),
+            )
+          })
+        })
+        const { runExport } = await import('../compositor/exportRunner')
+        await runExport('/tmp/flagship.mp4')
+        const exportOk = await exportDone
+        const probe = await invoke<{ duration: number }>('probe_media', {
+          path: '/tmp/flagship.mp4',
+        })
+        const durOk = Math.abs(probe.duration - 4.0) < 0.2
+        // Park the playhead mid-pip for the capture that follows.
+        st().setMarkIn(null)
+        st().setMarkOut(null)
+        st().setPlayhead(30)
+
+        const pass =
+          done && kfCount >= 8 && beforeOk && duringOk && cornerOk && posOk && afterOk &&
+          oneStep && diffs >= 2 && exportOk && durOk
+        void report(
+          pass,
+          `done=${done} kf=${kfCount} before=${beforeOk} during=${duringOk}(${duringScale.toFixed(3)}) corner=${cornerOk} pos=${posOk} after=${afterOk} oneStep=${oneStep} diffs=${diffs} export=${exportOk} dur=${probe.duration.toFixed(2)}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

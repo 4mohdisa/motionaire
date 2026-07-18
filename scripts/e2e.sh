@@ -26,7 +26,7 @@ DEFAULT_TESTS=(
   p5_select_test p5_marker_test p5_freeze_test p5_thumb_test
   f0_popover_test f0_ctx_test f1_parity_test f2_edit_test f3_audio_test
   f5_proxy_test f6_export_test f7_test f8_test
-  r1p2_keys_test r1p3_tools_test r1p4_chat_test
+  r1p2_keys_test r1p3_tools_test r1p4_chat_test r1p5_flagship_test
   p1_mixer_test p2_fx_test p2_migration_test p3_graph_test p4_trim_test p5_color_test p6_audio_test p7_motion_test p8_org_test
 )
 if [ $# -gt 0 ]; then TESTS=("$@"); else TESTS=("${DEFAULT_TESTS[@]}"); fi
