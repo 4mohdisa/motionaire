@@ -843,3 +843,50 @@ describe('organization (pro-editor P8)', () => {
     expect(st().project.media[0].folder).toBeUndefined()
   })
 })
+
+describe('AI transaction (Run 1 P3 — the trust model)', () => {
+  it('many mutations inside one transaction = ONE undo step', async () => {
+    const { beginAiTransaction, endAiTransaction } = await import('./store')
+    const c = mkClip({ start: 0, out: 8 })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    beginAiTransaction()
+    st().splitClip(c.id, 2)
+    st().splitClip(c.id, 1)
+    st().setClipProperty(c.id, 'transform.scale', 0.5)
+    st().addTextClip('AI title')
+    const edited = endAiTransaction()
+    expect(edited).toBe(true)
+    expect(st().project.tracks.flatMap((t) => t.clips).length).toBeGreaterThan(2)
+    st().undo()
+    // Everything from the turn reverts at once.
+    const clips = st().project.tracks.flatMap((t) => t.clips)
+    expect(clips).toHaveLength(1)
+    expect(clips[0].id).toBe(c.id)
+    expect(clips[0].transform.scale).toBe(1)
+    // And redo replays the whole turn.
+    st().redo()
+    expect(st().project.tracks.flatMap((t) => t.clips).length).toBeGreaterThan(2)
+  })
+
+  it('a read-only transaction pushes nothing', async () => {
+    const { beginAiTransaction, endAiTransaction } = await import('./store')
+    fresh()
+    const before = useStore.getState().past.length
+    beginAiTransaction()
+    const edited = endAiTransaction()
+    expect(edited).toBe(false)
+    expect(useStore.getState().past.length).toBe(before)
+  })
+
+  it('normal mutations after the transaction push history again', async () => {
+    const { beginAiTransaction, endAiTransaction } = await import('./store')
+    const c = mkClip({ start: 0, out: 8 })
+    fresh((p) => void p.tracks[1].clips.push(c))
+    beginAiTransaction()
+    st().splitClip(c.id, 2)
+    endAiTransaction()
+    const after = useStore.getState().past.length
+    st().moveClip(c.id, 1)
+    expect(useStore.getState().past.length).toBe(after + 1)
+  })
+})

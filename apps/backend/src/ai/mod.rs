@@ -19,6 +19,7 @@
 
 pub mod chat;
 pub mod keys;
+pub mod turn;
 pub mod videogen;
 
 // Providers the settings UI can select. Keys are stored per provider id.

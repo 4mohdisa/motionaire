@@ -33,6 +33,34 @@ import { expandTextAnimation } from '../engine/textPresets'
 
 const HISTORY_LIMIT = 100
 
+// AI transaction state (module-level: consulted by mutateProject).
+let aiTxDepth = 0
+let aiTxSnapshotTaken = false
+
+/// Run a block of store mutations as ONE undo step. Re-entrant; the
+/// snapshot is taken lazily by the first history-bearing mutation, so a
+/// turn that only READS pushes nothing.
+export function withAiTransaction<T>(fn: () => T): T {
+  aiTxDepth++
+  if (aiTxDepth === 1) aiTxSnapshotTaken = false
+  try {
+    return fn()
+  } finally {
+    aiTxDepth--
+  }
+}
+
+/// Async variant for tool loops that span awaits (the streamed turn).
+export function beginAiTransaction(): void {
+  aiTxDepth++
+  if (aiTxDepth === 1) aiTxSnapshotTaken = false
+}
+
+export function endAiTransaction(): boolean {
+  aiTxDepth = Math.max(0, aiTxDepth - 1)
+  return aiTxSnapshotTaken // true = the turn actually edited something
+}
+
 export type LeftPanel = 'media' | 'effects' | 'chat' | 'mixer' | null
 
 // App preferences (SQLite settings blob). AI additions (Run 1, Phase 2):
@@ -440,7 +468,18 @@ export const useStore = create<StoreState>()(
     // Every project mutation goes through here; history unless opted out.
     const mutateProject = (fn: (p: Project) => void, opts?: { history?: boolean }) =>
       set((s) => {
-        if (opts?.history !== false) {
+        // ONE PROMPT = ONE UNDO STEP (Run 1, Phase 3 — the AI trust model):
+        // inside an AI transaction the FIRST mutation snapshots history and
+        // every further mutation coalesces into it. The AI calls the same
+        // store actions the UI does; this flag is the only difference.
+        if (aiTxDepth > 0) {
+          if (!aiTxSnapshotTaken && opts?.history !== false) {
+            s.past.push(structuredClone(current(s.project)))
+            if (s.past.length > HISTORY_LIMIT) s.past.shift()
+            s.future = []
+            aiTxSnapshotTaken = true
+          }
+        } else if (opts?.history !== false) {
           s.past.push(structuredClone(current(s.project)))
           if (s.past.length > HISTORY_LIMIT) s.past.shift()
           s.future = []

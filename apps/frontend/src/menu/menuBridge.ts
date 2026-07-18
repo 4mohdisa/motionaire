@@ -2389,6 +2389,65 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p3_tools_test': {
+      // Run 1 Phase 3: the WHOLE loop through the mock provider — Rust turn
+      // thread, streamed deltas, batched tool calls, store execution, results
+      // round-trip — plus the trust model: one prompt = ONE undo step.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p3-tools', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock' })
+        const { startTurn, resetSession } = await import('../ai/chatSession')
+        resetSession()
+
+        // Turn 1: add a title.
+        const undoBefore = st().past.length
+        let deltas = 0
+        const t1 = await startTurn('add a title that says "Hello from AI"', {
+          onDelta: () => deltas++,
+        })
+        const title = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.text?.content === 'hello from ai' || c.text?.content === 'Hello from AI')
+        const oneStep = st().past.length === undoBefore + 1
+        const t1ok = t1.edited && !t1.error && t1.diffs.length > 0 && !!title && deltas > 3
+        // Undo reverts the WHOLE turn.
+        st().undo()
+        const gone = !st()
+          .project.tracks.flatMap((t) => t.clips)
+          .some((c) => c.id === title?.id)
+
+        // Turn 2: ripple-cut the opening across all tracks.
+        const durBefore = st().project.duration
+        const undo2 = st().past.length
+        const t2 = await startTurn('cut the first 2 seconds', {})
+        const durAfter = st().project.duration
+        const cutOk =
+          t2.edited && !t2.error && Math.abs(durBefore - durAfter - 2) < 0.2 &&
+          st().past.length === undo2 + 1
+        st().undo()
+        const restored = Math.abs(st().project.duration - durBefore) < 1e-6
+
+        // Turn 3: chat-only reply → NO history entry, nothing edited.
+        const undo3 = st().past.length
+        const t3 = await startTurn('what can you do?', {})
+        const chatOnly = !t3.edited && !t3.error && st().past.length === undo3
+
+        const pass = t1ok && oneStep && gone && cutOk && restored && chatOnly
+        void report(
+          pass,
+          `t1ok=${t1ok} oneStep=${oneStep} undoRevertsAll=${gone} cutOk=${cutOk} restored=${restored} chatOnly=${chatOnly} deltas=${deltas}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

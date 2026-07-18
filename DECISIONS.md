@@ -2161,3 +2161,45 @@ above).
   Not a regression — known debug-only storage; the activation flow itself
   proved healthy (p1_shell PASS re-activated).
 - Suite: 92 unit + 30 cargo + 33/33 e2e + visual GREEN.
+
+## Phase 3 — provider abstraction and the tool layer
+
+- **The loop is split across the IPC boundary BY DESIGN**: provider HTTP
+  runs in Rust (keys never leave it), tools execute in the WEBVIEW because
+  the zustand store is the single mutation authority. Rust turn thread ⇄
+  events: ai:delta (streamed prose), ai:tool_calls (ONE batched event per
+  round — the frontend must know the round is complete; per-call events
+  would leave it guessing), ai:done / ai:error; frontend answers with
+  ai_tool_result into a parked channel (TurnHub). MAX_ROUNDS=12 runaway
+  guard surfaces as a real error, never silence. 120s tool timeout.
+- **ONE PROMPT = ONE UNDO STEP, enforced in mutateProject itself**: an AI
+  transaction flag makes the FIRST history-bearing mutation snapshot and
+  every subsequent one coalesce. Tools call the exact same store actions
+  the UI does — locks, clamps, frame-snapping, dirty tracking all
+  inherited; the transaction flag is the ONLY difference. Unit tests pin
+  it: N mutations → one undo; read-only turn → past.length unchanged; the
+  flag can't leak (normal mutations after endAiTransaction push again).
+- **NeutralMsg model** between providers: role/text/tool_calls/tool_results;
+  each provider maps to its wire shape. Wire-mapping unit tests pin the
+  live-docs gotchas: Anthropic tool_use/tool_result content BLOCKS with
+  args as JSON; OpenAI tool_calls with args as JSON-STRINGS and role:"tool"
+  results. SSE parsing: Anthropic six event types w/ input_json_delta
+  accumulation; OpenAI delta chunks with index-keyed tool_call fragments.
+- **Tool layer (ai/tools.ts)**: 18 tools; spec + executor live in ONE
+  registry entry so they cannot drift. Every mutating tool returns
+  {ok, diff, warnings} with honest failure text (unknown id → "call
+  get_timeline", locked track named, clamps reported as warnings).
+  Keyframe times are ABSOLUTE in the API and converted to clip-relative
+  here (CONTEXT §1.2 demands both). delete_range accepts track_id "all".
+  registerTool() exists for Phase 5's set_layout.
+- **Compact context (§2.1)**: buildTimelineContext() — canvas/playhead/
+  selection/tracks/clips with ids, times to 2dp, effect instances. Sent
+  embedded in the user message; raw project JSON never leaves the store.
+- **Mock TurnProvider** (Rust, offline, deterministic): scripts the demo-
+  family prompts (flagship pip shape incl. 0:10/0:45/10% extraction —
+  unit-tested; title add; opening cut) and exercises the FULL loop
+  machinery. r1p3-tools e2e proves end to end through the real event
+  plumbing: title turn (streamed deltas>3, diff cards, ONE history entry,
+  undo removes everything), ripple-cut turn (duration −2.0s, one step,
+  undo restores exactly), chat-only turn (edited=false, NO history entry).
+- Suite: 95 unit + 33 cargo + 34/34 e2e + visual GREEN.

@@ -463,7 +463,46 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
-// ---- AI layer (Run 1, Phase 2): keys in keychain, read only here. ----
+// ---- AI layer (Run 1, Phase 2/3): keys in keychain; turns stream here. ----
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn ai_chat_send(
+    app: tauri::AppHandle,
+    hub: State<std::sync::Arc<ai::turn::TurnHub>>,
+    turn_id: String,
+    provider: String,
+    model: String,
+    system: String,
+    messages: Vec<ai::turn::NeutralMsg>,
+    tools: Vec<ai::turn::ToolSpec>,
+) {
+    ai::turn::run_turn(
+        app,
+        hub.inner().clone(),
+        turn_id,
+        provider,
+        model,
+        system,
+        messages,
+        tools,
+    );
+}
+
+#[tauri::command]
+fn ai_tool_result(
+    hub: State<std::sync::Arc<ai::turn::TurnHub>>,
+    turn_id: String,
+    results: Vec<ai::turn::NeutralResult>,
+) -> Result<(), String> {
+    hub.deliver(&turn_id, results)
+}
+
+#[tauri::command]
+fn ai_cancel_turn(hub: State<std::sync::Arc<ai::turn::TurnHub>>, turn_id: String) {
+    hub.cancel(&turn_id);
+}
+
 
 #[tauri::command]
 fn ai_set_key(provider: String, key: String) -> Result<(), String> {
@@ -836,6 +875,7 @@ pub fn run() {
             // session 3 only ever saw adapter logs from LATE re-inits.
             use tauri::Manager as _;
             app.manage(compositor::start());
+            app.manage(std::sync::Arc::new(ai::turn::TurnHub::default()));
             app.manage::<export::Exporter>(std::sync::Arc::new(export::ExportManager::default()));
             // Enforce the window minimum in code as well as config: the layout
             // self-test found programmatic setSize sailing below the configured
@@ -900,6 +940,9 @@ pub fn run() {
             analyze_audio,
             measure_loudness,
             analyze_activity,
+            ai_chat_send,
+            ai_tool_result,
+            ai_cancel_turn,
             ai_set_key,
             ai_has_key,
             ai_clear_key,
