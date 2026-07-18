@@ -2448,6 +2448,82 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:r1p4_chat_test': {
+      // Run 1 Phase 4: the chat UI end to end via REAL interactions — click
+      // an example prompt, watch the stream render, verify the diff card,
+      // click "Undo this", and prove history.jsonl persistence.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'r1p4-chat', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        await loadPipDemo()
+        await wait(300)
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock' })
+        const { refreshAiConfigured } = await import('../persistence/aiSettings')
+        await refreshAiConfigured()
+        const { clearChat } = await import('../ai/chatController')
+        clearChat()
+        st().setLeftPanel('chat')
+        await wait(300)
+        const durBefore = st().project.duration
+        // Real click on the first example ("Cut the first 3 seconds").
+        const example = document.querySelector<HTMLButtonElement>('.chatpanel__example')
+        if (!example) {
+          void report(false, 'no example button rendered')
+          break
+        }
+        example.click()
+        const doneStreaming = await until(
+          () => !st().chatBusy && st().chatLog.length >= 2,
+          20000,
+        )
+        await wait(300)
+        const bubbles = document.querySelectorAll('.chatmsg').length
+        const diffCard = !!document.querySelector('.chatmsg__diffcard')
+        const cutApplied = Math.abs(durBefore - st().project.duration - 3) < 0.2
+        // "Undo this" reverts the turn through plain undo.
+        const undoBtn = document.querySelector<HTMLButtonElement>('.chatmsg__undo')
+        const undoEnabled = !!undoBtn && !undoBtn.disabled
+        undoBtn?.click()
+        await wait(200)
+        const restored = Math.abs(st().project.duration - durBefore) < 1e-6
+        // After undoing, the affordance goes stale-disabled (past changed).
+        const undoNowDisabled =
+          document.querySelector<HTMLButtonElement>('.chatmsg__undo')?.disabled === true
+        // Persistence: with a real bundle path, the exchange lands in
+        // history.jsonl and reloads.
+        const spike = st().project.media[0].path
+        const dir = spike.slice(0, spike.lastIndexOf('/'))
+        const bundle = `${dir}/chat-e2e.motionaire`
+        st().setProjectPath(bundle)
+        const { saveProject } = await import('../persistence/projectIO')
+        await saveProject()
+        const { sendChat, loadChatHistory } = await import('../ai/chatController')
+        await sendChat('add a title that says "History check"')
+        const lines = await invoke<string[]>('ai_history_read', { bundlePath: bundle })
+        const persisted = lines.length >= 1 && lines.every((l) => !!JSON.parse(l))
+        clearChat()
+        await loadChatHistory(bundle)
+        const reloaded = st().chatLog.length >= 2
+        const pass =
+          doneStreaming && bubbles >= 2 && diffCard && cutApplied && undoEnabled &&
+          restored && undoNowDisabled && persisted && reloaded
+        void report(
+          pass,
+          `stream=${doneStreaming} bubbles=${bubbles} diffCard=${diffCard} cut=${cutApplied} undoBtn=${undoEnabled} restored=${restored} staleDisabled=${undoNowDisabled} persisted=${persisted} reloaded=${reloaded}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

@@ -63,6 +63,20 @@ export function endAiTransaction(): boolean {
 
 export type LeftPanel = 'media' | 'effects' | 'chat' | 'mixer' | null
 
+export interface ChatEntry {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  streaming?: boolean
+  diffs?: string[]
+  toolCalls?: { name: string; ok: boolean; detail?: string }[]
+  error?: string
+  edited?: boolean
+  // past.length right after the turn: "Undo this" is honest only while
+  // nothing else has edited since (then it IS plain undo).
+  undoDepth?: number
+}
+
 // App preferences (SQLite settings blob). AI additions (Run 1, Phase 2):
 // provider CHOICES and model names only — never key material.
 export interface Prefs {
@@ -169,6 +183,13 @@ export interface StoreState {
   binOpen: boolean
   setBinOpen: (v: boolean) => void
   aiConfigured: boolean // set at boot once a chat API key exists (Phase 2+)
+  // Chat log (Run 1, Phase 4). Persisted to the bundle's history.jsonl.
+  chatLog: ChatEntry[]
+  chatBusy: boolean
+  pushChatEntry: (e: ChatEntry) => void
+  updateChatEntry: (id: string, patch: Partial<ChatEntry>) => void
+  setChatBusy: (v: boolean) => void
+  setChatLog: (log: ChatEntry[]) => void
   insertClipAt: (
     mediaId: string,
     trackId: string | null,
@@ -686,6 +707,25 @@ export const useStore = create<StoreState>()(
           s.binOpen = p === 'media'
         }),
       aiConfigured: false,
+      chatLog: [],
+      chatBusy: false,
+      pushChatEntry: (e) =>
+        set((s) => {
+          s.chatLog.push(e)
+        }),
+      updateChatEntry: (id, patch) =>
+        set((s) => {
+          const e = s.chatLog.find((x) => x.id === id)
+          if (e) Object.assign(e, patch)
+        }),
+      setChatBusy: (v) =>
+        set((s) => {
+          s.chatBusy = v
+        }),
+      setChatLog: (log) =>
+        set((s) => {
+          s.chatLog = log
+        }),
       setAiConfigured: (v) =>
         set((s) => {
           s.aiConfigured = v

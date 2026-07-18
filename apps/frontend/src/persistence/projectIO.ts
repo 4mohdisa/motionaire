@@ -128,6 +128,8 @@ export async function openProjectPath(path: string): Promise<void> {
     // bump — the stack is additive and old fields are deleted on convert).
     const { migrateProjectEffects } = await import('../engine/effectStack')
     const migrated = migrateProjectEffects(project)
+    // Chat history rides the bundle (history.jsonl, §8.1) — replay in order.
+    void import('../ai/chatController').then((m) => m.loadChatHistory(path))
     if (migrated > 0) console.info(`effect-stack migration: ${migrated} clip(s) converted`)
     const missing = new Set(missingMedia)
     for (const m of project.media) {

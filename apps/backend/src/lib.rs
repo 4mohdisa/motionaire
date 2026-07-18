@@ -463,6 +463,32 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+// ---- AI chat history: history.jsonl in the bundle (CONTEXT §8.1) — one
+// line per turn, replayed sequentially on load. No query engine for a log
+// only ever read in order. ----
+
+#[tauri::command]
+fn ai_history_append(bundle_path: String, line: String) -> Result<(), String> {
+    // Validate it's one JSON object per line — the file must stay parseable.
+    serde_json::from_str::<serde_json::Value>(&line).map_err(|e| format!("bad history line: {e}"))?;
+    let dir = std::path::Path::new(&bundle_path);
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    use std::io::Write as _;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("history.jsonl"))
+        .map_err(|e| e.to_string())?;
+    writeln!(f, "{}", line.replace('\n', " ")).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn ai_history_read(bundle_path: String) -> Vec<String> {
+    std::fs::read_to_string(std::path::Path::new(&bundle_path).join("history.jsonl"))
+        .map(|s| s.lines().map(String::from).collect())
+        .unwrap_or_default()
+}
+
 // ---- AI layer (Run 1, Phase 2/3): keys in keychain; turns stream here. ----
 
 #[tauri::command]
@@ -940,6 +966,8 @@ pub fn run() {
             analyze_audio,
             measure_loudness,
             analyze_activity,
+            ai_history_append,
+            ai_history_read,
             ai_chat_send,
             ai_tool_result,
             ai_cancel_turn,

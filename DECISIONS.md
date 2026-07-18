@@ -2203,3 +2203,28 @@ above).
   undo removes everything), ripple-cut turn (duration −2.0s, one step,
   undo restores exactly), chat-only turn (edited=false, NO history entry).
 - Suite: 95 unit + 33 cargo + 34/34 e2e + visual GREEN.
+
+## Phase 4 — chat UI
+
+- ChatPanel filled in the Phase 1h container (not restyled twice, as
+  planned): streaming bubbles with a blinking cursor, diff CARDS (accent-
+  edged, one line per tool diff — never raw JSON), tool calls collapsed
+  behind an expandable count, error turns rendered as messages with the
+  provider's real text.
+- **"Undo this" is plain undo()** — honest because one prompt = one undo
+  step. The affordance records past.length at turn end and disables itself
+  the moment anything else edits (tooltip explains ⌘Z stepping); after
+  being used it goes stale-disabled. No parallel undo machinery.
+- **history.jsonl** per CONTEXT §8.1: one JSON object per exchange,
+  appended by Rust (ai_history_append validates each line parses — the
+  file must never go unreadable), replayed sequentially on project open
+  into both the visible log AND the model session (restoreSession).
+  Corrupt lines skipped, never fatal. Untitled projects skip persistence
+  until first save (logged limitation: pre-save exchanges aren't
+  backfilled — acceptable, the recovery path protects the EDITS).
+- r1p4-chat e2e drives the REAL UI: example-prompt click → stream renders
+  → diff card → duration actually cut 3.0s → "Undo this" click restores
+  exactly → affordance goes stale-disabled → save → exchange lands in
+  history.jsonl → clearChat + loadChatHistory repopulates. Nine
+  assertions, one shot.
+- Suite: 95 unit + 33 cargo + 35/35 e2e + visual GREEN.
