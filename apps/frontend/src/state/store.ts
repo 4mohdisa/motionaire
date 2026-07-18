@@ -19,6 +19,7 @@ import type {
 } from '../types/project'
 import { createProject, defaultTransform, uid } from '../types/project'
 import { mkEffect } from '../engine/effectStack'
+import { isAudioFx } from '../engine/audioFx'
 import {
   clampStartToGaps,
   clipDuration,
@@ -31,6 +32,8 @@ import { presetHandles, resolveProp } from '../engine/keyframes'
 import { expandTextAnimation } from '../engine/textPresets'
 
 const HISTORY_LIMIT = 100
+
+export type LeftPanel = 'media' | 'effects' | 'chat' | 'mixer' | null
 
 export interface ExportSettings {
   width: number
@@ -120,8 +123,13 @@ export interface StoreState {
   updateMedia: (id: string, patch: Partial<MediaAsset>) => void
   appendMediaClip: (mediaId: string) => void
   // Media bin (session 9, Phase 2)
+  // Left panel host (Run 1, Phase 1f): the rail switches between these.
+  leftPanel: LeftPanel
+  setLeftPanel: (p: LeftPanel) => void
+  // Back-compat aliases (menu items + e2e drive these):
   binOpen: boolean
   setBinOpen: (v: boolean) => void
+  aiConfigured: boolean // set at boot once a chat API key exists (Phase 2+)
   insertClipAt: (
     mediaId: string,
     trackId: string | null,
@@ -164,7 +172,7 @@ export interface StoreState {
   // --- properties & keyframes ---
   // Static set; if the prop already has keyframes, upserts a keyframe at the
   // playhead instead (NLE stopwatch semantics).
-  setClipProperty: (clipId: string, prop: string, value: unknown) => void
+  setClipProperty: (clipId: string, prop: string, value: unknown, transient?: boolean) => void
   // Stopwatch/diamond click: arm with first keyframe, or add/remove at playhead.
   toggleKeyframe: (clipId: string, prop: string) => void
   clearKeyframes: (clipId: string, prop: string) => void
@@ -615,10 +623,18 @@ export const useStore = create<StoreState>()(
           })
         }),
 
+      leftPanel: 'media' as LeftPanel,
+      setLeftPanel: (p) =>
+        set((s) => {
+          s.leftPanel = p
+          s.binOpen = p === 'media'
+        }),
+      aiConfigured: false,
       binOpen: true,
       setBinOpen: (v) =>
         set((s) => {
           s.binOpen = v
+          s.leftPanel = v ? 'media' : null
         }),
 
       insertClipAt: (mediaId, trackId, at, range) =>
@@ -1189,8 +1205,9 @@ export const useStore = create<StoreState>()(
           clip.keyframes = clip.keyframes.filter((k) => k.prop !== 'volume')
         }),
 
-      setClipProperty: (clipId, prop, value) =>
-        mutateProject((p) => {
+      setClipProperty: (clipId, prop, value, transient) =>
+        mutateProject(
+          (p) => {
           const found = findClip(p, clipId)
           if (!found || found.track.locked) return
           const { track, clip } = found
@@ -1239,7 +1256,9 @@ export const useStore = create<StoreState>()(
             const key = prop.slice('transform.'.length)
             ;(clip.transform as unknown as Record<string, unknown>)[key] = value
           }
-        }),
+          },
+          { history: transient ? false : true }, // label scrubs coalesce via beginGesture
+        ),
 
       toggleKeyframe: (clipId, prop) =>
         mutateProject((p) => {
@@ -1702,8 +1721,16 @@ export const useStore = create<StoreState>()(
           if (!found || found.track.locked) return
           const list = found.clip.effects
           const i = list.findIndex((e) => e.id === effectId)
-          const j = i + dir
-          if (i < 0 || j < 0 || j >= list.length) return
+          if (i < 0) return
+          // Swap with the nearest neighbor of the SAME audio/visual class:
+          // the panel shows the stack split across the Adjust and Audio tabs,
+          // and cross-kind order is semantically irrelevant (each render
+          // chain filters its own types) — so ▲▼ must not appear to no-op
+          // when an other-kind instance sits in between (Run 1, Phase 1a).
+          const cls = isAudioFx(list[i].type)
+          let j = i + dir
+          while (j >= 0 && j < list.length && isAudioFx(list[j].type) !== cls) j += dir
+          if (j < 0 || j >= list.length) return
           ;[list[i], list[j]] = [list[j], list[i]]
         }),
 
@@ -2351,6 +2378,8 @@ export const useStore = create<StoreState>()(
       setMixerOpen: (v) =>
         set((s) => {
           s.mixerOpen = v
+          s.leftPanel = v ? 'mixer' : 'media'
+          s.binOpen = !v
         }),
 
       scopesOpen: false,

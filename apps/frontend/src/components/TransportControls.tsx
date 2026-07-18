@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Pause, Play, SkipBack, StepBack, StepForward, Volume2, SlidersVertical, Activity } from 'lucide-react'
+import { Pause, Play, SkipBack, StepBack, StepForward, Volume2, Activity } from 'lucide-react'
 import { useStore } from '../state/store'
 import { formatTimecode, parseTimecode } from '../engine/time'
 import { meterFrac, readPeaks } from '../engine/audioGraph'
@@ -113,7 +113,6 @@ function TransportControls() {
   const compositorActive = useStore((s) => s.compositorActive)
   const compositorFps = useStore((s) => s.compositorFps)
   const masterVolume = useStore((s) => s.project.masterVolume ?? 1)
-  const mixerOpen = useStore((s) => s.mixerOpen)
   const scopesOpen = useStore((s) => s.scopesOpen)
   const { togglePlay, frameStep, setPlayhead } = useStore.getState()
 
@@ -125,15 +124,24 @@ function TransportControls() {
       ? `${compositorFps.toFixed(0)} fps`
       : 'ready'
 
+  // Three-zone transport (Run 1, Phase 1g): timecode/total left in mono,
+  // transport centered, meters/scopes/volume right. The mixer toggle moved
+  // to the left rail (Phase 1f) — relocation logged in DECISIONS.
   return (
-    <div className="transport">
-      <TimecodeEntry playhead={playhead} fps={fps} />
-      <span
-        className={`transport__status${compositorActive ? ' transport__status--ok' : ''}`}
-        title="Compositor status"
-      >
-        {status}
-      </span>
+    <div className="transport transport--zones">
+      <div className="transport__left">
+        <TimecodeEntry playhead={playhead} fps={fps} />
+        <span className="transport__sep">/</span>
+        <span className="transport__time transport__time--total">
+          {formatTimecode(duration, fps)}
+        </span>
+        <span
+          className={`transport__status${compositorActive ? ' transport__status--ok' : ''}`}
+          title="Compositor status"
+        >
+          {status}
+        </span>
+      </div>
       <div className="transport__buttons">
         <IconBtn icon={SkipBack} label="Go to start (Home)" onClick={() => setPlayhead(0)} />
         <IconBtn icon={StepBack} label="Previous frame (←)" onClick={() => frameStep(-1)} />
@@ -152,12 +160,6 @@ function TransportControls() {
           active={scopesOpen}
           onClick={() => useStore.getState().setScopesOpen(!scopesOpen)}
         />
-        <IconBtn
-          icon={SlidersVertical}
-          label="Audio mixer"
-          active={mixerOpen}
-          onClick={() => useStore.getState().setMixerOpen(!mixerOpen)}
-        />
         <Volume2 size={12} className="transport__volicon" />
         <input
           className="transport__master selectable"
@@ -170,9 +172,6 @@ function TransportControls() {
           onChange={(e) => useStore.getState().setMasterVolume(Number(e.target.value))}
         />
       </div>
-      <span className="transport__time transport__time--total">
-        {formatTimecode(duration, fps)}
-      </span>
     </div>
   )
 }

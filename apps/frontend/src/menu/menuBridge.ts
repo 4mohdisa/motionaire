@@ -47,6 +47,15 @@ function ensureFx(
   return `fx.${fx!.id}.`
 }
 
+
+// Tabbed panel (Run 1, Phase 1a): flip the properties panel to a tab before
+// querying its contents. No-op when tabs aren't rendered (single-tab kinds).
+function clickPropsTab(name: string) {
+  const tab = [...document.querySelectorAll<HTMLButtonElement>('.props__tab')].find(
+    (b) => b.textContent === name,
+  )
+  tab?.click()
+}
 async function dispatch(action: string, path?: string) {
   const s = useStore.getState()
   switch (action) {
@@ -654,8 +663,16 @@ async function dispatch(action: string, path?: string) {
             resolve(e.payload),
           ).then((un) => setTimeout(un, 60000))
         })
+        // Cancel deterministically MID-FLIGHT: on the first progress event.
+        // A fixed 500ms timer lost the race when 20 prior tests had warmed
+        // the decoder slots and the whole export finished early (suite
+        // order-dependence caught by the Phase 1 gate).
+        void import('@tauri-apps/api/event').then(({ listen }) => {
+          void listen('export:progress', () => void invoke('cancel_export')).then((un) =>
+            setTimeout(un, 60000),
+          )
+        })
         await runExport('/tmp/motionaire-cancel-test.mp4')
-        setTimeout(() => void invoke('cancel_export'), 500)
         const result = await done
         await new Promise((r) => setTimeout(r, 300))
         // Partial file must be gone; a fresh export must be startable.
@@ -860,7 +877,7 @@ async function dispatch(action: string, path?: string) {
         // can be poked (the suite reloads the webview per test).
         await loadPipDemo()
         await tick(400)
-        const btn = document.querySelector<HTMLElement>('.tl__toolbar .iconbtn')!
+        const btn = document.querySelector<HTMLElement>('.tl__toolbar [aria-label="Add"]')!
         btn.dispatchEvent(
           new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
         )
@@ -1553,6 +1570,8 @@ async function dispatch(action: string, path?: string) {
         // Panel renders one card per instance.
         st().select([cam.id])
         await wait(300)
+        clickPropsTab('Adjust')
+        await wait(150)
         const cards = document.querySelectorAll('.fxcard').length
         // Leave the Effects section in view for the evidence capture.
         document.querySelector('.fxcard')?.scrollIntoView({ block: 'center' })
@@ -1929,19 +1948,24 @@ async function dispatch(action: string, path?: string) {
         // Panel editors render.
         st().select([cam.id])
         await wait(300)
+        clickPropsTab('Adjust')
+        await wait(150)
         const wheelPads = document.querySelectorAll('.wheel__pad').length
         const curveSvg = !!document.querySelector('.curves__svg')
         // Scopes read the real frame stream and draw signal.
         st().setScopesOpen(true)
-        await wait(600)
-        const scopeCanvas = document.querySelector<HTMLCanvasElement>('.scopes__canvas')
+        // Scopes fill from the live frame stream — poll up to 5s (fixed
+        // waits under full-suite load read an empty canvas: Phase 1 flake).
         let scopeSignal = false
-        if (scopeCanvas) {
+        for (let tries = 0; tries < 25 && !scopeSignal; tries++) {
+          await wait(200)
+          const scopeCanvas = document.querySelector<HTMLCanvasElement>('.scopes__canvas')
+          if (!scopeCanvas) continue
           const ctx = scopeCanvas.getContext('2d')!
-          const d = ctx.getImageData(0, 0, scopeCanvas.width, scopeCanvas.height).data
-          let lum = 0
-          for (let i = 0; i < d.length; i += 40) lum += d[i] + d[i + 1] + d[i + 2]
-          scopeSignal = lum > 5000
+          const px = ctx.getImageData(0, 0, scopeCanvas.width, scopeCanvas.height).data
+          let lit = 0
+          for (let k = 0; k < px.length; k += 4) if (px[k] + px[k + 1] + px[k + 2] > 40) lit++
+          scopeSignal = lit > 50
         }
         st().pause()
         // scopes stay open for the evidence capture

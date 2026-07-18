@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open, message } from '@tauri-apps/plugin-dialog'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Film, FolderInput, Music, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Film, FolderInput, Music, PanelLeftClose } from 'lucide-react'
 import { useStore } from '../state/store'
 import type { MediaAsset } from '../types/project'
 import { getFilmstrip } from '../engine/filmstrip'
@@ -63,20 +63,9 @@ function MediaBin() {
       (folder === null || x.folder === folder) &&
       (!query || x.name.toLowerCase().includes(query.toLowerCase())),
   )
-  const binOpen = useStore((s) => s.binOpen)
+  // The rail (Run 1, Phase 1f) owns visibility now — when mounted, the bin
+  // is open; the header collapse just clears the left panel.
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
-
-  if (!binOpen) {
-    return (
-      <div className="bin bin--closed">
-        <IconBtn
-          icon={PanelLeftOpen}
-          label="Show media bin"
-          onClick={() => useStore.getState().setBinOpen(true)}
-        />
-      </div>
-    )
-  }
 
   const items = (id: string): MenuItem[] => {
     const asset = useStore.getState().project.media.find((m) => m.id === id)
@@ -162,8 +151,8 @@ function MediaBin() {
           <IconBtn icon={FolderInput} label="Import media" onClick={() => void importMediaNative()} />
           <IconBtn
             icon={PanelLeftClose}
-            label="Hide media bin"
-            onClick={() => useStore.getState().setBinOpen(false)}
+            label="Hide panel"
+            onClick={() => useStore.getState().setLeftPanel(null)}
           />
         </div>
       </div>

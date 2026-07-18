@@ -10,6 +10,9 @@ import GraphEditor from './components/GraphEditor'
 import Scopes from './components/Scopes'
 import { useBootFlow } from './hooks/useBootFlow'
 import MediaBin from './components/MediaBin'
+import LeftRail from './components/LeftRail'
+import EffectsPanel from './components/EffectsPanel'
+import ChatPanel from './components/ChatPanel'
 import Toasts from './components/Toasts'
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
@@ -81,7 +84,7 @@ function App() {
   useShortcuts()
   useBootFlow()
   const appView = useStore((s) => s.appView)
-  const mixerOpen = useStore((s) => s.mixerOpen)
+  const leftPanel = useStore((s) => s.leftPanel)
   const graphOpen = useStore((s) => s.graphOpen)
   const scopesOpen = useStore((s) => s.scopesOpen)
   useEffect(() => {
@@ -203,7 +206,11 @@ function App() {
     >
       <TopBar />
       <main className="workspace">
-        <MediaBin />
+        <LeftRail />
+        {leftPanel === 'media' && <MediaBin />}
+        {leftPanel === 'effects' && <EffectsPanel />}
+        {leftPanel === 'chat' && <ChatPanel />}
+        {leftPanel === 'mixer' && <Mixer docked />}
         <Preview />
         <Resizer
           direction="col"
@@ -228,7 +235,6 @@ function App() {
       <ExportPanel />
       <UnsavedPrompt />
       <WorkflowDialogs />
-      {mixerOpen && <Mixer />}
       {scopesOpen && <Scopes />}
       <Toasts />
     </div>

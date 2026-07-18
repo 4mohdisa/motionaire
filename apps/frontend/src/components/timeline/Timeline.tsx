@@ -15,8 +15,7 @@ import { Ellipsis,
   Spline,
   Crosshair,
   Link2,
-  Link2Off,
-} from 'lucide-react'
+  Link2Off, Undo2, Redo2, ArrowDownToLine, ArrowUpToLine, Type } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
 import type { Track } from '../../types/project'
@@ -42,6 +41,8 @@ function Timeline() {
   const previewOriginal = useStore((s) => s.previewOriginal)
   const selection = useStore((s) => s.selection)
   const editMode = useStore((s) => s.editMode)
+  const canUndo = useStore((s) => s.past.length > 0)
+  const canRedo = useStore((s) => s.future.length > 0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const headersRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -218,6 +219,19 @@ function Timeline() {
   return (
     <footer className="tl">
       <div className="tl__toolbar">
+        <IconBtn
+          icon={Undo2}
+          label="Undo (⌘Z)"
+          disabled={!canUndo}
+          onClick={() => useStore.getState().undo()}
+        />
+        <IconBtn
+          icon={Redo2}
+          label="Redo (⇧⌘Z)"
+          disabled={!canRedo}
+          onClick={() => useStore.getState().redo()}
+        />
+        <span className="tl__divider" />
         <Dropdown icon={Plus} label="Add">
           <DropdownItem
             label="Video track"
@@ -260,6 +274,17 @@ function Timeline() {
         </Dropdown>
         <IconBtn icon={Scissors} label="Split at playhead (S)" onClick={splitAtPlayhead} />
         <ToolChips />
+        <IconBtn
+          icon={ArrowDownToLine}
+          label="Mark in (I)"
+          onClick={() => useStore.getState().setMarkIn(useStore.getState().playhead)}
+        />
+        <IconBtn
+          icon={ArrowUpToLine}
+          label="Mark out (O)"
+          onClick={() => useStore.getState().setMarkOut(useStore.getState().playhead)}
+        />
+        <IconBtn icon={Type} label="Add text (T)" onClick={() => useStore.getState().addTextClip()} />
         <IconBtn
           icon={Spline}
           label="Keyframe graph editor"

@@ -6,7 +6,7 @@ import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
 import { customFamilies } from '../persistence/fontManager'
 import type { Clip, Ease, Effect, EffectType, TextAnimationPreset, TransitionType } from '../types/project'
-import { EFFECT_LABELS } from '../engine/effectStack'
+import { EFFECT_DEFAULTS, EFFECT_LABELS } from '../engine/effectStack'
 import { isAudioFx } from '../engine/audioFx'
 import { Popover } from './Popover'
 import { invoke } from '@tauri-apps/api/core'
@@ -47,14 +47,28 @@ function PropertiesPanel() {
           {selection.length > 1 ? `${selection.length} clips selected` : 'No clip selected'}
         </div>
       ) : (
-        <ClipProperties clip={found.clip} />
+        <ClipProperties key={found.clip.id} clip={found.clip} />
       )}
     </aside>
   )
 }
 
+// Tabbed properties (PLAN_RUN_1 1a): Video / Adjust / Audio. Everything
+// that existed keeps a home — Video holds transform+content+transitions,
+// Adjust holds the visual effect stack, Audio holds level/pan/fades + the
+// audio effect chain. Tab state resets per clip (keyed by clip id).
+type PropTab = 'video' | 'adjust' | 'audio'
+
 function ClipProperties({ clip }: { clip: Clip }) {
   const asset = useStore((s) => s.project.media.find((m) => m.id === clip.mediaId))
+  const isAudioClip = clip.kind === 'audio'
+  const hasAudio = isAudioClip || (clip.kind === 'video' && !!asset?.hasAudio)
+  const tabs: PropTab[] = isAudioClip
+    ? ['audio']
+    : hasAudio
+      ? ['video', 'adjust', 'audio']
+      : ['video', 'adjust']
+  const [tab, setTab] = useState<PropTab>(tabs[0])
 
   return (
     <div className="props__body">
@@ -62,6 +76,39 @@ function ClipProperties({ clip }: { clip: Clip }) {
         {clip.kind === 'text' ? 'Text' : (asset?.name ?? clip.kind)}
       </div>
 
+      {tabs.length > 1 && (
+        <div className="props__tabs">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              className={`props__tab${tab === t ? ' props__tab--on' : ''}`}
+              onClick={() => setTab(t)}
+            >
+              {t === 'video' ? 'Video' : t === 'adjust' ? 'Adjust' : 'Audio'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'video' && <VideoTab clip={clip} />}
+      {tab === 'adjust' && <AdjustTab clip={clip} />}
+      {tab === 'audio' && <AudioTab clip={clip} />}
+    </div>
+  )
+}
+
+const TRANSFORM_PROPS = [
+  'transform.x',
+  'transform.y',
+  'transform.scale',
+  'transform.rotation',
+  'transform.opacity',
+  'transform.cornerRadius',
+]
+
+function VideoTab({ clip }: { clip: Clip }) {
+  return (
+    <>
       {clip.kind === 'text' && (
         <>
           <Section label="Text">
@@ -79,10 +126,10 @@ function ClipProperties({ clip }: { clip: Clip }) {
         </Section>
       )}
 
-      <Section label="Transform">
+      <Section label="Transform" clip={clip} props={TRANSFORM_PROPS}>
         <NumberRow clip={clip} prop="transform.x" label="X" step={1} />
         <NumberRow clip={clip} prop="transform.y" label="Y" step={1} />
-        <NumberRow clip={clip} prop="transform.scale" label="Scale" step={0.01} min={0} />
+        <NumberRow clip={clip} prop="transform.scale" label="Scale" step={0.01} min={0} resetTo={1} />
         <NumberRow clip={clip} prop="transform.rotation" label="Rotation" step={1} />
         <NumberRow
           clip={clip}
@@ -91,6 +138,7 @@ function ClipProperties({ clip }: { clip: Clip }) {
           step={0.01}
           min={0}
           max={1}
+          resetTo={1}
         />
         <NumberRow clip={clip} prop="transform.cornerRadius" label="Radius" step={1} min={0} />
       </Section>
@@ -106,8 +154,8 @@ function ClipProperties({ clip }: { clip: Clip }) {
       </Section>
 
       {clip.kind !== 'text' && (
-        <Section label="Effects">
-          <FxEditor clip={clip} />
+        <Section label="Blend">
+          <BlendRow clip={clip} />
         </Section>
       )}
 
@@ -115,30 +163,7 @@ function ClipProperties({ clip }: { clip: Clip }) {
         <Section label="Playback">
           {/* Keyframeable (session 9, Phase 7): armed = speed RAMP remapping
               time inside the clip's fixed window; audio goes video-only. */}
-          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} />
-          {(clip.kind === 'audio' ||
-            (asset?.hasAudio && clip.volume > 0) ||
-            clip.kind === 'video') && (
-            <>
-              <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} />
-              <div className="prow">
-                <span className="prow__label">Pan</span>
-                <input
-                  className="prow__input selectable"
-                  type="range"
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={clip.pan ?? 0}
-                  onChange={(e) =>
-                    useStore.getState().setClipProperty(clip.id, 'pan', Number(e.target.value))
-                  }
-                  title={`Pan ${((clip.pan ?? 0) * 100).toFixed(0)}%`}
-                />
-                <span className="prow__unit">{(clip.pan ?? 0) < 0 ? 'L' : (clip.pan ?? 0) > 0 ? 'R' : 'C'}</span>
-              </div>
-            </>
-          )}
+          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} resetTo={1} />
         </Section>
       )}
 
@@ -148,6 +173,82 @@ function ClipProperties({ clip }: { clip: Clip }) {
           <TransitionRow clip={clip} edge="out" />
         </Section>
       )}
+    </>
+  )
+}
+
+function AdjustTab({ clip }: { clip: Clip }) {
+  return (
+    <Section label="Effects">
+      <FxEditor clip={clip} kinds="visual" />
+    </Section>
+  )
+}
+
+function AudioTab({ clip }: { clip: Clip }) {
+  const s = useStore.getState()
+  return (
+    <>
+      <Section label="Level" clip={clip} props={['volume', 'pan']}>
+        <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} resetTo={1} />
+        <div className="prow">
+          <span className="prow__label">Pan</span>
+          <input
+            className="prow__input selectable"
+            type="range"
+            min={-1}
+            max={1}
+            step={0.05}
+            value={clip.pan ?? 0}
+            onChange={(e) => s.setClipProperty(clip.id, 'pan', Number(e.target.value))}
+            title={`Pan ${((clip.pan ?? 0) * 100).toFixed(0)}%`}
+          />
+          <span className="prow__unit">
+            {(clip.pan ?? 0) < 0 ? 'L' : (clip.pan ?? 0) > 0 ? 'R' : 'C'}
+          </span>
+        </div>
+      </Section>
+      <Section label="Fades">
+        <div className="prow">
+          <button className="topbar__btn" onClick={() => s.addFade(clip.id, 'in')}>
+            Fade in
+          </button>
+          <button className="topbar__btn" onClick={() => s.addFade(clip.id, 'out')}>
+            Fade out
+          </button>
+          <button className="topbar__btn" onClick={() => void s.normalizeClip(clip.id)}>
+            Normalize
+          </button>
+        </div>
+      </Section>
+      {clip.kind === 'audio' && clip.mediaId && (
+        <Section label="Playback">
+          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} resetTo={1} />
+        </Section>
+      )}
+      <Section label="Audio effects">
+        <FxEditor clip={clip} kinds="audio" />
+      </Section>
+    </>
+  )
+}
+
+function BlendRow({ clip }: { clip: Clip }) {
+  const s = useStore.getState()
+  return (
+    <div className="prow">
+      <span className="prow__label">Blend</span>
+      <select
+        className="prow__ease prow__ease--wide"
+        value={clip.blend ?? 'normal'}
+        onChange={(e) => s.setClipBlend(clip.id, e.target.value as Clip['blend'])}
+      >
+        {['normal', 'multiply', 'screen', 'add'].map((b) => (
+          <option key={b} value={b}>
+            {b}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
@@ -156,26 +257,15 @@ function ClipProperties({ clip }: { clip: Clip }) {
 // toggle, duplicate, remove; same type twice is legal. Scalar params ride
 // NumberRow with fx.<id>.<param> props → keyframeable through the existing
 // stopwatch. Blend stays a clip property (composite behavior, not a step).
-function FxEditor({ clip }: { clip: Clip }) {
+function FxEditor({ clip, kinds }: { clip: Clip; kinds: 'visual' | 'audio' }) {
   const s = useStore.getState()
   const [addAnchor, setAddAnchor] = useState<DOMRect | null>(null)
-  const effects = clip.effects
+  // The stack stays ONE ordered list on the clip; the tabs are a VIEW split
+  // (visual effects in Adjust, audio effects in Audio). Reorder arrows move
+  // instances within the full stack, so cross-kind order is preserved.
+  const effects = clip.effects.filter((e) => (kinds === 'audio') === isAudioFx(e.type))
   return (
     <>
-      <div className="prow">
-        <span className="prow__label">Blend</span>
-        <select
-          className="prow__ease prow__ease--wide"
-          value={clip.blend ?? 'normal'}
-          onChange={(e) => s.setClipBlend(clip.id, e.target.value as Clip['blend'])}
-        >
-          {['normal', 'multiply', 'screen', 'add'].map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
-      </div>
       {clip.kind === 'video' && (
         <>
           <div className="prow">
@@ -281,9 +371,7 @@ function FxEditor({ clip }: { clip: Clip }) {
         {addAnchor && (
           <Popover anchorRect={addAnchor} onClose={() => setAddAnchor(null)}>
             {(Object.keys(EFFECT_LABELS) as EffectType[])
-              .filter((t) =>
-                clip.kind === 'audio' ? isAudioFx(t) : !isAudioFx(t),
-              )
+              .filter((t) => (kinds === 'audio') === isAudioFx(t))
               .map((t) => (
               <button
                 key={t}
@@ -871,13 +959,74 @@ function AnimationEditor({ clip }: { clip: Clip }) {
   )
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({
+  label,
+  children,
+  clip,
+  props,
+}: {
+  label: string
+  children: React.ReactNode
+  // When a section's rows are known, the header offers section-level
+  // "clear keyframes" and "reset values" (plan 1b).
+  clip?: Clip
+  props?: string[]
+}) {
+  const s = useStore.getState()
+  const hasKfs =
+    clip && props ? props.some((p) => keyframesFor(clip, p).length > 0) : false
   return (
     <div className="props__section">
-      <div className="props__section-label">{label}</div>
+      <div className="props__section-label">
+        <span>{label}</span>
+        {clip && props && (
+          <span className="props__section-tools">
+            {hasKfs && (
+              <button
+                className="prow__nav"
+                title="Clear all keyframes in this section"
+                onClick={() => props.forEach((p) => s.clearKeyframes(clip.id, p))}
+              >
+                ◆̸
+              </button>
+            )}
+            <button
+              className="prow__nav"
+              title="Reset this section to defaults"
+              onClick={() =>
+                props.forEach((p) => {
+                  s.clearKeyframes(clip.id, p)
+                  s.setClipProperty(clip.id, p, defaultFor(clip, p))
+                })
+              }
+            >
+              ↺
+            </button>
+          </span>
+        )}
+      </div>
       {children}
     </div>
   )
+}
+
+// Default value for a property — what the reset button restores.
+function defaultFor(clip: Clip, prop: string): number {
+  if (prop.startsWith('transform.')) {
+    const k = prop.slice(10)
+    return k === 'scale' || k === 'opacity' ? 1 : 0
+  }
+  if (prop === 'volume' || prop === 'speed') return 1
+  if (prop === 'pan') return 0
+  if (prop.startsWith('fx.')) {
+    const [, id, param] = prop.split('.')
+    const fx = clip.effects.find((e) => e.id === id)
+    if (fx) {
+      const d = EFFECT_DEFAULTS[fx.type]?.[param]
+      if (typeof d === 'number') return d
+    }
+  }
+  return 0
 }
 
 // Numeric input + stopwatch diamond + keyframe nav + easing (when on a keyframe).
@@ -888,6 +1037,7 @@ function NumberRow({
   step,
   min,
   max,
+  resetTo,
 }: {
   clip: Clip
   prop: string
@@ -895,6 +1045,7 @@ function NumberRow({
   step: number
   min?: number
   max?: number
+  resetTo?: number
 }) {
   const playhead = useStore((s) => s.playhead)
   const fps = useStore((s) => s.project.canvas.fps)
@@ -933,9 +1084,41 @@ function NumberRow({
     if (next) setPlayhead(clip.start + next.t)
   }
 
+  // Drag-to-scrub on the label (plan 1b): one gesture = one undo step.
+  const onLabelDown = (e: React.PointerEvent) => {
+    const startX = e.clientX
+    const startV = value
+    let began = false
+    const el = e.currentTarget as HTMLElement
+    el.setPointerCapture(e.pointerId)
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      if (!began && Math.abs(dx) < 3) return
+      if (!began) {
+        began = true
+        useStore.getState().beginGesture()
+      }
+      const raw = startV + Math.round(dx / 2) * step
+      const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, raw))
+      useStore.getState().setClipProperty(clip.id, prop, round3(clamped), true)
+    }
+    const onUp = () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }
+
   return (
-    <div className="prow">
-      <span className="prow__label">{label}</span>
+    <div className="prow prow--grid">
+      <span
+        className="prow__label prow__label--scrub"
+        onPointerDown={onLabelDown}
+        title="Drag to scrub"
+      >
+        {label}
+      </span>
       <input
         className="prow__input"
         type="number"
@@ -947,20 +1130,21 @@ function NumberRow({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         }}
       />
-      {onKey && (
-        <select
-          className="prow__ease"
-          value={onKey.ease}
-          onChange={(e) => setKeyframeEase(clip.id, prop, onKey.t, e.target.value as Ease)}
-          title="Keyframe easing"
-        >
-          {EASES.map((ez) => (
-            <option key={ez} value={ez}>
-              {ez}
-            </option>
-          ))}
-        </select>
-      )}
+      <select
+        className="prow__ease"
+        value={onKey?.ease ?? 'easeInOut'}
+        disabled={!onKey}
+        onChange={(e) =>
+          onKey && setKeyframeEase(clip.id, prop, onKey.t, e.target.value as Ease)
+        }
+        title={onKey ? 'Keyframe easing' : 'Move to a keyframe to edit easing'}
+      >
+        {EASES.map((ez) => (
+          <option key={ez} value={ez}>
+            {ez}
+          </option>
+        ))}
+      </select>
       <button
         className="prow__nav"
         disabled={!armed || !kfs.some((k) => k.t < rel - 1e-6)}
@@ -983,6 +1167,17 @@ function NumberRow({
         title="Next keyframe"
       >
         ›
+      </button>
+      <button
+        className="prow__nav prow__reset"
+        onClick={() => {
+          const s = useStore.getState()
+          s.clearKeyframes(clip.id, prop)
+          s.setClipProperty(clip.id, prop, resetTo ?? defaultFor(clip, prop))
+        }}
+        title="Reset (clears keyframes)"
+      >
+        ↺
       </button>
     </div>
   )

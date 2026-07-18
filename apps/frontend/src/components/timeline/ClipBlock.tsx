@@ -228,6 +228,45 @@ function ClipBlock({ clip, trackId }: Props) {
     window.addEventListener('pointerup', onUp)
   }
 
+  // Persistent filmstrip (Run 1, Phase 1c): the hover-scrub sprite cache,
+  // rendered inline at all times. Same source mapping as the hover thumb.
+  const stripRef = useRef<HTMLCanvasElement>(null)
+  const canStripInline = clip.kind === 'video' && !clip.adjust && !!asset && !asset.missing
+  useEffect(() => {
+    if (!canStripInline) return
+    let cancelled = false
+    void getFilmstrip(asset!).then((s) => {
+      const canvas = stripRef.current
+      if (!s || !canvas || cancelled) return
+      const img = new Image()
+      img.onload = () => {
+        if (cancelled || !stripRef.current) return
+        const dpr = window.devicePixelRatio || 1
+        const w = Math.ceil(widthPx)
+        const h = canvas.clientHeight || 34
+        canvas.width = w * dpr
+        canvas.height = h * dpr
+        const ctx = canvas.getContext('2d')!
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        // Tile frames left→right; each column shows the frame nearest its
+        // own source time, so trims and speed changes stay honest.
+        const tileW = Math.max(24, Math.round((s.frameW / s.h) * h))
+        for (let x = 0; x < w; x += tileW) {
+          const srcT = clip.in + ((x + tileW / 2) / pxPerSec) * clip.speed
+          const idx = Math.min(
+            s.frames - 1,
+            Math.max(0, Math.floor((srcT / s.duration) * s.frames)),
+          )
+          ctx.drawImage(img, idx * s.frameW, 0, s.frameW, s.h, x, 0, tileW, h)
+        }
+      }
+      img.src = s.url
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [canStripInline, asset, clip.in, clip.out, clip.speed, widthPx, pxPerSec])
+
   // Hover-scrub: pre-sampled filmstrip frame nearest the pointer's source
   // time, floated above the clip (position: fixed escapes scroll clipping).
   const [hover, setHover] = useState<{ cx: number; top: number; idx: number } | null>(null)
@@ -297,8 +336,12 @@ function ClipBlock({ clip, trackId }: Props) {
         openClipMenu(e, clip.id)
       }}
     >
+      <div className="clip__head">
+        <span className="clip__headname">{name}</span>
+        <span className="clip__headdur">{dur.toFixed(1)}s</span>
+      </div>
+      {canStripInline && <canvas ref={stripRef} className="clip__film" />}
       {clip.kind === 'audio' && <canvas ref={waveRef} className="clip__wave" />}
-      <span className="clip__label">{name}</span>
       {hasFx && (
         <span className="clip__fxbadge" title="Has effects (keyframes, crop, shadow, or stack)">
           fx

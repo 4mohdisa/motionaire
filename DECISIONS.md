@@ -2061,3 +2061,61 @@ in the repo. Logged here; Phase 1 works from the plan's own written specs
 - Visual baselines refreshed AFTER direct eyeball of both screens
   (before/after captures kept: p0-before-editor / p0-after-editor /
   p0-after-sheet in the spike dir).
+
+## Phase 1 — UI layout overhaul
+
+Worked from PLAN_RUN_1's written specs (design-reference/ missing, logged
+above).
+
+- **1b property-row primitive first** (tabs are built from rows): NumberRow
+  gained drag-to-scrub on the label (pointer-captured, beginGesture once →
+  setClipProperty(transient) per move = ONE undo step; store gained the
+  transient flag), a reset button (clears keyframes + restores the default;
+  defaultFor() derives from transform/volume/speed/EFFECT_DEFAULTS), and an
+  ALWAYS-RENDERED easing slot (disabled off-keyframe) so the grid columns
+  align across every row — the plan's alignment rule made the ease select a
+  fixed-width column instead of an appearing/disappearing one.
+  Section headers take optional clip+props and offer section-level
+  clear-keyframes + reset ("keyframes toggle" interpreted as clear-all:
+  arming a whole section has no sane single semantic).
+- **1a tabbed panel**: Video / Adjust / Audio, keyed by clip id so tab
+  state resets per selection. Video = content (text/shape/anim) +
+  transform/crop/shadow/blend/speed/transitions; Adjust = the VISUAL
+  effect stack; Audio = level/pan/fades/normalize + the AUDIO effect
+  chain. Tab visibility by clip kind (audio → Audio only; no-audio video
+  kinds → Video+Adjust). The stack stays ONE list on the clip — the tabs
+  are a VIEW split, and moveEffect became kind-aware (skips other-kind
+  neighbors) because cross-kind order is semantically irrelevant (each
+  render chain filters its own types) and ▲▼ must not appear to no-op.
+- **1c clips**: persistent filmstrips — the hover-scrub sprite cache drawn
+  inline on a canvas, one sprite frame per tile mapped to that column's
+  SOURCE time (trims/speed honest, never a live decode). Header strip with
+  filename + duration; body = filmstrip (video) / waveform (audio); the
+  old floating clip label deleted (the header carries the name).
+- **1d/1e/1g**: compact track headers (tighter paddings, 10px name);
+  toolbar = undo/redo → add/split → V/B/N/Y/U → mark in/out → text →
+  graph, overflow unchanged; transport = 3-zone grid (timecode/total mono
+  left, buttons centered, meters/scopes/volume right). The transport MIXER
+  toggle was REMOVED — the rail owns the mixer now (relocation logged).
+- **1f/1h**: far-left icon rail (media / effects / AI chat / mixer);
+  store.leftPanel with binOpen/setMixerOpen kept as back-compat aliases
+  (menu items + e2e drive them). NEW EffectsPanel (browse + click-to-apply
+  through the same addEffect mutation, presets included); NEW ChatPanel
+  container (header/messages/composer, example prompts, disabled composer
+  pointing at key setup) — Phase 4 fills it, it is not restyled twice.
+  Mixer DOCKS into the panel host (docked prop: no float, no drag).
+- **1i**: global :focus-visible ring on --focus-ring; density via the
+  monochrome pass.
+- **Gate finds, all test-side, all real lessons**:
+  (1) f0_popover grabbed the FIRST toolbar iconbtn — now Undo, not Add;
+  targets [aria-label="Add"] (position-free selector).
+  (2) p2_fx/p5_color queried fxcards/wheels hidden behind the new Adjust
+  tab — clickPropsTab helper added.
+  (3) p5_cancel went ORDER-DEPENDENT: after 20 tests the Rust decoder
+  slots are warm and a 10s export can finish before a fixed 500ms cancel
+  timer → cancel now fires on the FIRST export:progress event —
+  deterministic mid-flight regardless of pipeline speed.
+  (4) p5_color's scope assertion used one fixed 600ms wait → polls up to
+  5s (the poll-don't-sleep rule caught sleeping in one more place).
+- Suite: 92 unit + 27 cargo + 32/32 e2e + visual GREEN (baselines refreshed
+  for the intentional relayout).

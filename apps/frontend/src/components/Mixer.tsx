@@ -46,7 +46,7 @@ function gainLabel(g: number): string {
   return `${db > 0 ? '+' : ''}${db.toFixed(1)}`
 }
 
-export default function Mixer() {
+export default function Mixer({ docked = false }: { docked?: boolean }) {
   const tracks = useStore((s) => s.project.tracks)
   const masterVolume = useStore((s) => s.project.masterVolume ?? 1)
   const { setTrackGain, setTrackFlag, setMasterVolume, setMixerOpen } = useStore.getState()
@@ -75,17 +75,25 @@ export default function Mixer() {
     window.addEventListener('pointerup', onUp)
   }
 
+  // Docked (Run 1, Phase 1f): lives in the left-panel host — no float, no
+  // drag, close returns to the media panel via the rail semantics.
   return (
     <div
       ref={panelRef}
-      className="mixer"
-      style={pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined}
+      className={docked ? 'mixer mixer--docked panel' : 'mixer'}
+      style={!docked && pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined}
     >
-      <div className="mixer__head" onPointerDown={onDragStart} style={{ cursor: 'grab' }}>
+      <div
+        className="mixer__head"
+        onPointerDown={docked ? undefined : onDragStart}
+        style={docked ? undefined : { cursor: 'grab' }}
+      >
         <span>Mixer</span>
-        <button className="mixer__close" onClick={() => setMixerOpen(false)} title="Close mixer">
-          ×
-        </button>
+        {!docked && (
+          <button className="mixer__close" onClick={() => setMixerOpen(false)} title="Close mixer">
+            ×
+          </button>
+        )}
       </div>
       <div className="mixer__strips">
         {tracks.map((t) => {
