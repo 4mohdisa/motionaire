@@ -2465,3 +2465,42 @@ Gate: full cold suite after the changes.
   p1_shell_test (command-level) still exercises the validator lifecycle.
   A future commercial build re-enables the gate by restoring the one boot
   check. The public TEST_KEY in source is public by design.
+
+## Phase 6 — release build, DMG, and the artifact ACTUALLY verified
+
+- **Built**: Motionaire.app (ad-hoc signed, arm64) + Motionaire_0.1.0_
+  aarch64.dmg (hdiutil UDZO, checksum-verified, app launches from the
+  mounted image). Tauri's own dmg bundler styles the DMG window by
+  scripting Finder — impossible headless — so release.sh bundles the app
+  via tauri and the DMG via plain hdiutil.
+- **Release-surface purity verified against the artifact**: zero dev
+  markers in the shipped JS, zero dev-remote strings in the binary, ad-hoc
+  signature confirmed.
+- **The artifact RUNS and EXPORTS, machine-verified on a locked console**
+  (the overnight reality: no visible windows, no AX click driving — both
+  build profiles show 0 AX windows, so this is environmental, not a
+  release regression). What was proven, in the release binary itself:
+  1. Launch → webview renders (WebKit helpers), compositor GPU init +
+     frame server listening.
+  2. File ▸ Open Recent driven through the REAL native menu (menus are
+     AX-accessible without windows): the webview dispatched the event,
+     loaded the bundle through Rust, recents DB updated at click time,
+     the editor mounted, the preview client CONNECTED to the frame
+     stream, and the compositor spawned real ffmpeg decoders.
+  3. **Export**: a temporary, settings-driven boot hook (removed and
+     rebuilt clean afterward — final tree byte-identical to the shipped
+     commit) drove open→export in the release profile: shell-e2e (the
+     keyframed pip scene) → /tmp/release-verify.mp4 — h264 1280×720,
+     exactly 10.000s, and the extracted frame shows the composited pip
+     mid-shrink with drop shadow and the source burn-in timecode at
+     precisely the export time (frame-accurate WYSIWYG).
+- **A real find on the way**: the first open attempt hung forever — the
+  bundle carried a stale autosave recovery.json, and openProjectPath's
+  "Restore autosave?" confirm() is a native modal nobody can answer on a
+  locked display. Not a product bug (a real user sees and answers it) —
+  but it is house rule 5 wearing a production coat, and it cost 30
+  minutes of diagnosis that ended at the recents-DB timestamp proving the
+  webview was alive all along.
+- Notarization: NOT possible tonight and NOT claimed — no Apple
+  Developer Program membership exists. Signing env vars documented in
+  release.sh; README says plainly the app is unsigned and how to open it.
