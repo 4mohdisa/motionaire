@@ -2504,3 +2504,17 @@ Gate: full cold suite after the changes.
 - Notarization: NOT possible tonight and NOT claimed — no Apple
   Developer Program membership exists. Signing env vars documented in
   release.sh; README says plainly the app is unsigned and how to open it.
+
+## Phase 8 — publish
+
+- FINAL COLD SUITE on the shipping tree: **GREEN — 95 frontend unit +
+  33 cargo + 41/41 e2e + 2/2 visual.**
+- **History preserved, authorship normalized**: message-only rewrite
+  (git filter-repo) strips the 44 AI co-author trailers — the single
+  variant that existed — and normalizes the commit identity name to
+  "Mohammed Isa" (same email). Trees, dates, and sequence untouched;
+  HEAD tree hash verified identical before/after. Sole author everywhere.
+- gh CLI is unauthenticated on this machine (SSH auth works, API auth
+  doesn't), so the GitHub Release OBJECT + DMG attachment need one
+  authenticated `gh release create` — the exact command and the staged
+  DMG path are in the session report. Code + v0.1.0 tag pushed over SSH.
