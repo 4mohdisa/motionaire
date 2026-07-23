@@ -2992,9 +2992,10 @@ async function dispatch(action: string, path?: string) {
         // family = file stem, mirroring fontManager's familyFromFileName
         const family = font.fileName.replace(/\.(ttf|otf)$/i, '')
         st().addProjectFont({ id: 'f_rel', family, fileName: font.fileName })
-        const { saveProject } = await import('../persistence/projectIO')
+        const { saveProject, serializeProject } = await import('../persistence/projectIO')
         const saved = await saveProject()
         const clipCount = st().project.tracks.flatMap((t) => t.clips).length
+        const jsonBefore = serializeProject(st().project)
         // -- close to launcher, reopen via the Open Recent menu path
         await dispatch('file:close')
         await settle()
@@ -3003,6 +3004,8 @@ async function dispatch(action: string, path?: string) {
         await settle(800)
         const backInEditor = st().appView === 'editor'
         const clipsBack = st().project.tracks.flatMap((t) => t.clips).length === clipCount
+        // Round-trip fidelity: save → close → reopen must serialize IDENTICAL
+        const identical = serializeProject(st().project) === jsonBefore
         const { customFamilies } = await import('../persistence/fontManager')
         const fontBack = customFamilies().includes(family) &&
           (st().project.fonts ?? []).some((f) => f.family === family)
@@ -3053,11 +3056,11 @@ async function dispatch(action: string, path?: string) {
         const rangeOk = range?.in === 1 && range?.out === 3
         st().openSource(null)
         const pass =
-          saved && atLauncher && backInEditor && clipsBack && fontBack && dlgOpen &&
-          fpsChanged && wasMissing && relinked && srcOpen && !!rangeOk
+          saved && atLauncher && backInEditor && clipsBack && identical && fontBack &&
+          dlgOpen && fpsChanged && wasMissing && relinked && srcOpen && !!rangeOk
         void report(
           pass,
-          `saved=${saved} launcher=${atLauncher} reopen=${backInEditor}/${clipsBack} font=${fontBack} dlg=${dlgOpen} fps=${fpsChanged} relink=${wasMissing}->${relinked} srcmon=${srcOpen} range=${rangeOk}`,
+          `saved=${saved} launcher=${atLauncher} reopen=${backInEditor}/${clipsBack} identical=${identical} font=${fontBack} dlg=${dlgOpen} fps=${fpsChanged} relink=${wasMissing}->${relinked} srcmon=${srcOpen} range=${rangeOk}`,
         )
       } catch (e) {
         void report(false, `threw: ${e}`)

@@ -2390,3 +2390,22 @@ Gate: full cold suite after the changes.
   messages carry AI co-author trailers.** Phase 8 strips them with a
   message-only history rewrite (trees/dates/sequence preserved) and
   normalizes the author name to "Mohammed Isa" in the same pass.
+
+## Phase 2 — state management audit
+
+- **Round-trip fidelity is now machine-verified, not asserted**:
+  rel_project_test serializes the project before save and after a real
+  close → Open Recent reopen — byte-identical (`identical=true`). Fonts,
+  effects stacks, keyframes, canvas settings all survive exactly.
+- Listeners: module-singleton listeners (bridge, chat, proxy/gen managers)
+  live for the app's life by design; every component-mounted listener
+  (ExportPanel, Timeline wheel) has correct cleanup — the promise-resolve
+  unlisten pattern is StrictMode-safe without a dead-flag because the
+  resolved fn always unsubscribes. Both polling intervals (Scopes, App
+  autosave) clear on unmount.
+- Newest mutations audited: writeKeyframe (session 13) routes through
+  mutateProject — locked-track guard + AI-transaction coalescing + dirty
+  inherited; layouts.ts re-reads getState() per call (no stale snapshots).
+- Everything else (mutation authority, undo coverage, parity, dirty
+  accuracy, empty states) is pinned by the standing suite: f1_parity's
+  68-sample probe, the undo unit battery, p6_safety, F0/R1P7 audits.
