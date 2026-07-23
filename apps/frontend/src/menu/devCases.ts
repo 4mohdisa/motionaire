@@ -3043,6 +3043,167 @@ export async function handleDevCase(action: string): Promise<void> {
       }
       break
     }
+    case 'dev:rel_shot_hero': {
+      // README screenshots (release Phase 7), state 1 of 4: the flagship
+      // prompt through the real composer, playhead mid-pip. CAPTURES are
+      // fired externally via the dev-remote trigger (a webview-invoked
+      // snapshot deadlocks: the capture needs the webview it awaits from).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-shot-hero', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const until = async (cond: () => boolean, ms: number) => {
+        const t0 = Date.now()
+        while (!cond() && Date.now() - t0 < ms) await wait(100)
+        return cond()
+      }
+      try {
+        const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+        await getCurrentWindow().setSize(new LogicalSize(1440, 900))
+        const st = () => useStore.getState()
+        const { uid: mkid } = await import('../types/project')
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        // Prefer pre-staged natural-looking sources (the shot script drops
+        // them in /tmp/motionaire-shots) over the synthetic test fixtures.
+        let screenPath = '/tmp/motionaire-shots/src-screen.mp4'
+        let camPath = '/tmp/motionaire-shots/src-cam.mp4'
+        const staged = await invoke<{ duration: number }>('probe_media', { path: screenPath })
+          .then(() => true)
+          .catch(() => false)
+        if (!staged) {
+          const fx = await invoke<[string, string]>('spike_long_fixtures')
+          screenPath = fx[0]
+          camPath = fx[1]
+        }
+        st().replaceProject(createProject(), null)
+        st().setAppView('editor')
+        const add = (path: string, name: string, w: number, h: number) => {
+          const id = mkid('m')
+          st().addMedia({
+            id,
+            path,
+            playbackUrl: convertFileSrc(path),
+            name,
+            kind: 'video',
+            duration: 60,
+            width: w,
+            height: h,
+            hasAudio: false,
+          })
+          return id
+        }
+        const mScreen = add(screenPath, 'screen-share.mp4', 1280, 720)
+        const mCam = add(camPath, 'webcam.mp4', 640, 360)
+        const vids = st().project.tracks.filter((t) => t.kind === 'video')
+        st().insertClipAt(mScreen, vids[1].id, 0)
+        st().insertClipAt(mCam, vids[0].id, 0)
+        st().pause()
+        st().setPrefs({ aiChatProvider: 'mock', aiChatModel: 'mock' })
+        const { refreshAiConfigured } = await import('../persistence/aiSettings')
+        await refreshAiConfigured()
+        const { clearChat } = await import('../ai/chatController')
+        clearChat()
+        st().setLeftPanel('chat')
+        await wait(300)
+        const PROMPT =
+          'From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom right, screen share fills the rest, then back to fullscreen.'
+        const box = document.querySelector<HTMLTextAreaElement>('.chatpanel__input')
+        if (!box) {
+          void report(false, 'no composer')
+          break
+        }
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(box, PROMPT)
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(100)
+        document
+          .querySelector<HTMLButtonElement>('.chatpanel__composer .topbar__btn--primary')
+          ?.click()
+        const turnDone = await until(() => !st().chatBusy && st().chatLog.length >= 2, 30000)
+        const cam = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.mediaId === mCam)
+        st().setPlayhead(30)
+        st().select(cam ? [cam.id] : [])
+        await wait(800)
+        void report(
+          turnDone && (cam?.keyframes.length ?? 0) > 10,
+          `turn=${turnDone} kf=${cam?.keyframes.length}`,
+        )
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:rel_shot_editor': {
+      // State 2: media bin + properties on the webcam clip (scene from hero).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-shot-editor', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        const cam = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => st().project.media.find((m) => m.id === c.mediaId)?.name === 'webcam.mp4')
+        st().setLeftPanel('media')
+        st().select(cam ? [cam.id] : [])
+        await wait(200)
+        clickPropsTab('Video')
+        await wait(600)
+        void report(!!cam, `cam=${!!cam}`)
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:rel_shot_color': {
+      // State 3: wheels + curves on the screen clip, scopes reading output.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-shot-color', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        const screenClip = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find(
+            (c) => st().project.media.find((m) => m.id === c.mediaId)?.name === 'screen-share.mp4',
+          )
+        if (!screenClip) {
+          void report(false, 'no screen clip — run rel_shot_hero first')
+          break
+        }
+        st().select([screenClip.id])
+        ensureFx(screenClip.id, 'wheels')
+        ensureFx(screenClip.id, 'curves')
+        await wait(200)
+        clickPropsTab('Adjust')
+        st().setScopesOpen(true)
+        await wait(1200) // scopes tick at 10Hz — let them draw real signal
+        void report(true, 'staged')
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
+    case 'dev:rel_shot_graph': {
+      // State 4: the bezier graph of the AI-written keyframes.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-shot-graph', pass, detail }).catch(() => {})
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      try {
+        const st = () => useStore.getState()
+        st().setScopesOpen(false)
+        const cam = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => st().project.media.find((m) => m.id === c.mediaId)?.name === 'webcam.mp4')
+        st().select(cam ? [cam.id] : [])
+        st().setGraphOpen(true)
+        await wait(700)
+        void report(!!cam, `cam=${!!cam}`)
+      } catch (e) {
+        void report(false, String(e))
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

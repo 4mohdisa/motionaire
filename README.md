@@ -70,6 +70,10 @@ and export, and tells you at launch if it can't find one.
 
 ![The full editor — timeline with filmstrips, tabbed properties, monochrome UI](docs/screenshots/editor.png)
 
+| Color wheels, RGB curves, scopes reading the live output | The keyframe graph editor on an AI-written move |
+|---|---|
+| ![Color tools with scopes](docs/screenshots/color-scopes.png) | ![Keyframe graph editor](docs/screenshots/graph-editor.png) |
+
 ## AI setup
 
 Preferences (⌘,) → **AI**: pick Anthropic or OpenAI, paste an API key, Test

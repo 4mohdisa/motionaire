@@ -996,6 +996,23 @@ fn sync_view_menu(app: tauri::AppHandle, safe_zones: bool, snap: bool, full_prev
 }
 
 #[tauri::command]
+fn ffmpeg_present() -> bool {
+    // Release decision (Phase 5): FFmpeg is NOT bundled — no redistribution,
+    // no GPL/LGPL build question. The app uses the user's own binaries and
+    // this check lets the UI say so clearly at boot when they're missing.
+    let ok = |bin: &str| {
+        std::process::Command::new(bin)
+            .arg("-version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|st| st.success())
+            .unwrap_or(false)
+    };
+    ok("ffmpeg") && ok("ffprobe")
+}
+
+#[tauri::command]
 fn list_recent_projects(app: tauri::AppHandle) -> Result<Vec<persistence::RecentProject>, String> {
     persistence::list_recents(&db_path(&app)?)
 }
@@ -1167,6 +1184,7 @@ pub fn run() {
         save_fonts,
         save_project,
         load_project,
+        ffmpeg_present,
         list_recent_projects,
         sync_view_menu,
         emit_menu_action,
@@ -1216,6 +1234,7 @@ pub fn run() {
         save_fonts,
         save_project,
         load_project,
+        ffmpeg_present,
         list_recent_projects,
         sync_view_menu
     ]);

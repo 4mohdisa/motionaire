@@ -43,6 +43,20 @@ export function useBootFlow() {
             st.setPrefs(JSON.parse(raw) as Partial<{ autosaveSecs: number; autoProxy: boolean }>)
         })
         .catch(() => {})
+      // FFmpeg is deliberately not bundled (see THIRD_PARTY.md) — decode,
+      // proxies and export all shell out to the user's install, so say it
+      // plainly at boot when it's missing instead of failing on first import.
+      void invoke<boolean>('ffmpeg_present')
+        .then((ok) => {
+          if (!ok)
+            useStore
+              .getState()
+              .pushToast(
+                'error',
+                'FFmpeg not found — import, preview and export need it. Install it with "brew install ffmpeg", then relaunch Motionaire.',
+              )
+        })
+        .catch(() => {})
       // Release decision: the open-source build ships UNLOCKED — no license
       // gate at boot. The LicenseValidator seam (license.rs + the activate/
       // deactivate commands + the gate view) stays intact for any future
