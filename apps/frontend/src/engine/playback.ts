@@ -11,7 +11,13 @@ import {
 } from './time'
 import { resolveProp } from './keyframes'
 import { effectiveProject } from './compound'
-import { attachElement, resumeGraph, setMasterGain, setTrackBusFx, setTrackBusGain } from './audioGraph'
+import {
+  attachElement,
+  resumeGraph,
+  setMasterGain,
+  setTrackBusFx,
+  setTrackBusGain,
+} from './audioGraph'
 import type { Clip, Project } from '../types/project'
 
 // Preview playback: one hidden/visible <video> per active clip (browser decodes,

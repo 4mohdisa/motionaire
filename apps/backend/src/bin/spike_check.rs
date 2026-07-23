@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use motionaire_lib::compositor::{demo, gpu::GpuCompositor};
 
-
 // Stack-era helper: an EffectCfg literal for spike scenes.
 fn mkfx(kind: &str, params: serde_json::Value) -> motionaire_lib::compositor::types::EffectCfg {
     motionaire_lib::compositor::types::EffectCfg {
@@ -17,11 +16,13 @@ fn mkfx(kind: &str, params: serde_json::Value) -> motionaire_lib::compositor::ty
     }
 }
 
-
 fn fx_cfg_key() -> motionaire_lib::compositor::types::EffectCfg {
-    mkfx("chromaKey", serde_json::json!({
-        "color": "#00FF00", "tolerance": 0.15, "softness": 0.08, "spill": 0.6
-    }))
+    mkfx(
+        "chromaKey",
+        serde_json::json!({
+            "color": "#00FF00", "tolerance": 0.15, "softness": 0.08, "spill": 0.6
+        }),
+    )
 }
 
 fn main() {
@@ -31,12 +32,18 @@ fn main() {
     println!("media: screen={} cam={}", screen.path, cam.path);
     let project = demo::demo_project(&screen.path, &cam.path);
 
-    let mut gpu = GpuCompositor::new(project.canvas.width, project.canvas.height, 720).expect("gpu init");
+    let mut gpu =
+        GpuCompositor::new(project.canvas.width, project.canvas.height, 720).expect("gpu init");
     println!("render target: {}x{}", gpu.out_w, gpu.out_h);
 
     // Visual evidence at the demo's key moments.
     let dir = demo::spike_dir();
-    for (label, t) in [("fullscreen", 0.5), ("mid-shrink", 1.6), ("pip-hold", 3.5), ("returning", 5.8)] {
+    for (label, t) in [
+        ("fullscreen", 0.5),
+        ("mid-shrink", 1.6),
+        ("pip-hold", 3.5),
+        ("returning", 5.8),
+    ] {
         let p = dir.join(format!("check-{label}-t{t}.png"));
         gpu.dump_png(&project, t, &p).expect("png dump");
         println!("dumped {}", p.display());
@@ -45,8 +52,12 @@ fn main() {
     // Crop + shadow variant (Part 5): PiP with 8% crop all around and a soft
     // offset shadow, held at the PiP position.
     let mut styled = project.clone();
-    styled.layers[1].transform.crop =
-        motionaire_lib::compositor::types::CropCfg { l: 0.08, t: 0.08, r: 0.08, b: 0.08 };
+    styled.layers[1].transform.crop = motionaire_lib::compositor::types::CropCfg {
+        l: 0.08,
+        t: 0.08,
+        r: 0.08,
+        b: 0.08,
+    };
     styled.layers[1].transform.shadow = Some(motionaire_lib::compositor::types::ShadowCfg {
         blur: 28.0,
         spread: 4.0,
@@ -71,13 +82,23 @@ fn main() {
         tp.layers[1].out = 5.0;
         tp.layers[1].keyframes.clear();
         tp.layers[1].transitions = TransitionsCfg {
-            in_: Some(TransitionCfg { kind: "dissolve".into(), duration: 1.2, ease: None, softness: 0.0 }),
+            in_: Some(TransitionCfg {
+                kind: "dissolve".into(),
+                duration: 1.2,
+                ease: None,
+                softness: 0.0,
+            }),
             out: None,
         };
         let p = dir.join("check-transition-dissolve-t5.6.png");
         gpu.dump_png(&tp, 5.6, &p).expect("dissolve dump");
         println!("dumped {}", p.display());
-        tp.layers[1].transitions.in_ = Some(TransitionCfg { kind: "wipe".into(), duration: 1.2, ease: None, softness: 0.0 });
+        tp.layers[1].transitions.in_ = Some(TransitionCfg {
+            kind: "wipe".into(),
+            duration: 1.2,
+            ease: None,
+            softness: 0.0,
+        });
         let p = dir.join("check-transition-wipe-t5.6.png");
         gpu.dump_png(&tp, 5.6, &p).expect("wipe dump");
         println!("dumped {}", p.display());
@@ -96,8 +117,10 @@ fn main() {
         let p = dir.join("check-grade-blown-t2.png");
         gpu.dump_png(&gp, 2.0, &p).expect("blown dump");
         println!("dumped {}", p.display());
-        gp.layers[1].stack =
-            vec![mkfx("grade", serde_json::json!({"temperature": 0.5, "contrast": 0.2}))];
+        gp.layers[1].stack = vec![mkfx(
+            "grade",
+            serde_json::json!({"temperature": 0.5, "contrast": 0.2}),
+        )];
         let p = dir.join("check-grade-warm-t2.png");
         gpu.dump_png(&gp, 2.0, &p).expect("warm dump");
         println!("dumped {}", p.display());
@@ -152,9 +175,18 @@ fn main() {
             }
         }
         let mut texts = std::collections::HashMap::new();
-        texts.insert("t1".to_string(), TextRaster { hash: "r1".into(), w: tw, h: th, rgba });
+        texts.insert(
+            "t1".to_string(),
+            TextRaster {
+                hash: "r1".into(),
+                w: tw,
+                h: th,
+                rgba,
+            },
+        );
         let p = dir.join("check-text-raster-t2.png");
-        gpu.dump_png_texts(&tp, 2.0, &texts, &p).expect("text raster dump");
+        gpu.dump_png_texts(&tp, 2.0, &texts, &p)
+            .expect("text raster dump");
         println!("dumped {}", p.display());
     }
 
@@ -194,10 +226,13 @@ fn main() {
         // Ellipse mask with feather on the fullscreen cam.
         let mut mk = demo::demo_project(&screen.path, &cam.path);
         mk.layers[1].keyframes.clear();
-        mk.layers[1].stack = vec![mkfx("mask", serde_json::json!({
-            "kind": "ellipse", "x": 0.0, "y": 0.0, "w": 700.0, "h": 500.0,
-            "feather": 60.0, "invert": false
-        }))];
+        mk.layers[1].stack = vec![mkfx(
+            "mask",
+            serde_json::json!({
+                "kind": "ellipse", "x": 0.0, "y": 0.0, "w": 700.0, "h": 500.0,
+                "feather": 60.0, "invert": false
+            }),
+        )];
         let p = dir.join("check-fx-mask-t2.png");
         gpu.dump_png(&mk, 2.0, &p).expect("mask dump");
         println!("dumped {}", p.display());
@@ -233,41 +268,56 @@ fn main() {
         let p2 = dir.join("check-fx-order-blur-grade-t2.png");
         gpu.dump_png(&o2, 2.0, &p2).expect("order2 dump");
         let (b1, b2) = (std::fs::read(&p1).unwrap(), std::fs::read(&p2).unwrap());
-        assert!(b1 != b2, "ordering produced identical output — stack order is not being applied");
+        assert!(
+            b1 != b2,
+            "ordering produced identical output — stack order is not being applied"
+        );
         println!("order check: outputs differ as they must");
 
         // Phase 5 color ops: wheels (warm lift), curves (crushed shadows,
         // lifted highs on red), and an invert 3D LUT — dumped as evidence.
         let mut wl = demo::demo_project(&screen.path, &cam.path);
         wl.layers.truncate(1);
-        wl.layers[0].stack = vec![mkfx("wheels", serde_json::json!({
-            "liftR": 0.08, "liftG": 0.03, "liftB": 0.0,
-            "gammaR": 0.1, "gammaG": 0.0, "gammaB": -0.1,
-            "gainR": 0.05, "gainG": 0.0, "gainB": -0.05
-        }))];
+        wl.layers[0].stack = vec![mkfx(
+            "wheels",
+            serde_json::json!({
+                "liftR": 0.08, "liftG": 0.03, "liftB": 0.0,
+                "gammaR": 0.1, "gammaG": 0.0, "gammaB": -0.1,
+                "gainR": 0.05, "gainG": 0.0, "gainB": -0.05
+            }),
+        )];
         let p = dir.join("check-p5-wheels-t2.png");
         gpu.dump_png(&wl, 2.0, &p).expect("wheels dump");
         println!("dumped {}", p.display());
 
         let mut cv = demo::demo_project(&screen.path, &cam.path);
         cv.layers.truncate(1);
-        cv.layers[0].stack = vec![mkfx("curves", serde_json::json!({
-            "pointsR": [[0.0, 0.0], [0.5, 0.85], [1.0, 1.0]],
-            "pointsM": [[0.0, 0.0], [0.25, 0.1], [1.0, 1.0]]
-        }))];
+        cv.layers[0].stack = vec![mkfx(
+            "curves",
+            serde_json::json!({
+                "pointsR": [[0.0, 0.0], [0.5, 0.85], [1.0, 1.0]],
+                "pointsM": [[0.0, 0.0], [0.25, 0.1], [1.0, 1.0]]
+            }),
+        )];
         let p = dir.join("check-p5-curves-t2.png");
         gpu.dump_png(&cv, 2.0, &p).expect("curves dump");
         println!("dumped {}", p.display());
 
         // Invert LUT (2x2x2): output = 1 - input on every channel.
         let cube = dir2.join("invert.cube");
-        std::fs::write(&cube,
-            "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n").unwrap();
+        std::fs::write(
+            &cube,
+            "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n",
+        )
+        .unwrap();
         let mut lp = demo::demo_project(&screen.path, &cam.path);
         lp.layers.truncate(1);
-        lp.layers[0].stack = vec![mkfx("lut", serde_json::json!({
-            "path": cube.to_string_lossy()
-        }))];
+        lp.layers[0].stack = vec![mkfx(
+            "lut",
+            serde_json::json!({
+                "path": cube.to_string_lossy()
+            }),
+        )];
         let p = dir.join("check-p5-lut-invert-t2.png");
         gpu.dump_png(&lp, 2.0, &p).expect("lut dump");
         println!("dumped {}", p.display());
@@ -327,9 +377,13 @@ fn main() {
     let rev_start = Instant::now();
     for i in 0..120 {
         let t = 5.0 - i as f64 / 60.0;
-        gpu.render_at(&styled, t, &Default::default()).expect("reverse render");
+        gpu.render_at(&styled, t, &Default::default())
+            .expect("reverse render");
     }
-    println!("reverse: 120 frames (2s of timeline) in {:.2}s", rev_start.elapsed().as_secs_f64());
+    println!(
+        "reverse: 120 frames (2s of timeline) in {:.2}s",
+        rev_start.elapsed().as_secs_f64()
+    );
 
     // Sustained playback simulation: 8 seconds of timeline at 60Hz stepping,
     // sequential decode — the same access pattern as live playback.
@@ -339,7 +393,8 @@ fn main() {
     for i in 0..steps {
         let t = 0.0 + i as f64 / 60.0;
         let f = Instant::now();
-        gpu.render_at(&project, t, &Default::default()).expect("render");
+        gpu.render_at(&project, t, &Default::default())
+            .expect("render");
         times_ms.push(f.elapsed().as_secs_f64() * 1000.0);
     }
     let total = started.elapsed().as_secs_f64();

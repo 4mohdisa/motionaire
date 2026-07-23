@@ -13,9 +13,19 @@ describe('audioFxFilter (the export authority)', () => {
   it('eq emits only non-zero bands, in low→mid→high order', () => {
     expect(audioFxFilter(fx('eq', { lowGain: 0, midGain: 0, highGain: 0 }))).toBeNull()
     const f = audioFxFilter(
-      fx('eq', { lowGain: -6, lowFreq: 100, midGain: 3, midFreq: 2000, midQ: 2, highGain: -12, highFreq: 6000 }),
+      fx('eq', {
+        lowGain: -6,
+        lowFreq: 100,
+        midGain: 3,
+        midFreq: 2000,
+        midQ: 2,
+        highGain: -12,
+        highFreq: 6000,
+      }),
     )!
-    expect(f).toBe('lowshelf=g=-6.0:f=100,equalizer=f=2000:t=q:w=2.00:g=3.0,highshelf=g=-12.0:f=6000')
+    expect(f).toBe(
+      'lowshelf=g=-6.0:f=100,equalizer=f=2000:t=q:w=2.00:g=3.0,highshelf=g=-12.0:f=6000',
+    )
   })
 
   it('compressor converts dB threshold/makeup to linear and clamps ratio', () => {

@@ -197,8 +197,11 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
     }
     let mut track_tags = Vec::new();
     for (ti, tid) in track_order.iter().enumerate() {
-        let members: Vec<&String> =
-            clip_tags.iter().filter(|(t, _)| t == tid).map(|(_, tag)| tag).collect();
+        let members: Vec<&String> = clip_tags
+            .iter()
+            .filter(|(t, _)| t == tid)
+            .map(|(_, tag)| tag)
+            .collect();
         let track_fx: &[String] = clips
             .iter()
             .find(|c| &c.track == tid && !c.track_fx.is_empty())
@@ -212,7 +215,11 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
         let ttag = format!("[t{ti}]");
         let mut chain = format!(
             "{}amix=inputs={}:normalize=0",
-            members.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(""),
+            members
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(""),
             members.len()
         );
         for f in track_fx {
@@ -252,7 +259,12 @@ fn build_audio_graph(clips: &[AudioClipSpec], master: f64) -> String {
 pub fn run_export(app: tauri::AppHandle, mgr: Exporter, job: ExportJob) {
     let mut job = job;
     loop {
-        let ExportJob { project, texts, audio, settings } = job;
+        let ExportJob {
+            project,
+            texts,
+            audio,
+            settings,
+        } = job;
         let result = export_inner(&app, &mgr, project, texts, audio, &settings);
         match result {
             Ok(()) => {
@@ -379,7 +391,11 @@ fn export_inner(
     } else {
         args.push("-map".into());
         // GIF's palette filter consumes [0:v]; map its labeled output instead.
-        args.push(if settings.format == "gif" { "[gout]".into() } else { "0:v".to_string() });
+        args.push(if settings.format == "gif" {
+            "[gout]".into()
+        } else {
+            "0:v".to_string()
+        });
         args.push("-an".into());
     }
     let q = settings.quality.min(100);
@@ -390,16 +406,23 @@ fn export_inner(
         "hevc" => {
             if vt {
                 args.extend([
-                    "-c:v".into(), "hevc_videotoolbox".into(),
-                    "-b:v".into(), format!("{kbps}k"),
-                    "-tag:v".into(), "hvc1".into(), // QuickTime compatibility
+                    "-c:v".into(),
+                    "hevc_videotoolbox".into(),
+                    "-b:v".into(),
+                    format!("{kbps}k"),
+                    "-tag:v".into(),
+                    "hvc1".into(), // QuickTime compatibility
                 ]);
             } else {
                 args.extend([
-                    "-c:v".into(), "libx265".into(),
-                    "-preset".into(), "fast".into(),
-                    "-crf".into(), format!("{crf}"),
-                    "-tag:v".into(), "hvc1".into(),
+                    "-c:v".into(),
+                    "libx265".into(),
+                    "-preset".into(),
+                    "fast".into(),
+                    "-crf".into(),
+                    format!("{crf}"),
+                    "-tag:v".into(),
+                    "hvc1".into(),
                 ]);
             }
             args.extend(["-pix_fmt".into(), "yuv420p".into()]);
@@ -407,9 +430,19 @@ fn export_inner(
         "prores" => {
             // ProRes 422 Standard; VideoToolbox on Apple Silicon, prores_ks fallback.
             if vt {
-                args.extend(["-c:v".into(), "prores_videotoolbox".into(), "-profile:v".into(), "2".into()]);
+                args.extend([
+                    "-c:v".into(),
+                    "prores_videotoolbox".into(),
+                    "-profile:v".into(),
+                    "2".into(),
+                ]);
             } else {
-                args.extend(["-c:v".into(), "prores_ks".into(), "-profile:v".into(), "2".into()]);
+                args.extend([
+                    "-c:v".into(),
+                    "prores_ks".into(),
+                    "-profile:v".into(),
+                    "2".into(),
+                ]);
             }
         }
         "gif" => {
@@ -425,12 +458,20 @@ fn export_inner(
         _ => {
             // mp4 / h264 — the original path.
             if vt {
-                args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), format!("{kbps}k")]);
+                args.extend([
+                    "-c:v".into(),
+                    "h264_videotoolbox".into(),
+                    "-b:v".into(),
+                    format!("{kbps}k"),
+                ]);
             } else {
                 args.extend([
-                    "-c:v".into(), "libx264".into(),
-                    "-preset".into(), "veryfast".into(),
-                    "-crf".into(), format!("{crf}"),
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-preset".into(),
+                    "veryfast".into(),
+                    "-crf".into(),
+                    format!("{crf}"),
                 ]);
             }
             args.extend(["-pix_fmt".into(), "yuv420p".into()]);
@@ -481,7 +522,10 @@ fn export_inner(
         let done = n + 1;
         mgr.done.store(done, Ordering::SeqCst);
         if done % 15 == 0 || done == total {
-            let _ = app.emit("export:progress", serde_json::json!({ "done": done, "total": total }));
+            let _ = app.emit(
+                "export:progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
         }
     }
     drop(stdin); // EOF → ffmpeg finalizes
@@ -491,12 +535,20 @@ fn export_inner(
         let _ = child.wait();
         return Err("cancelled".into());
     }
-    let out = child.wait_with_output().map_err(|e| format!("ffmpeg wait: {e}"))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("ffmpeg wait: {e}"))?;
     if let Some(e) = frame_err {
-        return Err(format!("{e}; ffmpeg: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "{e}; ffmpeg: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     if !out.status.success() {
-        return Err(format!("ffmpeg failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "ffmpeg failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(())
 }
@@ -544,9 +596,9 @@ mod tests {
                 volume: 1.0,
                 volume_points: vec![],
                 pan: 0.0,
-            fx: vec![],
-            track: String::new(),
-            track_fx: vec![],
+                fx: vec![],
+                track: String::new(),
+                track_fx: vec![],
             }],
             1.0,
         );
@@ -608,11 +660,17 @@ mod tests {
             "{g}"
         );
         // …and the track submix applies track fx to the SUM of both clips.
-        assert!(g.contains("[a0][a1]amix=inputs=2:normalize=0,highshelf=g=-12:f=6000[t0]"), "{g}");
+        assert!(
+            g.contains("[a0][a1]amix=inputs=2:normalize=0,highshelf=g=-12:f=6000[t0]"),
+            "{g}"
+        );
         assert!(g.contains("[t0]anull[aout]"), "{g}");
         // Two tracks → two submixes into the master mix.
         let g2 = build_audio_graph(&[mk(0.0, "t1"), mk(0.0, "t2")], 1.0);
-        assert!(g2.contains("amix=inputs=2:normalize=0[aout]") || g2.contains("[t0][t1]"), "{g2}");
+        assert!(
+            g2.contains("amix=inputs=2:normalize=0[aout]") || g2.contains("[t0][t1]"),
+            "{g2}"
+        );
     }
 
     #[test]
@@ -626,7 +684,6 @@ mod tests {
         assert!(!atempo_chain(100.0).contains("atempo=6")); // clamped at 16
     }
 }
-
 
 // Audio-only export (foundation, Phase 6): the mix graph without the video
 // pipe — no GPU, no frame loop; the mix is effectively instant.
@@ -648,15 +705,27 @@ fn export_audio_only(
     }
     // The graph indexes inputs from 1 (video pipe convention); with no video
     // input, shift by feeding a dummy silent first input.
-    args.splice(1..1, ["-f".into(), "lavfi".into(), "-i".into(), "anullsrc=r=48000:cl=stereo".into()]);
+    args.splice(
+        1..1,
+        [
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "anullsrc=r=48000:cl=stereo".into(),
+        ],
+    );
     args.extend([
         "-filter_complex".into(),
         build_audio_graph(audio, settings.master_volume),
-        "-map".into(), "[aout]".into(),
+        "-map".into(),
+        "[aout]".into(),
         "-vn".into(),
-        "-c:a".into(), "aac".into(),
-        "-b:a".into(), "192k".into(),
-        "-t".into(), format!("{:.6}", settings.duration),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "192k".into(),
+        "-t".into(),
+        format!("{:.6}", settings.duration),
         settings.output_path.clone(),
     ]);
     let status = Command::new(&ffmpeg)
@@ -666,7 +735,10 @@ fn export_audio_only(
         .output()
         .map_err(|e| format!("ffmpeg spawn: {e}"))?;
     if !status.status.success() {
-        return Err(format!("ffmpeg failed: {}", String::from_utf8_lossy(&status.stderr)));
+        return Err(format!(
+            "ffmpeg failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        ));
     }
     mgr.done.store(1, Ordering::SeqCst);
     Ok(())

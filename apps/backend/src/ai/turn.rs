@@ -75,7 +75,10 @@ pub struct TurnHub {
 
 impl Default for TurnHub {
     fn default() -> Self {
-        Self { waiting: Mutex::new(HashMap::new()), cancelled: Mutex::new(HashMap::new()) }
+        Self {
+            waiting: Mutex::new(HashMap::new()),
+            cancelled: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -95,12 +98,19 @@ impl TurnHub {
         tx.send(results).map_err(|e| e.to_string())
     }
     pub fn cancel(&self, turn_id: &str) {
-        self.cancelled.lock().unwrap().insert(turn_id.to_string(), true);
+        self.cancelled
+            .lock()
+            .unwrap()
+            .insert(turn_id.to_string(), true);
         // Unpark with empty results so the thread can observe the flag.
         let _ = self.deliver(turn_id, Vec::new());
     }
     fn is_cancelled(&self, turn_id: &str) -> bool {
-        self.cancelled.lock().unwrap().remove(turn_id).unwrap_or(false)
+        self.cancelled
+            .lock()
+            .unwrap()
+            .remove(turn_id)
+            .unwrap_or(false)
     }
 }
 
@@ -232,15 +242,22 @@ impl TurnProvider for AnthropicTurn {
             return Err(super::chat::explain_status(resp));
         }
 
-        let mut out = NeutralMsg { role: "assistant".into(), ..Default::default() };
+        let mut out = NeutralMsg {
+            role: "assistant".into(),
+            ..Default::default()
+        };
         let mut text = String::new();
         // In-flight tool_use block: (id, name, partial_json)
         let mut open_call: Option<(String, String, String)> = None;
         let reader = BufReader::new(resp);
         for line in reader.lines() {
             let line = line.map_err(|e| e.to_string())?;
-            let Some(data) = line.strip_prefix("data: ") else { continue };
-            let Ok(ev) = serde_json::from_str::<Value>(data) else { continue };
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
+            let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
             match ev["type"].as_str().unwrap_or("") {
                 "content_block_start" => {
                     let block = &ev["content_block"];
@@ -310,7 +327,8 @@ fn anthropic_msg(m: &NeutralMsg) -> Value {
             content.push(json!({ "type": "text", "text": t }));
         }
         for c in &m.tool_calls {
-            content.push(json!({ "type": "tool_use", "id": c.id, "name": c.name, "input": c.args }));
+            content
+                .push(json!({ "type": "tool_use", "id": c.id, "name": c.name, "input": c.args }));
         }
         return json!({ "role": m.role, "content": content });
     }
@@ -339,8 +357,10 @@ impl TurnProvider for OpenAiTurn {
         }
         let wire_tools: Vec<Value> = tools
             .iter()
-            .map(|t| json!({ "type": "function", "function": {
-                "name": t.name, "description": t.description, "parameters": t.schema } }))
+            .map(|t| {
+                json!({ "type": "function", "function": {
+                "name": t.name, "description": t.description, "parameters": t.schema } })
+            })
             .collect();
         let resp = http()
             .post("https://api.openai.com/v1/chat/completions")
@@ -357,18 +377,25 @@ impl TurnProvider for OpenAiTurn {
             return Err(super::chat::explain_status(resp));
         }
 
-        let mut out = NeutralMsg { role: "assistant".into(), ..Default::default() };
+        let mut out = NeutralMsg {
+            role: "assistant".into(),
+            ..Default::default()
+        };
         let mut text = String::new();
         // index → (id, name, arguments-buffer)
         let mut calls: Vec<(String, String, String)> = Vec::new();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
             let line = line.map_err(|e| e.to_string())?;
-            let Some(data) = line.strip_prefix("data: ") else { continue };
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
             if data.trim() == "[DONE]" {
                 break;
             }
-            let Ok(ev) = serde_json::from_str::<Value>(data) else { continue };
+            let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
             let delta = &ev["choices"][0]["delta"];
             if let Some(t) = delta["content"].as_str() {
                 text.push_str(t);
@@ -465,7 +492,10 @@ impl TurnProvider for MockTurn {
             .and_then(|m| m.text.clone())
             .unwrap_or_default()
             .to_lowercase();
-        let mut out = NeutralMsg { role: "assistant".into(), ..Default::default() };
+        let mut out = NeutralMsg {
+            role: "assistant".into(),
+            ..Default::default()
+        };
         let say = |emit: &mut dyn FnMut(&str), s: &str| {
             for w in s.split_inclusive(' ') {
                 emit(w);
@@ -475,14 +505,21 @@ impl TurnProvider for MockTurn {
         let mut idn = 0;
         let mut call = |name: &str, args: Value| {
             idn += 1;
-            NeutralCall { id: format!("mock_{idn}"), name: name.into(), args }
+            NeutralCall {
+                id: format!("mock_{idn}"),
+                name: name.into(),
+                args,
+            }
         };
         // Deterministic scripts for the demo-family prompts.
         if prompt.contains("shrink") && (prompt.contains("face") || prompt.contains("webcam")) {
             // The flagship shape: pip window then back to fullscreen.
             let from = extract_time(&prompt, 0).unwrap_or(10.0);
             let to = extract_time(&prompt, 1).unwrap_or(45.0);
-            say(emit, "Shrinking the webcam into a corner for that window, then back. ");
+            say(
+                emit,
+                "Shrinking the webcam into a corner for that window, then back. ",
+            );
             out.tool_calls.push(call(
                 "set_layout",
                 json!({ "layout": "pip", "track": "auto-cam", "corner": "bottom_right",
@@ -549,7 +586,11 @@ fn extract_time(s: &str, n: usize) -> Option<f64> {
 
 fn extract_pct(s: &str) -> Option<f64> {
     let idx = s.find('%')?;
-    let head: String = s[..idx].chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+    let head: String = s[..idx]
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     let v: f64 = head.chars().rev().collect::<String>().parse().ok()?;
     Some(v / 100.0)
 }
@@ -611,7 +652,10 @@ mod tests {
         assert!(w[0]["tool_calls"][0]["function"]["arguments"].is_string());
         let r = NeutralMsg {
             role: "user".into(),
-            tool_results: vec![NeutralResult { call_id: "t1".into(), content: "{\"ok\":true}".into() }],
+            tool_results: vec![NeutralResult {
+                call_id: "t1".into(),
+                content: "{\"ok\":true}".into(),
+            }],
             ..Default::default()
         };
         let ar = anthropic_msg(&r);

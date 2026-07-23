@@ -79,8 +79,11 @@ function ClipBlock({ clip, trackId }: Props) {
     const tool = store.tool
     const onEdgeIn = localX < EDGE_PX && dur * pxPerSec > EDGE_PX * 3
     const onEdgeOut = localX > rect.width - EDGE_PX && dur * pxPerSec > EDGE_PX * 3
-    const mode: 'move' | 'trim-in' | 'trim-out' =
-      onEdgeIn ? 'trim-in' : onEdgeOut ? 'trim-out' : 'move'
+    const mode: 'move' | 'trim-in' | 'trim-out' = onEdgeIn
+      ? 'trim-in'
+      : onEdgeOut
+        ? 'trim-out'
+        : 'move'
 
     const grabOffset = xToTime(e.clientX) - clip.start
     let started = false
@@ -162,7 +165,9 @@ function ClipBlock({ clip, trackId }: Props) {
           const cur = useStore.getState()
           const track = cur.project.tracks.find((tr) => tr.clips.some((c) => c.id === clip.id))!
           const prev = track.clips.find(
-            (c) => c.id !== clip.id && Math.abs(clipEnd(c) - clip.start) < 1 / cur.project.canvas.fps / 2,
+            (c) =>
+              c.id !== clip.id &&
+              Math.abs(clipEnd(c) - clip.start) < 1 / cur.project.canvas.fps / 2,
           )
           if (prev) s.rollEdit(prev.id, t, true)
         }
@@ -179,16 +184,11 @@ function ClipBlock({ clip, trackId }: Props) {
         }
         if (group) {
           const anchor = group.find((g) => g.id === clip.id)!
-          const delta = Math.max(
-            desired - anchor.start,
-            -Math.min(...group.map((g) => g.start)),
-          )
+          const delta = Math.max(desired - anchor.start, -Math.min(...group.map((g) => g.start)))
           // Vertical: shift all members by the pointer's display-lane delta;
           // any invalid target (edge, kind mismatch via lane kind) keeps the
           // whole move horizontal for this frame (store re-validates anyway).
-          const pointerLane = lanes.findIndex(
-            (l) => ev.clientY >= l.top && ev.clientY <= l.bottom,
-          )
+          const pointerLane = lanes.findIndex((l) => ev.clientY >= l.top && ev.clientY <= l.bottom)
           let laneDelta = pointerLane >= 0 && anchorLaneIdx >= 0 ? pointerLane - anchorLaneIdx : 0
           if (laneDelta !== 0) {
             for (const g of group) {
@@ -286,10 +286,7 @@ function ClipBlock({ clip, trackId }: Props) {
     const s = strip
     const rect = e.currentTarget.getBoundingClientRect()
     const srcT = clip.in + ((e.clientX - rect.left) / pxPerSec) * clip.speed
-    const idx = Math.min(
-      s.frames - 1,
-      Math.max(0, Math.floor((srcT / s.duration) * s.frames)),
-    )
+    const idx = Math.min(s.frames - 1, Math.max(0, Math.floor((srcT / s.duration) * s.frames)))
     setHover({ cx: e.clientX, top: rect.top - s.h - 8, idx })
   }
 
@@ -307,12 +304,12 @@ function ClipBlock({ clip, trackId }: Props) {
   const name = clip.compoundId
     ? (compound?.name ?? 'Compound')
     : clip.adjust
-    ? 'Adjustment'
-    : clip.shape
-      ? clip.shape.kind.charAt(0).toUpperCase() + clip.shape.kind.slice(1)
-      : clip.kind === 'text'
-        ? (clip.text?.content ?? 'Text')
-        : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
+      ? 'Adjustment'
+      : clip.shape
+        ? clip.shape.kind.charAt(0).toUpperCase() + clip.shape.kind.slice(1)
+        : clip.kind === 'text'
+          ? (clip.text?.content ?? 'Text')
+          : `${asset?.name ?? clip.kind}${missing ? ' (offline)' : ''}`
 
   return (
     <div

@@ -24,17 +24,27 @@ pub fn generate_media() -> Result<(PathBuf, PathBuf), String> {
         }
         let out = Command::new(ffmpeg_bin())
             .args([
-                "-v", "error", "-y",
-                "-f", "lavfi", "-i", filter,
-                "-t", "10",
-                "-pix_fmt", "yuv420p",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                filter,
+                "-t",
+                "10",
+                "-pix_fmt",
+                "yuv420p",
                 "-an",
                 path.to_str().unwrap(),
             ])
             .output()
             .map_err(|e| format!("ffmpeg spawn: {e}"))?;
         if !out.status.success() {
-            return Err(format!("ffmpeg gen failed: {}", String::from_utf8_lossy(&out.stderr)));
+            return Err(format!(
+                "ffmpeg gen failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
         }
         Ok(())
     };

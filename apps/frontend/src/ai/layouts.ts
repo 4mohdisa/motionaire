@@ -154,7 +154,8 @@ export function installLayoutTool(): void {
       if (layout === 'pip') {
         const trackId = resolveTrack(focusRef, at)
         const clip = trackId ? activeVideoClipOn(trackId, at) : null
-        if (!clip) return { ok: false, error: `no active video clip for track "${focusRef}" at ${at}s` }
+        if (!clip)
+          return { ok: false, error: `no active video clip for track "${focusRef}" at ${at}s` }
         const scale = typeof a.scale === 'number' && a.scale > 0 ? a.scale : 0.25
         const margin = typeof a.margin === 'number' ? a.margin : 32
         const radius = typeof a.radius === 'number' ? a.radius : 0
@@ -192,7 +193,8 @@ export function installLayoutTool(): void {
       } else if (layout === 'fullscreen') {
         const trackId = resolveTrack(focusRef, at)
         const clip = trackId ? activeVideoClipOn(trackId, at) : null
-        if (!clip) return { ok: false, error: `no active video clip for track "${focusRef}" at ${at}s` }
+        if (!clip)
+          return { ok: false, error: `no active video clip for track "${focusRef}" at ${at}s` }
         targets.push({
           clip,
           props: {

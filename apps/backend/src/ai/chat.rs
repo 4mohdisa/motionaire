@@ -143,7 +143,9 @@ mod tests {
         assert!(provider_for("anthropic").is_ok());
         assert!(provider_for("openai").is_ok());
         assert!(provider_for("nope").is_err());
-        assert_eq!(provider_for("mock").unwrap().test_connection("x").unwrap(),
-            "Connected — mock provider (offline)");
+        assert_eq!(
+            provider_for("mock").unwrap().test_connection("x").unwrap(),
+            "Connected — mock provider (offline)"
+        );
     }
 }

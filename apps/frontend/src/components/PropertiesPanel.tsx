@@ -5,7 +5,14 @@ import IconBtn from './IconBtn'
 import { findClip, snapToFrame } from '../engine/time'
 import { keyframesFor, resolveProp } from '../engine/keyframes'
 import { customFamilies } from '../persistence/fontManager'
-import type { Clip, Ease, Effect, EffectType, TextAnimationPreset, TransitionType } from '../types/project'
+import type {
+  Clip,
+  Ease,
+  Effect,
+  EffectType,
+  TextAnimationPreset,
+  TransitionType,
+} from '../types/project'
 import { EFFECT_DEFAULTS, EFFECT_LABELS } from '../engine/effectStack'
 import { isAudioFx } from '../engine/audioFx'
 import { Popover } from './Popover'
@@ -129,7 +136,14 @@ function VideoTab({ clip }: { clip: Clip }) {
       <Section label="Transform" clip={clip} props={TRANSFORM_PROPS}>
         <NumberRow clip={clip} prop="transform.x" label="X" step={1} />
         <NumberRow clip={clip} prop="transform.y" label="Y" step={1} />
-        <NumberRow clip={clip} prop="transform.scale" label="Scale" step={0.01} min={0} resetTo={1} />
+        <NumberRow
+          clip={clip}
+          prop="transform.scale"
+          label="Scale"
+          step={0.01}
+          min={0}
+          resetTo={1}
+        />
         <NumberRow clip={clip} prop="transform.rotation" label="Rotation" step={1} />
         <NumberRow
           clip={clip}
@@ -163,7 +177,15 @@ function VideoTab({ clip }: { clip: Clip }) {
         <Section label="Playback">
           {/* Keyframeable (session 9, Phase 7): armed = speed RAMP remapping
               time inside the clip's fixed window; audio goes video-only. */}
-          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} resetTo={1} />
+          <NumberRow
+            clip={clip}
+            prop="speed"
+            label="Speed"
+            step={0.05}
+            min={0.0625}
+            max={16}
+            resetTo={1}
+          />
         </Section>
       )}
 
@@ -190,7 +212,15 @@ function AudioTab({ clip }: { clip: Clip }) {
   return (
     <>
       <Section label="Level" clip={clip} props={['volume', 'pan']}>
-        <NumberRow clip={clip} prop="volume" label="Volume" step={0.01} min={0} max={1.5} resetTo={1} />
+        <NumberRow
+          clip={clip}
+          prop="volume"
+          label="Volume"
+          step={0.01}
+          min={0}
+          max={1.5}
+          resetTo={1}
+        />
         <div className="prow">
           <span className="prow__label">Pan</span>
           <input
@@ -223,7 +253,15 @@ function AudioTab({ clip }: { clip: Clip }) {
       </Section>
       {clip.kind === 'audio' && clip.mediaId && (
         <Section label="Playback">
-          <NumberRow clip={clip} prop="speed" label="Speed" step={0.05} min={0.0625} max={16} resetTo={1} />
+          <NumberRow
+            clip={clip}
+            prop="speed"
+            label="Speed"
+            step={0.05}
+            min={0.0625}
+            max={16}
+            resetTo={1}
+          />
         </Section>
       )}
       <Section label="Audio effects">
@@ -364,7 +402,9 @@ function FxEditor({ clip, kinds }: { clip: Clip; kinds: 'visual' | 'audio' }) {
       <div className="prow">
         <button
           className="topbar__btn"
-          onPointerDown={(e) => setAddAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+          onPointerDown={(e) =>
+            setAddAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())
+          }
         >
           + Add effect
         </button>
@@ -373,16 +413,16 @@ function FxEditor({ clip, kinds }: { clip: Clip; kinds: 'visual' | 'audio' }) {
             {(Object.keys(EFFECT_LABELS) as EffectType[])
               .filter((t) => (kinds === 'audio') === isAudioFx(t))
               .map((t) => (
-              <button
-                key={t}
-                className="menu__item"
-                onClick={() => {
-                  s.addEffect(clip.id, t)
-                  setAddAnchor(null)
-                }}
-              >
-                {EFFECT_LABELS[t]}
-              </button>
+                <button
+                  key={t}
+                  className="menu__item"
+                  onClick={() => {
+                    s.addEffect(clip.id, t)
+                    setAddAnchor(null)
+                  }}
+                >
+                  {EFFECT_LABELS[t]}
+                </button>
               ))}
           </Popover>
         )}
@@ -400,7 +440,14 @@ function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
       <>
         <NumberRow clip={clip} prop={p('exposure')} label="Exposure" step={0.05} min={-2} max={2} />
         <NumberRow clip={clip} prop={p('contrast')} label="Contrast" step={0.05} min={-1} max={1} />
-        <NumberRow clip={clip} prop={p('saturation')} label="Saturation" step={0.05} min={-1} max={1} />
+        <NumberRow
+          clip={clip}
+          prop={p('saturation')}
+          label="Saturation"
+          step={0.05}
+          min={-1}
+          max={1}
+        />
         <NumberRow clip={clip} prop={p('temperature')} label="Temp" step={0.05} min={-1} max={1} />
         <NumberRow clip={clip} prop={p('tint')} label="Tint" step={0.05} min={-1} max={1} />
       </>
@@ -417,13 +464,29 @@ function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
             onChange={(e) => s.updateEffectParams(clip.id, fx.id, { color: e.target.value })}
           />
         </div>
-        <NumberRow clip={clip} prop={p('tolerance')} label="Tolerance" step={0.01} min={0} max={0.6} />
-        <NumberRow clip={clip} prop={p('softness')} label="Softness" step={0.01} min={0} max={0.5} />
+        <NumberRow
+          clip={clip}
+          prop={p('tolerance')}
+          label="Tolerance"
+          step={0.01}
+          min={0}
+          max={0.6}
+        />
+        <NumberRow
+          clip={clip}
+          prop={p('softness')}
+          label="Softness"
+          step={0.01}
+          min={0}
+          max={0.5}
+        />
         <NumberRow clip={clip} prop={p('spill')} label="Spill" step={0.05} min={0} max={1} />
       </>
     )
   if (fx.type === 'blur')
-    return <NumberRow clip={clip} prop={p('amount')} label="Blur/Sharp" step={0.5} min={-20} max={40} />
+    return (
+      <NumberRow clip={clip} prop={p('amount')} label="Blur/Sharp" step={0.5} min={-20} max={40} />
+    )
   if (fx.type === 'wheels')
     return (
       <div className="wheels">
@@ -464,8 +527,7 @@ function FxParams({ clip, fx }: { clip: Clip; fx: Effect }) {
                 filters: [{ name: 'Cube LUT', extensions: ['cube'] }],
                 multiple: false,
               })
-              if (typeof picked === 'string')
-                s.updateEffectParams(clip.id, fx.id, { path: picked })
+              if (typeof picked === 'string') s.updateEffectParams(clip.id, fx.id, { path: picked })
             })
           }}
         >
@@ -554,8 +616,7 @@ function FxPresets({ clip }: { clip: Clip }) {
               <button
                 className="menu__inline"
                 onClick={() => {
-                  for (const fx of pr.effects)
-                    s.addEffect(clip.id, fx.type) // placeholder ids…
+                  for (const fx of pr.effects) s.addEffect(clip.id, fx.type) // placeholder ids…
                   // …then overwrite the placeholders with the preset params in
                   // one history step less; simpler: rebuild via update
                   const added = useStore
@@ -841,7 +902,9 @@ function TextEditor({ clip }: { clip: Clip }) {
               type="color"
               value={st.shadow.color}
               onChange={(e) =>
-                updateTextClip(clip.id, { style: { shadow: { ...st.shadow!, color: e.target.value } } })
+                updateTextClip(clip.id, {
+                  style: { shadow: { ...st.shadow!, color: e.target.value } },
+                })
               }
             />
             <input
@@ -896,7 +959,9 @@ function TextEditor({ clip }: { clip: Clip }) {
               value={st.gradient.from}
               title="Top color"
               onChange={(e) =>
-                updateTextClip(clip.id, { style: { gradient: { ...st.gradient!, from: e.target.value } } })
+                updateTextClip(clip.id, {
+                  style: { gradient: { ...st.gradient!, from: e.target.value } },
+                })
               }
             />
             <input
@@ -905,7 +970,9 @@ function TextEditor({ clip }: { clip: Clip }) {
               value={st.gradient.to}
               title="Bottom color"
               onChange={(e) =>
-                updateTextClip(clip.id, { style: { gradient: { ...st.gradient!, to: e.target.value } } })
+                updateTextClip(clip.id, {
+                  style: { gradient: { ...st.gradient!, to: e.target.value } },
+                })
               }
             />
           </>
@@ -973,8 +1040,7 @@ function Section({
   props?: string[]
 }) {
   const s = useStore.getState()
-  const hasKfs =
-    clip && props ? props.some((p) => keyframesFor(clip, p).length > 0) : false
+  const hasKfs = clip && props ? props.some((p) => keyframesFor(clip, p).length > 0) : false
   return (
     <div className="props__section">
       <div className="props__section-label">
@@ -1134,9 +1200,7 @@ function NumberRow({
         className="prow__ease"
         value={onKey?.ease ?? 'easeInOut'}
         disabled={!onKey}
-        onChange={(e) =>
-          onKey && setKeyframeEase(clip.id, prop, onKey.t, e.target.value as Ease)
-        }
+        onChange={(e) => onKey && setKeyframeEase(clip.id, prop, onKey.t, e.target.value as Ease)}
         title={onKey ? 'Keyframe easing' : 'Move to a keyframe to edit easing'}
       >
         {EASES.map((ez) => (
@@ -1325,10 +1389,7 @@ function ColorWheel({
         onDoubleClick={() => onChange(0, 0, 0)}
         title={`${label} — drag: x warm/cool, y brightness; double-click resets`}
       >
-        <div
-          className="wheel__dot"
-          style={{ left: SIZE / 2 + x - 3, top: SIZE / 2 + y - 3 }}
-        />
+        <div className="wheel__dot" style={{ left: SIZE / 2 + x - 3, top: SIZE / 2 + y - 3 }} />
       </div>
       <span className="wheel__label">{label}</span>
     </div>

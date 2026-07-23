@@ -79,9 +79,7 @@ function audioSpecs(projectRaw: Project, rangeStart: number, rangeEnd: number): 
 // curve (through the parity-locked mirror) at 10Hz across any segment whose
 // left keyframe has a non-linear ease.
 function volumePoints(clip: Clip): [number, number][] {
-  const kfs = clip.keyframes
-    .filter((k) => k.prop === 'volume')
-    .sort((a, b) => a.t - b.t)
+  const kfs = clip.keyframes.filter((k) => k.prop === 'volume').sort((a, b) => a.t - b.t)
   if (!kfs.length) return []
   if (kfs.every((k) => k.ease === 'linear')) return kfs.map((k) => [k.t, k.v])
   const out: [number, number][] = []

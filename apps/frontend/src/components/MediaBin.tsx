@@ -114,7 +114,21 @@ function MediaBin() {
       filters: [
         {
           name: 'Media',
-          extensions: ['mp4', 'mov', 'webm', 'mkv', 'm4v', 'mp3', 'wav', 'm4a', 'aac', 'flac', 'png', 'jpg', 'jpeg'],
+          extensions: [
+            'mp4',
+            'mov',
+            'webm',
+            'mkv',
+            'm4v',
+            'mp3',
+            'wav',
+            'm4a',
+            'aac',
+            'flac',
+            'png',
+            'jpg',
+            'jpeg',
+          ],
         },
       ],
     })
@@ -148,7 +162,11 @@ function MediaBin() {
       <div className="bin__head">
         <span className="bin__title">Media</span>
         <div className="bin__headbtns">
-          <IconBtn icon={FolderInput} label="Import media" onClick={() => void importMediaNative()} />
+          <IconBtn
+            icon={FolderInput}
+            label="Import media"
+            onClick={() => void importMediaNative()}
+          />
           <IconBtn
             icon={PanelLeftClose}
             label="Hide panel"

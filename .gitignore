@@ -25,3 +25,7 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Test artifacts / captures (generated, never tracked)
+*.motionaire/
+tests/visual/*.candidate.png

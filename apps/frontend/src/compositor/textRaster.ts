@@ -112,7 +112,10 @@ export function rasterizeText(st: TextStyle): { b64: string; w: number; h: numbe
 export function rasterizeShape(sh: Shape): { b64: string; w: number; h: number } | null {
   const sw = sh.stroke ? sh.strokeWidth * SS : 0
   const w = Math.max(2, Math.ceil(sh.width * SS + sw))
-  const h = Math.max(2, Math.ceil((sh.kind === 'line' ? Math.max(sh.height, 2) : sh.height) * SS + sw))
+  const h = Math.max(
+    2,
+    Math.ceil((sh.kind === 'line' ? Math.max(sh.height, 2) : sh.height) * SS + sw),
+  )
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h

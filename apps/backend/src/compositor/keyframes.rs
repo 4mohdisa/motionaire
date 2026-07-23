@@ -45,7 +45,11 @@ fn resolve(kfs: &[Kf], prop: &str, static_v: f64, t_rel: f64) -> f64 {
                 return bezier_value(l, r, t_rel);
             }
             let span = r.t - l.t;
-            let p = if span <= 0.0 { 1.0 } else { (t_rel - l.t) / span };
+            let p = if span <= 0.0 {
+                1.0
+            } else {
+                (t_rel - l.t) / span
+            };
             return l.v + (r.v - l.v) * ease(&l.ease, p);
         }
     }
@@ -71,7 +75,9 @@ fn bezier_value(k1: &Kf, k2: &Kf, t_abs: f64) -> f64 {
     for _ in 0..24 {
         let mid = (lo + hi_u) / 2.0;
         let m = 1.0 - mid;
-        let x = m * m * m * x0 + 3.0 * m * m * mid * x1 + 3.0 * m * mid * mid * x2
+        let x = m * m * m * x0
+            + 3.0 * m * m * mid * x1
+            + 3.0 * m * mid * mid * x2
             + mid * mid * mid * x3;
         if x < t_abs {
             lo = mid;
@@ -103,7 +109,11 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
             // the composite pass; a normal layer's grade rides its chain.
             let mut g = [0.0f32; 5];
             if layer.adjust {
-                for fx in layer.stack.iter().filter(|f| f.enabled && f.kind == "grade") {
+                for fx in layer
+                    .stack
+                    .iter()
+                    .filter(|f| f.enabled && f.kind == "grade")
+                {
                     for (i, name) in ["exposure", "contrast", "saturation", "temperature", "tint"]
                         .iter()
                         .enumerate()
@@ -123,7 +133,12 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
                 let rp = |name: &str| {
                     resolve(kf, &format!("fx.{}.{}", fx.id, name), fx.num(name), t_rel) as f32
                 };
-                let mut op = ChainOp { op: 0, p: [0.0; 12], color: [0.0; 3], lut: None };
+                let mut op = ChainOp {
+                    op: 0,
+                    p: [0.0; 12],
+                    color: [0.0; 3],
+                    lut: None,
+                };
                 match fx.kind.as_str() {
                     "chromaKey" => {
                         op.op = 1;
@@ -155,7 +170,11 @@ pub fn resolve_layer(layer: &Layer, playhead: f64) -> ResolvedLayer {
                         op.p[3] = (rp("h") / 2.0).max(1.0);
                         op.p[4] = rp("feather");
                         op.p[5] = if fx.flag("invert") { 1.0 } else { 0.0 };
-                        op.p[6] = if fx.text("kind") == "ellipse" { 1.0 } else { 0.0 };
+                        op.p[6] = if fx.text("kind") == "ellipse" {
+                            1.0
+                        } else {
+                            0.0
+                        };
                     }
                     "vignette" => {
                         op.op = 5;
@@ -213,7 +232,14 @@ mod tests {
     use super::*;
 
     fn kf(prop: &str, t: f64, v: f64, ease: &str) -> Kf {
-        Kf { prop: prop.into(), t, v, ease: ease.into(), ho: None, hi: None }
+        Kf {
+            prop: prop.into(),
+            t,
+            v,
+            ease: ease.into(),
+            ho: None,
+            hi: None,
+        }
     }
 
     #[test]
@@ -228,7 +254,10 @@ mod tests {
         let mid = resolve(&kfs, "transform.scale", 1.0, 0.6);
         assert!((mid - 0.55).abs() < 1e-9, "easeInOut midpoint, got {mid}");
         let quarter = resolve(&kfs, "transform.scale", 1.0, 0.3);
-        assert!((quarter - 0.944).abs() < 5e-4, "easeInOut quarter, got {quarter}");
+        assert!(
+            (quarter - 0.944).abs() < 5e-4,
+            "easeInOut quarter, got {quarter}"
+        );
         // No keyframes → static value.
         assert_eq!(resolve(&[], "transform.scale", 0.7, 0.5), 0.7);
     }
@@ -240,8 +269,22 @@ mod tests {
     fn easing_table_matches_ts_mirror() {
         let curve = |ease: &str, x: f64| {
             let kfs = vec![
-                Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: ease.into(), ho: None, hi: None },
-                Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "linear".into(), ho: None, hi: None },
+                Kf {
+                    prop: "v".into(),
+                    t: 0.0,
+                    v: 0.0,
+                    ease: ease.into(),
+                    ho: None,
+                    hi: None,
+                },
+                Kf {
+                    prop: "v".into(),
+                    t: 1.0,
+                    v: 1.0,
+                    ease: "linear".into(),
+                    ho: None,
+                    hi: None,
+                },
             ];
             resolve(&kfs, "v", 0.0, x)
         };
@@ -249,17 +292,25 @@ mod tests {
         assert!((curve("easeIn", 0.5) - 0.125).abs() < 1e-12); // t³
         assert!((curve("easeOut", 0.5) - 0.875).abs() < 1e-12); // 1-(1-t)³
         assert!((curve("easeInOut", 0.25) - 0.0625).abs() < 1e-12); // 4t³ below ½
-        // spring: damped cosine approximation, 1 - e^{-6t}·cos(12t)
+                                                                    // spring: damped cosine approximation, 1 - e^{-6t}·cos(12t)
         let s = curve("spring", 0.5);
         let expect = 1.0 - (-3.0f64).exp() * (6.0f64).cos();
-        assert!((s - expect).abs() < 1e-9, "spring(0.5) = {s}, want {expect}");
+        assert!(
+            (s - expect).abs() < 1e-9,
+            "spring(0.5) = {s}, want {expect}"
+        );
     }
 
     #[test]
     fn bezier_segments_resolve_and_match_thirds_linear() {
         // Thirds handles == exact linear; asymmetric handles bend the curve.
         let mk = |t: f64, v: f64, ease: &str, ho: Option<[f64; 2]>, hi: Option<[f64; 2]>| Kf {
-            prop: "v".into(), t, v, ease: ease.into(), ho, hi,
+            prop: "v".into(),
+            t,
+            v,
+            ease: ease.into(),
+            ho,
+            hi,
         };
         let lin = vec![
             mk(0.0, 0.0, "bezier", Some([1.0 / 3.0, 1.0 / 3.0]), None),
@@ -292,8 +343,22 @@ mod tests {
     #[test]
     fn left_keyframe_easing_wins() {
         let kfs = vec![
-            Kf { prop: "v".into(), t: 0.0, v: 0.0, ease: "linear".into(), ho: None, hi: None },
-            Kf { prop: "v".into(), t: 1.0, v: 1.0, ease: "easeIn".into(), ho: None, hi: None }, // must be ignored
+            Kf {
+                prop: "v".into(),
+                t: 0.0,
+                v: 0.0,
+                ease: "linear".into(),
+                ho: None,
+                hi: None,
+            },
+            Kf {
+                prop: "v".into(),
+                t: 1.0,
+                v: 1.0,
+                ease: "easeIn".into(),
+                ho: None,
+                hi: None,
+            }, // must be ignored
         ];
         assert!((resolve(&kfs, "v", 0.0, 0.5) - 0.5).abs() < 1e-12);
     }
@@ -326,7 +391,11 @@ mod tests {
         // because its KEYFRAME makes it non-identity at t=1 (amount 4).
         assert_eq!(mid.chain.len(), 4, "chain {:?}", mid.chain);
         assert_eq!(mid.chain[0].op, 3);
-        assert!((mid.chain[0].p[0] - 4.0).abs() < 1e-6, "kf blur {}", mid.chain[0].p[0]);
+        assert!(
+            (mid.chain[0].p[0] - 4.0).abs() < 1e-6,
+            "kf blur {}",
+            mid.chain[0].p[0]
+        );
         assert_eq!(mid.chain[1].op, 2);
         assert!((mid.chain[1].p[0] - 0.5).abs() < 1e-9);
         assert_eq!(mid.chain[2].op, 3);
@@ -334,17 +403,16 @@ mod tests {
         assert_eq!(mid.chain[3].op, 4);
         assert!((mid.chain[3].p[2] - 200.0).abs() < 1e-9); // half-w
         assert!((mid.chain[3].p[6] - 1.0).abs() < 1e-9); // ellipse flag
-        // Normal layer: no adjust grade fold.
+                                                         // Normal layer: no adjust grade fold.
         assert_eq!(mid.grade, [0.0; 5]);
     }
 
     #[test]
     fn curves_bake_identity_and_shape() {
         // Identity points → identity ramp; a lifted midpoint bends row R only.
-        let fx_id: super::super::types::EffectCfg = serde_json::from_str(
-            r#"{"id":"c","type":"curves","enabled":true,"params":{}}"#,
-        )
-        .unwrap();
+        let fx_id: super::super::types::EffectCfg =
+            serde_json::from_str(r#"{"id":"c","type":"curves","enabled":true,"params":{}}"#)
+                .unwrap();
         let lut = bake_curves(&fx_id);
         assert_eq!((lut.w, lut.h), (256, 4));
         for i in [0usize, 64, 128, 200, 255] {
@@ -356,7 +424,11 @@ mod tests {
         )
         .unwrap();
         let bent = bake_curves(&fx_bent);
-        assert!(bent.rgba[128 * 4] > 190, "lifted R mid: {}", bent.rgba[128 * 4]);
+        assert!(
+            bent.rgba[128 * 4] > 190,
+            "lifted R mid: {}",
+            bent.rgba[128 * 4]
+        );
         assert_eq!(bent.rgba[(256 + 128) * 4], 128, "G row stays identity");
         assert_ne!(bent.rev, lut.rev, "rev must change with the points");
     }
@@ -374,7 +446,7 @@ mod tests {
         .unwrap();
         let lut = load_cube(p.to_str().unwrap()).expect("parse");
         assert_eq!((lut.w, lut.h), (4, 2)); // strip: width n*n, height n
-        // texel (x=0,y=0) = r0 g0 b0 → black; (x=1,y=0) = r1 g0 b0 → red
+                                            // texel (x=0,y=0) = r0 g0 b0 → black; (x=1,y=0) = r1 g0 b0 → red
         assert_eq!(&lut.rgba[0..3], &[0, 0, 0]);
         assert_eq!(&lut.rgba[4..7], &[255, 0, 0]);
         // slice 1 (blue=1) starts at x=2: (x=2,y=0) → blue
@@ -429,7 +501,10 @@ fn bake_curves(fx: &super::types::EffectCfg) -> super::types::LutData {
     };
     let mut rgba = vec![0u8; 256 * 4 * 4];
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for (row, key) in ["pointsR", "pointsG", "pointsB", "pointsM"].iter().enumerate() {
+    for (row, key) in ["pointsR", "pointsG", "pointsB", "pointsM"]
+        .iter()
+        .enumerate()
+    {
         let pts = channel(key);
         for (x, y) in &pts {
             x.to_bits().hash(&mut hasher);
@@ -446,7 +521,12 @@ fn bake_curves(fx: &super::types::EffectCfg) -> super::types::LutData {
             rgba[px + 3] = 255;
         }
     }
-    super::types::LutData { w: 256, h: 4, rgba, rev: hasher.finish() }
+    super::types::LutData {
+        w: 256,
+        h: 4,
+        rgba,
+        rev: hasher.finish(),
+    }
 }
 
 fn catmull_eval(pts: &[(f64, f64)], x: f64) -> f64 {
@@ -547,7 +627,12 @@ fn load_cube(path: &str) -> Option<super::types::LutData> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut h);
-    let lut = super::types::LutData { w: (n * n) as u32, h: n as u32, rgba, rev: h.finish() };
+    let lut = super::types::LutData {
+        w: (n * n) as u32,
+        h: n as u32,
+        rgba,
+        rev: h.finish(),
+    };
     cache.insert(path.to_string(), std::sync::Arc::new(lut.clone()));
     Some(lut)
 }

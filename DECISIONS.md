@@ -2409,3 +2409,59 @@ Gate: full cold suite after the changes.
 - Everything else (mutation authority, undo coverage, parity, dirty
   accuracy, empty states) is pinned by the standing suite: f1_parity's
   68-sample probe, the undo unit battery, p6_safety, F0/R1P7 audits.
+
+## Phase 3 — cleanup and release-surface gating
+
+- **dev:* cases extracted to menu/devCases.ts** behind an
+  `import.meta.env.DEV`-guarded dynamic import — menuBridge went 3469 → 167
+  lines of product code, and the production bundle contains ZERO dev
+  markers (verified by string-scanning dist/). Under `tauri dev` nothing
+  changes: the e2e suite still drives the same cases.
+- **Rust dev commands are debug-only**: spike_setup/spike_audio/
+  autorun_demo/env_flag/report_test/resolve_parity_probe/spike_4k/
+  capture_preview/emit_menu_action carry #[cfg(debug_assertions)] and the
+  builder now forks into two generate_handler lists (generate_handler
+  needs its call-site for type inference — a bare `let handler = …` fails
+  E0282). 53 commands in debug, 44 in release.
+  **spike_long_fixtures deliberately stays in release** — the launcher's
+  Sample Project button is a product feature built on it.
+- SPIKE_DEMO is inert in release (cfg! gate at the env check); the
+  "Load PiP Demo (dev)" menu item exists only in debug builds.
+- **bridge.ts −369 lines**: the seven env-gated self-tests
+  (SPIKE_PERSIST/CLOCK/REOPEN/LAYOUT/MENU/FONT) deleted — no runner sets
+  those vars since the session-11 suite formalization, and each one's
+  coverage now lives in permanent suite tests (p6_safety, smoke clock
+  guard, rel_project font/reopen, e2e menu triggers). An unrunnable test
+  is fake coverage.
+- **Formatting**: cargo fmt adopted (the Rust tree was hand-formatted;
+  199 mechanical hunks, one commit) and prettier --write across the
+  frontend (35 files drifted). Both linters clean, zero suppressions.
+- Work orders removed (PLAN_RUN_1.md, PLAN_RELEASE.md — completed
+  tonight); .gitignore gains *.motionaire/ and visual candidates. All 7
+  npm runtime deps and all Rust crates verified in use.
+
+## Phase 5 — licensing & legal
+
+- LICENSE = canonical AGPL-3.0 text (fetched from gnu.org, unmodified),
+  copyright asserted via manifests and README (© 2026 Mohammed Isa).
+- **FFmpeg: NOT bundled (the plan's recommended option).** Motionaire
+  invokes the user's own ffmpeg/ffprobe binaries as subprocesses — no
+  linking, no redistribution, no GPL/LGPL build question. A runtime check
+  at boot surfaces a clear install message when missing (implemented after
+  the Phase-3 gate suite; verified in the release artifact).
+- THIRD_PARTY.md written from the REAL dependency lists (package.json +
+  Cargo.toml), not from memory.
+- Author metadata: root+frontend package.json (author/license/0.1.0),
+  Cargo.toml authors=["Mohammed Isa"], tauri.conf bundle
+  publisher/copyright/category; productName → "Motionaire", bundle
+  targets app+dmg.
+
+## Phase 6 (decision made early) — the activation gate ships UNLOCKED
+
+- The open-source build has no license gate: useBootFlow no longer routes
+  to 'activate', and the Preferences deactivate row is gone (dead UI
+  otherwise). The ENTIRE seam stays: license.rs validator trait, the
+  activate/deactivate/status commands, the gate view component, and
+  p1_shell_test (command-level) still exercises the validator lifecycle.
+  A future commercial build re-enables the gate by restoring the one boot
+  check. The public TEST_KEY in source is public by design.

@@ -151,7 +151,8 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
   {
     spec: {
       name: 'trim_clip',
-      description: 'Move a clip edge to a timeline time. edge "in" = left edge, "out" = right edge.',
+      description:
+        'Move a clip edge to a timeline time. edge "in" = left edge, "out" = right edge.',
       schema: {
         type: 'object',
         properties: {
@@ -178,7 +179,8 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
   {
     spec: {
       name: 'move_clip',
-      description: 'Move a clip to a new start time, optionally to another track. Rejects collisions.',
+      description:
+        'Move a clip to a new start time, optionally to another track. Rejects collisions.',
       schema: {
         type: 'object',
         properties: {
@@ -194,9 +196,7 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
       if ('ok' in e) return e
       const start = num(a.start)
       if (start === null) return fail('start must be a number')
-      st().moveClipsTo([
-        { id: String(a.clip_id), start, trackId: str(a.track_id) ?? undefined },
-      ])
+      st().moveClipsTo([{ id: String(a.clip_id), start, trackId: str(a.track_id) ?? undefined }])
       const now = clip(String(a.clip_id))!
       const moved = Math.abs(now.c.start - start) < 1 / proj().canvas.fps
       return moved
@@ -220,7 +220,10 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
     run: (a) => {
       const ids = Array.isArray(a.clip_ids) ? a.clip_ids.map(String) : []
       if (!ids.length) return fail('clip_ids is empty')
-      const names = ids.map((i) => clip(i)).filter(Boolean).map((f) => clipName(f!.c))
+      const names = ids
+        .map((i) => clip(i))
+        .filter(Boolean)
+        .map((f) => clipName(f!.c))
       if (!names.length) return fail('no matching clips')
       if (a.ripple) st().rippleDeleteClips(ids)
       else st().deleteClips(ids)
@@ -426,7 +429,8 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
   {
     spec: {
       name: 'set_effect_param',
-      description: 'Set one parameter on an effect instance (see add_effect data.params for names).',
+      description:
+        'Set one parameter on an effect instance (see add_effect data.params for names).',
       schema: {
         type: 'object',
         properties: {
@@ -588,7 +592,8 @@ export const TOOLS: { spec: ToolSpec; run: Executor }[] = [
       const e = editable(String(a.clip_id))
       if ('ok' in e) return e
       const d = num(a.duration)
-      if (d === null || d <= 0 || (a.edge !== 'in' && a.edge !== 'out')) return fail('bad edge/duration')
+      if (d === null || d <= 0 || (a.edge !== 'in' && a.edge !== 'out'))
+        return fail('bad edge/duration')
       st().setTransition(String(a.clip_id), a.edge, {
         type: String(a.type) as TransitionType,
         duration: Math.min(d, clipDuration(e.c) / 2),

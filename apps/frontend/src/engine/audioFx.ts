@@ -33,7 +33,8 @@ export function audioFxFilter(fx: Effect): string | null {
       const lg = num(fx, 'lowGain', 0)
       const mg = num(fx, 'midGain', 0)
       const hg = num(fx, 'highGain', 0)
-      if (lg !== 0) parts.push(`lowshelf=g=${lg.toFixed(1)}:f=${num(fx, 'lowFreq', 120).toFixed(0)}`)
+      if (lg !== 0)
+        parts.push(`lowshelf=g=${lg.toFixed(1)}:f=${num(fx, 'lowFreq', 120).toFixed(0)}`)
       if (mg !== 0)
         parts.push(
           `equalizer=f=${num(fx, 'midFreq', 1000).toFixed(0)}:t=q:w=${num(fx, 'midQ', 1).toFixed(2)}:g=${mg.toFixed(1)}`,

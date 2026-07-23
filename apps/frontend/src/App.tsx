@@ -70,7 +70,10 @@ function UnsavedPrompt() {
           <button className="topbar__btn" onClick={() => resolveUnsaved('discard')}>
             Don&apos;t Save
           </button>
-          <button className="topbar__btn topbar__btn--primary" onClick={() => resolveUnsaved('save')}>
+          <button
+            className="topbar__btn topbar__btn--primary"
+            onClick={() => resolveUnsaved('save')}
+          >
             Save
           </button>
         </div>
@@ -78,7 +81,6 @@ function UnsavedPrompt() {
     </div>
   )
 }
-
 
 function App() {
   useShortcuts()

@@ -65,11 +65,7 @@ impl CompositorState {
     }
 
     // Upsert changed rasters; drop rasters for clips no longer alive.
-    pub fn set_text_rasters(
-        &self,
-        upserts: Vec<(String, types::TextRaster)>,
-        live: Vec<String>,
-    ) {
+    pub fn set_text_rasters(&self, upserts: Vec<(String, types::TextRaster)>, live: Vec<String>) {
         let mut map = self.text_rasters.lock().unwrap();
         for (id, r) in upserts {
             map.insert(id, r);
@@ -92,15 +88,28 @@ impl CompositorState {
     }
 
     pub fn set_playhead(&self, t: f64, playing: bool, rate: f64) {
-        let rate = if rate.is_finite() && rate != 0.0 { rate.clamp(-8.0, 8.0) } else { 1.0 };
-        *self.clock.lock().unwrap() = Clock { t, playing, rate, anchored: Instant::now() };
+        let rate = if rate.is_finite() && rate != 0.0 {
+            rate.clamp(-8.0, 8.0)
+        } else {
+            1.0
+        };
+        *self.clock.lock().unwrap() = Clock {
+            t,
+            playing,
+            rate,
+            anchored: Instant::now(),
+        };
         self.dirty.store(true, Ordering::Relaxed);
     }
 
     pub fn current_t(&self) -> (f64, bool, f64) {
         let c = *self.clock.lock().unwrap();
         if c.playing {
-            (c.t + c.anchored.elapsed().as_secs_f64() * c.rate, true, c.rate)
+            (
+                c.t + c.anchored.elapsed().as_secs_f64() * c.rate,
+                true,
+                c.rate,
+            )
         } else {
             (c.t, false, c.rate)
         }
@@ -120,7 +129,12 @@ pub fn start() -> Compositor {
     let state: Compositor = Arc::new(CompositorState {
         project: Mutex::new(None),
         text_rasters: Mutex::new(std::collections::HashMap::new()),
-        clock: Mutex::new(Clock { t: 0.0, playing: false, rate: 1.0, anchored: Instant::now() }),
+        clock: Mutex::new(Clock {
+            t: 0.0,
+            playing: false,
+            rate: 1.0,
+            anchored: Instant::now(),
+        }),
         dirty: AtomicBool::new(true),
         preview_full: AtomicBool::new(false),
         clients: Arc::new(AtomicUsize::new(0)),
@@ -179,7 +193,7 @@ pub fn start() -> Compositor {
 }
 
 fn render_loop(state: Compositor) {
-    let spike_demo = std::env::var("SPIKE_DEMO").is_ok_and(|v| v == "1");
+    let spike_demo = cfg!(debug_assertions) && std::env::var("SPIKE_DEMO").is_ok_and(|v| v == "1");
     if spike_demo {
         match demo::spike_media_info() {
             Ok((screen, cam)) => {
@@ -279,7 +293,11 @@ fn render_iteration(
         return;
     }
 
-    let out_h = if state.preview_full.load(Ordering::Relaxed) { project.canvas.height } else { 720 };
+    let out_h = if state.preview_full.load(Ordering::Relaxed) {
+        project.canvas.height
+    } else {
+        720
+    };
     let dims = (project.canvas.width, project.canvas.height, out_h);
     if gpu.is_none() || *gpu_canvas != dims {
         let reason = if gpu.is_none() {
@@ -315,7 +333,12 @@ fn render_iteration(
 
     if spike_demo && !*dumped {
         *dumped = true;
-        for (label, dt) in [("fullscreen", 0.5), ("mid-shrink", 1.6), ("pip-hold", 3.5), ("returning", 5.8)] {
+        for (label, dt) in [
+            ("fullscreen", 0.5),
+            ("mid-shrink", 1.6),
+            ("pip-hold", 3.5),
+            ("returning", 5.8),
+        ] {
             let p = demo::spike_dir().join(format!("composite-{label}-t{dt}.png"));
             match g.dump_png(&project, dt, &p) {
                 Ok(()) => log::info!("spike demo: dumped {}", p.display()),
@@ -331,7 +354,13 @@ fn render_iteration(
             let ms = started.elapsed().as_secs_f64() * 1000.0;
             *ema_ms = *ema_ms * 0.9 + ms * 0.1;
             let capacity_fps = (1000.0 / *ema_ms) as f32;
-            let msg = server::frame_message(g.out_w as u16, g.out_h as u16, t as f32, capacity_fps, &rgba);
+            let msg = server::frame_message(
+                g.out_w as u16,
+                g.out_h as u16,
+                t as f32,
+                capacity_fps,
+                &rgba,
+            );
             let _ = state.frame_tx.send(msg.clone());
             *last_msg = Some(msg);
             *last_send = Instant::now();
@@ -350,7 +379,10 @@ fn render_iteration(
         Err(e) => {
             *consecutive_errors += 1;
             state.stats.render_errors.fetch_add(1, Ordering::Relaxed);
-            log::error!("compositor: render failed ({} in a row): {e}", *consecutive_errors);
+            log::error!(
+                "compositor: render failed ({} in a row): {e}",
+                *consecutive_errors
+            );
             state.set_status(format!("render error x{}: {e}", *consecutive_errors));
             if *consecutive_errors >= 3 {
                 log::warn!("compositor: 3 consecutive render failures — dropping GPU for re-init");

@@ -22,26 +22,31 @@ export function useBootFlow() {
         // a key — say so ONCE, with a direct path to the setting.
         const st2 = useStore.getState()
         if (st2.aiConfigured) return
-        const seen = await invoke<string | null>('get_setting', { key: 'aiOnboardShown' }).catch(() => '1')
+        const seen = await invoke<string | null>('get_setting', { key: 'aiOnboardShown' }).catch(
+          () => '1',
+        )
         if (seen) return
         void invoke('set_setting', { key: 'aiOnboardShown', value: '1' }).catch(() => {})
         st2.pushToast(
           'info',
           'AI editing is ready to set up — add an API key (or pick the offline mock) to edit with plain English.',
           undefined,
-          { label: 'Open AI settings', onClick: () => useStore.getState().setDialog('preferences') },
+          {
+            label: 'Open AI settings',
+            onClick: () => useStore.getState().setDialog('preferences'),
+          },
         )
       })
       void invoke<string | null>('get_setting', { key: 'prefs' })
         .then((raw) => {
-          if (raw) st.setPrefs(JSON.parse(raw) as Partial<{ autosaveSecs: number; autoProxy: boolean }>)
+          if (raw)
+            st.setPrefs(JSON.parse(raw) as Partial<{ autosaveSecs: number; autoProxy: boolean }>)
         })
         .catch(() => {})
-      const activated = await invoke<boolean>('license_status').catch(() => false)
-      if (!activated) {
-        st.setAppView('activate')
-        return
-      }
+      // Release decision: the open-source build ships UNLOCKED — no license
+      // gate at boot. The LicenseValidator seam (license.rs + the activate/
+      // deactivate commands + the gate view) stays intact for any future
+      // commercial build; only this check was removed.
       const done = await invoke<string | null>('get_setting', {
         key: 'onboarding_completed',
       }).catch(() => null)

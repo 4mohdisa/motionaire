@@ -8,7 +8,13 @@ import { useStore } from '../state/store'
 
 const AUTO_DISMISS_MS = 4500
 
-function Toast({ id, kind, text, progress, action }: {
+function Toast({
+  id,
+  kind,
+  text,
+  progress,
+  action,
+}: {
   id: string
   kind: 'info' | 'success' | 'error' | 'progress'
   text: string

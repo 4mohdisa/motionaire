@@ -16,8 +16,18 @@ pub fn ffmpeg_bin() -> String {
     if let Ok(p) = std::env::var("MOTIONAIRE_FFMPEG") {
         return p;
     }
-    for cand in ["ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"] {
-        if Command::new(cand).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok() {
+    for cand in [
+        "ffmpeg",
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+    ] {
+        if Command::new(cand)
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok()
+        {
             return cand.to_string();
         }
     }
@@ -53,21 +63,32 @@ pub struct FullMediaInfo {
 
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
     let f = probe_full(path)?;
-    Ok(MediaInfo { width: f.width, height: f.height, fps: f.fps, duration: f.duration })
+    Ok(MediaInfo {
+        width: f.width,
+        height: f.height,
+        fps: f.fps,
+        duration: f.duration,
+    })
 }
 
 pub fn probe_full(path: &str) -> Result<FullMediaInfo, String> {
     let out = Command::new(ffprobe_bin())
         .args([
-            "-v", "error",
-            "-show_entries", "stream=codec_type,width,height,avg_frame_rate,duration:format=duration",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,width,height,avg_frame_rate,duration:format=duration",
+            "-of",
+            "json",
             path,
         ])
         .output()
         .map_err(|e| format!("ffprobe spawn: {e}"))?;
     if !out.status.success() {
-        return Err(format!("ffprobe failed for {path}: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "ffprobe failed for {path}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let v: serde_json::Value =
         serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
@@ -81,14 +102,24 @@ pub fn probe_full(path: &str) -> Result<FullMediaInfo, String> {
 
     let Some(s) = video else {
         // Audio-only media is legitimate (detached audio, music beds).
-        return Ok(FullMediaInfo { width: 0, height: 0, fps: 0.0, duration: format_duration, has_audio });
+        return Ok(FullMediaInfo {
+            width: 0,
+            height: 0,
+            fps: 0.0,
+            duration: format_duration,
+            has_audio,
+        });
     };
     let rate = s["avg_frame_rate"].as_str().unwrap_or("30/1");
     let fps = {
         let mut it = rate.split('/');
         let n: f64 = it.next().unwrap_or("30").parse().unwrap_or(30.0);
         let d: f64 = it.next().unwrap_or("1").parse().unwrap_or(1.0);
-        if d > 0.0 && n > 0.0 { n / d } else { 30.0 }
+        if d > 0.0 && n > 0.0 {
+            n / d
+        } else {
+            30.0
+        }
     };
     let duration = s["duration"]
         .as_str()
@@ -110,16 +141,23 @@ pub fn probe_full(path: &str) -> Result<FullMediaInfo, String> {
 pub fn is_vfr(path: &str) -> Result<bool, String> {
     let out = Command::new(ffprobe_bin())
         .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=r_frame_rate,avg_frame_rate",
-            "-of", "json",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=r_frame_rate,avg_frame_rate",
+            "-of",
+            "json",
             path,
         ])
         .output()
         .map_err(|e| format!("ffprobe spawn: {e}"))?;
     if !out.status.success() {
-        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let v: serde_json::Value =
         serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
@@ -129,7 +167,11 @@ pub fn is_vfr(path: &str) -> Result<bool, String> {
         let mut it = rate.split('/');
         let n: f64 = it.next().unwrap_or("0").parse().unwrap_or(0.0);
         let d: f64 = it.next().unwrap_or("1").parse().unwrap_or(1.0);
-        if d > 0.0 { n / d } else { 0.0 }
+        if d > 0.0 {
+            n / d
+        } else {
+            0.0
+        }
     };
     let r = parse("r_frame_rate");
     let avg = parse("avg_frame_rate");
@@ -146,7 +188,11 @@ pub fn normalize_to_cfr(path: &str, cache_dir: &std::path::Path) -> Result<(Stri
         return Ok((path.to_string(), false));
     }
     let info = probe(path)?;
-    let target_fps = if info.fps > 1.0 { info.fps.round().clamp(10.0, 120.0) } else { 30.0 };
+    let target_fps = if info.fps > 1.0 {
+        info.fps.round().clamp(10.0, 120.0)
+    } else {
+        30.0
+    };
     std::fs::create_dir_all(cache_dir).map_err(|e| e.to_string())?;
     let stem = std::path::Path::new(path)
         .file_stem()
@@ -162,17 +208,38 @@ pub fn normalize_to_cfr(path: &str, cache_dir: &std::path::Path) -> Result<(Stri
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("h264_videotoolbox"))
             .unwrap_or(false);
         let mut args: Vec<String> = vec![
-            "-v".into(), "error".into(), "-y".into(),
-            "-i".into(), path.into(),
-            "-fps_mode".into(), "cfr".into(),
-            "-r".into(), format!("{target_fps}"),
+            "-v".into(),
+            "error".into(),
+            "-y".into(),
+            "-i".into(),
+            path.into(),
+            "-fps_mode".into(),
+            "cfr".into(),
+            "-r".into(),
+            format!("{target_fps}"),
         ];
         if vt {
-            args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), "12M".into()]);
+            args.extend([
+                "-c:v".into(),
+                "h264_videotoolbox".into(),
+                "-b:v".into(),
+                "12M".into(),
+            ]);
         } else {
-            args.extend(["-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(), "-crf".into(), "17".into()]);
+            args.extend([
+                "-c:v".into(),
+                "libx264".into(),
+                "-preset".into(),
+                "veryfast".into(),
+                "-crf".into(),
+                "17".into(),
+            ]);
         }
-        args.extend(["-c:a".into(), "copy".into(), out.to_string_lossy().into_owned()]);
+        args.extend([
+            "-c:a".into(),
+            "copy".into(),
+            out.to_string_lossy().into_owned(),
+        ]);
         let status = Command::new(ffmpeg_bin())
             .args(&args)
             .status()
@@ -266,11 +333,16 @@ impl Decoder {
         let seek_t = at_idx.max(0) as f64 / self.info.fps;
         let mut child = Command::new(ffmpeg_bin())
             .args([
-                "-v", "error",
-                "-ss", &format!("{seek_t:.6}"),
-                "-i", &self.path,
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
+                "-v",
+                "error",
+                "-ss",
+                &format!("{seek_t:.6}"),
+                "-i",
+                &self.path,
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgba",
                 "-an",
                 "pipe:1",
             ])
@@ -285,7 +357,9 @@ impl Decoder {
     }
 
     fn read_next(&mut self) -> bool {
-        let Some(out) = self.stdout.as_mut() else { return false };
+        let Some(out) = self.stdout.as_mut() else {
+            return false;
+        };
         match out.read_exact(&mut self.frame) {
             Ok(()) => {
                 self.cur_idx += 1;
@@ -297,7 +371,8 @@ impl Decoder {
     }
 
     fn push_ring(&mut self, idx: i64) {
-        self.ring.push_back((idx, self.frame.clone().into_boxed_slice()));
+        self.ring
+            .push_back((idx, self.frame.clone().into_boxed_slice()));
         self.ring_bytes += self.frame_bytes;
         while self.ring_bytes > self.ring_cap_bytes {
             if let Some((_, f)) = self.ring.pop_front() {
@@ -332,7 +407,11 @@ impl Decoder {
         // per rendered frame against a gone/corrupt file.
         if let Some(at) = self.next_retry {
             if std::time::Instant::now() < at {
-                return if self.cur_idx >= 0 { Some(&self.frame) } else { None };
+                return if self.cur_idx >= 0 {
+                    Some(&self.frame)
+                } else {
+                    None
+                };
             }
             self.next_retry = None;
         }
@@ -446,7 +525,13 @@ mod tests {
     #[test]
     fn vfr_detection_and_normalization() {
         let ffmpeg = ffmpeg_bin();
-        if Command::new(&ffmpeg).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
+        if Command::new(&ffmpeg)
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+        {
             eprintln!("skipping: ffmpeg unavailable");
             return;
         }
@@ -459,29 +544,57 @@ mod tests {
         let vfr = dir.join("vfr.mp4");
         assert!(Command::new(&ffmpeg)
             .args([
-                "-v", "error", "-y",
-                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30",
-                "-t", "4",
-                "-vf", "select='gt(random(1)\\,0.4)'",
-                "-fps_mode", "vfr",
-                "-pix_fmt", "yuv420p",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30",
+                "-t",
+                "4",
+                "-vf",
+                "select='gt(random(1)\\,0.4)'",
+                "-fps_mode",
+                "vfr",
+                "-pix_fmt",
+                "yuv420p",
                 vfr.to_str().unwrap(),
             ])
             .status()
             .unwrap()
             .success());
-        assert!(is_vfr(vfr.to_str().unwrap()).unwrap(), "generated file must read as VFR");
+        assert!(
+            is_vfr(vfr.to_str().unwrap()).unwrap(),
+            "generated file must read as VFR"
+        );
 
         let (normalized, was_vfr) = normalize_to_cfr(vfr.to_str().unwrap(), &dir).unwrap();
         assert!(was_vfr);
         assert_ne!(normalized, vfr.to_str().unwrap());
-        assert!(!is_vfr(&normalized).unwrap(), "normalized output must be CFR");
+        assert!(
+            !is_vfr(&normalized).unwrap(),
+            "normalized output must be CFR"
+        );
         assert!(Decoder::new(&normalized).unwrap().frame_at(0.5).is_some());
 
         // CFR passthrough: untouched path, no transcode.
         let cfr = dir.join("cfr.mp4");
         assert!(Command::new(&ffmpeg)
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-t", "2", "-pix_fmt", "yuv420p", cfr.to_str().unwrap()])
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30",
+                "-t",
+                "2",
+                "-pix_fmt",
+                "yuv420p",
+                cfr.to_str().unwrap()
+            ])
             .status()
             .unwrap()
             .success());
@@ -496,16 +609,36 @@ mod tests {
     #[test]
     fn backoff_engages_when_source_vanishes() {
         let ffmpeg = ffmpeg_bin();
-        if Command::new(&ffmpeg).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
+        if Command::new(&ffmpeg)
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+        {
             eprintln!("skipping: ffmpeg unavailable");
             return;
         }
-        let dir = std::env::temp_dir().join(format!("motionaire-decoder-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("motionaire-decoder-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("v.mp4");
         assert!(Command::new(&ffmpeg)
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-t", "2", "-pix_fmt", "yuv420p", file.to_str().unwrap()])
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30",
+                "-t",
+                "2",
+                "-pix_fmt",
+                "yuv420p",
+                file.to_str().unwrap()
+            ])
             .status()
             .unwrap()
             .success());
@@ -520,13 +653,19 @@ mod tests {
         for i in 0..10 {
             let _ = d.frame_at(1.0 + (i % 3) as f64 * 0.2);
         }
-        assert!(d.next_retry.is_some(), "back-off must engage after repeated deaths");
+        assert!(
+            d.next_retry.is_some(),
+            "back-off must engage after repeated deaths"
+        );
         let spawns_during_backoff = d.respawns;
         // Cooldown active: further calls must not spawn anything.
         for _ in 0..20 {
             let _ = d.frame_at(1.5);
         }
-        assert_eq!(d.respawns, spawns_during_backoff, "no spawns while backing off");
+        assert_eq!(
+            d.respawns, spawns_during_backoff,
+            "no spawns while backing off"
+        );
         // Old frame is still served (stale better than black).
         assert!(d.frame_at(1.5).is_some());
     }

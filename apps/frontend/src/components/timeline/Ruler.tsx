@@ -92,7 +92,9 @@ function Ruler() {
           style={{ left: markIn * pxPerSec, width: (markOut - markIn) * pxPerSec }}
         />
       )}
-      {markIn !== null && <div className="tl__mark tl__mark--in" style={{ left: markIn * pxPerSec }} />}
+      {markIn !== null && (
+        <div className="tl__mark tl__mark--in" style={{ left: markIn * pxPerSec }} />
+      )}
       {markOut !== null && (
         <div className="tl__mark tl__mark--out" style={{ left: markOut * pxPerSec }} />
       )}
@@ -128,8 +130,7 @@ function Ruler() {
                 onPointerDown={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation()
-                  if (e.key === 'Enter' || e.key === 'Escape')
-                    (e.target as HTMLInputElement).blur()
+                  if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
                 }}
                 onBlur={(e) => {
                   const v = e.target.value.trim()

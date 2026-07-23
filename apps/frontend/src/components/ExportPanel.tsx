@@ -24,14 +24,11 @@ function ExportPanel() {
     const un1 = listen<{ done: number; total: number }>('export:progress', (e) =>
       setProgress(e.payload),
     )
-    const un2 = listen<{ ok: boolean; cancelled?: boolean; error?: string }>(
-      'export:done',
-      (e) => {
-        setProgress(null)
-        if (e.payload.ok) setDonePath(outRef.current)
-        else if (!e.payload.cancelled) setError(e.payload.error ?? 'unknown error')
-      },
-    )
+    const un2 = listen<{ ok: boolean; cancelled?: boolean; error?: string }>('export:done', (e) => {
+      setProgress(null)
+      if (e.payload.ok) setDonePath(outRef.current)
+      else if (!e.payload.cancelled) setError(e.payload.error ?? 'unknown error')
+    })
     return () => {
       void un1.then((f) => f())
       void un2.then((f) => f())

@@ -73,10 +73,7 @@ pub fn snapshot_webview(
 
 // NSImage → PNG bytes via NSBitmapImageRep (AppKit does the encoding).
 unsafe fn nsimage_to_png(img: &NSImage) -> Result<Vec<u8>, String> {
-    let mut rect = NSRect::new(
-        objc2_foundation::NSPoint::new(0.0, 0.0),
-        img.size(),
-    );
+    let mut rect = NSRect::new(objc2_foundation::NSPoint::new(0.0, 0.0), img.size());
     let cg: *mut AnyObject = msg_send![
         img,
         CGImageForProposedRect: &mut rect,

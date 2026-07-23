@@ -29,7 +29,10 @@ pub fn frame_message(w: u16, h: u16, t: f32, fps: f32, rgba: &[u8]) -> Bytes {
     Bytes::from(buf)
 }
 
-pub async fn run(rx: watch::Receiver<Bytes>, client_count: std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+pub async fn run(
+    rx: watch::Receiver<Bytes>,
+    client_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
     let port = port();
     let listener = match TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => l,
@@ -40,11 +43,15 @@ pub async fn run(rx: watch::Receiver<Bytes>, client_count: std::sync::Arc<std::s
     };
     log::info!("compositor ws: listening on ws://127.0.0.1:{port}");
     loop {
-        let Ok((stream, peer)) = listener.accept().await else { continue };
+        let Ok((stream, peer)) = listener.accept().await else {
+            continue;
+        };
         let mut rx = rx.clone();
         let count = client_count.clone();
         tokio::spawn(async move {
-            let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return };
+            let Ok(ws) = tokio_tungstenite::accept_async(stream).await else {
+                return;
+            };
             log::info!("compositor ws: client connected from {peer}");
             count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let (mut sink, mut source) = ws.split();

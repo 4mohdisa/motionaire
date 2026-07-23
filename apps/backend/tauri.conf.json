@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "motionaire",
+  "productName": "Motionaire",
   "version": "0.1.0",
   "identifier": "com.motionaire.app",
   "build": {
@@ -42,7 +42,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -52,6 +55,11 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "publisher": "Mohammed Isa",
+    "copyright": "Copyright \u00a9 2026 Mohammed Isa. AGPL-3.0-only.",
+    "category": "Video",
+    "shortDescription": "AI-native video editor",
+    "longDescription": "AI-native editor for screen recordings and talking-head content. Edits from plain English through the same timeline mutations the UI uses."
   }
 }

@@ -215,9 +215,7 @@ export function setTrackBusFx(trackId: string, effects: import('../types/project
   bus.fxRev = rev
   bus.input.disconnect()
   for (const nd of bus.fxNodes) nd.disconnect()
-  bus.fxNodes = effects
-    .filter((e) => e.enabled)
-    .flatMap((e) => buildFxNode(e))
+  bus.fxNodes = effects.filter((e) => e.enabled).flatMap((e) => buildFxNode(e))
   let head: AudioNode = bus.input
   for (const nd of bus.fxNodes) {
     head.connect(nd)

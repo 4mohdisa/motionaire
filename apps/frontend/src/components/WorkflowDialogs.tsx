@@ -44,7 +44,10 @@ export function ProjectSettingsDialog() {
               min={16}
               value={canvas.width}
               onChange={(e) =>
-                setCanvasPreset({ width: Number(e.target.value) || canvas.width, height: canvas.height })
+                setCanvasPreset({
+                  width: Number(e.target.value) || canvas.width,
+                  height: canvas.height,
+                })
               }
             />
           </label>
@@ -55,7 +58,10 @@ export function ProjectSettingsDialog() {
               min={16}
               value={canvas.height}
               onChange={(e) =>
-                setCanvasPreset({ width: canvas.width, height: Number(e.target.value) || canvas.height })
+                setCanvasPreset({
+                  width: canvas.width,
+                  height: Number(e.target.value) || canvas.height,
+                })
               }
             />
           </label>
@@ -146,22 +152,10 @@ export function PreferencesDialog() {
           onSelect={(v) => save({ aiVideoProvider: v as typeof prefs.aiVideoProvider })}
         />
 
-        <div className="modal__section">License</div>
-        <div className="modal__actions" style={{ justifyContent: 'flex-start', marginTop: 4 }}>
-          <button
-            className="topbar__btn"
-            onClick={() => {
-              void invoke('deactivate_license')
-                .then(() => {
-                  setDialog(null)
-                  useStore.getState().setAppView('activate')
-                })
-                .catch(() => {})
-            }}
-          >
-            Deactivate this Mac…
-          </button>
-        </div>
+        {/* Release decision: the open-source build ships unlocked — no boot
+            gate, so a deactivate button here would be dead UI. The license
+            seam (validator + commands + gate view) remains in code for any
+            future commercial build. */}
         <div className="modal__actions">
           <button className="topbar__btn topbar__btn--primary" onClick={() => setDialog(null)}>
             Done
@@ -228,7 +222,6 @@ export function WorkflowDialogs() {
   return null
 }
 
-
 // AI provider selection + key management (Run 1, Phase 2). The key input is
 // WRITE-ONLY: its value goes straight to ai_set_key (Rust → keychain) and
 // the field clears — nothing key-shaped stays in JS state or the DOM.
@@ -281,10 +274,7 @@ function AiProviderBlock({
         <>
           <div className="modal__grid">
             <label className="modal__field modal__field--wide">
-              <span>
-                API key{' '}
-                {hasKey === null ? '' : hasKey ? '· saved ✓' : '· not set'}
-              </span>
+              <span>API key {hasKey === null ? '' : hasKey ? '· saved ✓' : '· not set'}</span>
               <input
                 type="password"
                 autoComplete="off"

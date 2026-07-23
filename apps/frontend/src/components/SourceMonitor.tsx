@@ -1,13 +1,5 @@
 import { useRef, useState } from 'react'
-import {
-  ArrowDownToLine,
-  Pause,
-  Play,
-  SkipBack,
-  StepBack,
-  StepForward,
-  X,
-} from 'lucide-react'
+import { ArrowDownToLine, Pause, Play, SkipBack, StepBack, StepForward, X } from 'lucide-react'
 import { useStore } from '../state/store'
 import { formatTimecode } from '../engine/time'
 import IconBtn from './IconBtn'

@@ -25,7 +25,10 @@ fn pseudo_rand(state: &mut u64) -> f64 {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let secs: u64 = std::env::var("SOAK_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(2100);
+    let secs: u64 = std::env::var("SOAK_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2100);
 
     let (screen, cam) = demo::spike_media_info().expect("media generation");
     let base_project = demo::demo_project(&screen.path, &cam.path);
@@ -38,8 +41,12 @@ fn main() {
         x: 8.0,
         y: 12.0,
     });
-    project.layers[1].transform.crop =
-        compositor::types::CropCfg { l: 0.05, t: 0.05, r: 0.05, b: 0.05 };
+    project.layers[1].transform.crop = compositor::types::CropCfg {
+        l: 0.05,
+        t: 0.05,
+        r: 0.05,
+        b: 0.05,
+    };
 
     let state = compositor::start();
     state.set_project(project.clone());
@@ -91,7 +98,8 @@ fn main() {
                             churned += 1;
                             let stint = Instant::now();
                             while stint.elapsed().as_secs() < 10 {
-                                match tokio::time::timeout(Duration::from_secs(3), ws.next()).await {
+                                match tokio::time::timeout(Duration::from_secs(3), ws.next()).await
+                                {
                                     Ok(Some(Ok(msg))) => {
                                         if msg.is_binary() {
                                             received += 1;
@@ -158,7 +166,9 @@ fn main() {
         if last_kill.elapsed().as_secs() > 120 {
             last_kill = Instant::now();
             ffmpeg_kills += 1;
-            let _ = Command::new("pkill").args(["-9", "-f", "motionaire-spike"]).status();
+            let _ = Command::new("pkill")
+                .args(["-9", "-f", "motionaire-spike"])
+                .status();
             log::info!("soak: killed ffmpeg children (#{ffmpeg_kills})");
         }
         // Every ~3 min: flip canvas dims to force a full GPU re-init, then back.
@@ -174,7 +184,9 @@ fn main() {
             log::info!("soak: canvas dim flip #{canvas_flips} (GPU re-init x2)");
         }
 
-        std::thread::sleep(Duration::from_millis(50 + (pseudo_rand(&mut rng) * 450.0) as u64));
+        std::thread::sleep(Duration::from_millis(
+            50 + (pseudo_rand(&mut rng) * 450.0) as u64,
+        ));
     }
 
     // Let the loop settle, then report.
@@ -185,10 +197,19 @@ fn main() {
     println!("=== SOAK REPORT ({}s) ===", started.elapsed().as_secs());
     println!("chaos actions:        {actions}");
     println!("frames rendered:      {}", s.frames.load(Ordering::Relaxed));
-    println!("gpu re-inits:         {}", s.gpu_inits.load(Ordering::Relaxed));
-    println!("render errors:        {}", s.render_errors.load(Ordering::Relaxed));
+    println!(
+        "gpu re-inits:         {}",
+        s.gpu_inits.load(Ordering::Relaxed)
+    );
+    println!(
+        "render errors:        {}",
+        s.render_errors.load(Ordering::Relaxed)
+    );
     println!("panics (recovered):   {}", s.panics.load(Ordering::Relaxed));
-    println!("watchdog trips:       {}", s.watchdog_trips.load(Ordering::Relaxed));
+    println!(
+        "watchdog trips:       {}",
+        s.watchdog_trips.load(Ordering::Relaxed)
+    );
     println!("ffmpeg kill rounds:   {ffmpeg_kills}");
     println!("canvas dim flips:     {canvas_flips}");
     println!("ws frames received:   {received}");

@@ -46,7 +46,10 @@ function AudioMeters() {
     return () => cancelAnimationFrame(raf)
   }, [])
   return (
-    <div className="meters" title="Output level, dBFS −60..0 (yellow −12, red −3; lamp latches on clip)">
+    <div
+      className="meters"
+      title="Output level, dBFS −60..0 (yellow −12, red −3; lamp latches on clip)"
+    >
       <div className="meters__bars">
         {(
           [

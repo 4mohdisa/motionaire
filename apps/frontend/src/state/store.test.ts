@@ -10,7 +10,6 @@ import { resolveProp } from '../engine/keyframes'
 // editing semantics that e2e tests can only sample. View-state setters
 // (dialogs, toasts, panel sizes) are deliberately untested — no semantics.
 
-
 const media: MediaAsset = {
   id: 'm1',
   path: '/tmp/fake.mp4',
@@ -33,8 +32,7 @@ const clipById = (id: string) => {
   for (const t of st().project.tracks) for (const c of t.clips) if (c.id === id) return c
   return undefined
 }
-const trackOf = (id: string) =>
-  st().project.tracks.find((t) => t.clips.some((c) => c.id === id))
+const trackOf = (id: string) => st().project.tracks.find((t) => t.clips.some((c) => c.id === id))
 
 beforeEach(() => fresh())
 

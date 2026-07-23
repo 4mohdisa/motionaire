@@ -1,7 +1,7 @@
 {
   "name": "motionaire",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "workspaces": [
     "apps/frontend"
@@ -19,5 +19,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  }
+  },
+  "author": "Mohammed Isa",
+  "license": "AGPL-3.0-only"
 }

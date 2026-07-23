@@ -78,7 +78,10 @@ impl EffectCfg {
         self.params.get(key).and_then(|v| v.as_str()).unwrap_or("")
     }
     pub fn flag(&self, key: &str) -> bool {
-        self.params.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+        self.params
+            .get(key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 }
 

@@ -69,7 +69,11 @@ export function Activation() {
           onKeyDown={(e) => e.key === 'Enter' && void activate()}
         />
         {error && <div className="shell__error">{error}</div>}
-        <button className="shell__primary" disabled={!key.trim() || busy} onClick={() => void activate()}>
+        <button
+          className="shell__primary"
+          disabled={!key.trim() || busy}
+          onClick={() => void activate()}
+        >
           {busy ? 'Checking…' : 'Activate'}
         </button>
         {import.meta.env.DEV && (
@@ -158,8 +162,15 @@ async function openSampleProject(): Promise<void> {
     const add = (path: string, name: string, w: number, h: number) => {
       const id = `m_${name.replace(/\W/g, '')}`
       useStore.getState().addMedia({
-        id, path, playbackUrl: convertFileSrc(path), name,
-        kind: 'video', duration: 60, width: w, height: h, hasAudio: false,
+        id,
+        path,
+        playbackUrl: convertFileSrc(path),
+        name,
+        kind: 'video',
+        duration: 60,
+        width: w,
+        height: h,
+        hasAudio: false,
       })
       return id
     }
@@ -173,8 +184,14 @@ async function openSampleProject(): Promise<void> {
     const { runTool } = await import('../ai/tools')
     await import('../ai/chatSession') // side effect: registers set_layout
     runTool('set_layout', {
-      layout: 'pip', track: 'auto-cam', corner: 'bottom_right',
-      scale: 0.22, radius: 18, margin: 40, at: 4, duration: 1,
+      layout: 'pip',
+      track: 'auto-cam',
+      corner: 'bottom_right',
+      scale: 0.22,
+      radius: 18,
+      margin: 40,
+      at: 4,
+      duration: 1,
     })
     runTool('set_layout', { layout: 'fullscreen', track: 'auto-cam', at: 20, duration: 1 })
     runTool('add_text', { content: 'Motionaire', start: 0.8, duration: 3.5, size: 96 })
@@ -384,4 +401,3 @@ function relTime(unixSecs: number): string {
   if (d < 86400) return `${Math.round(d / 3600)}h ago`
   return `${Math.round(d / 86400)}d ago`
 }
-

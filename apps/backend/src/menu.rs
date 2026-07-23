@@ -50,11 +50,19 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             app,
             "Open Recent",
             true,
-            &[&MenuItem::with_id(app, "recent:none", "No Recent Projects", false, None::<&str>)?],
+            &[&MenuItem::with_id(
+                app,
+                "recent:none",
+                "No Recent Projects",
+                false,
+                None::<&str>,
+            )?],
         )?
     } else {
-        let refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
-            recent_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<R>).collect();
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = recent_items
+            .iter()
+            .map(|i| i as &dyn tauri::menu::IsMenuItem<R>)
+            .collect();
         Submenu::with_items(app, "Open Recent", true, &refs)?
     };
 
@@ -68,14 +76,44 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &open_recent,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "file:save", "Save", true, Some("CmdOrCtrl+S"))?,
-            &MenuItem::with_id(app, "file:save_as", "Save As…", true, Some("CmdOrCtrl+Shift+S"))?,
-            &MenuItem::with_id(app, "file:close", "Close Project", true, Some("CmdOrCtrl+W"))?,
+            &MenuItem::with_id(
+                app,
+                "file:save_as",
+                "Save As…",
+                true,
+                Some("CmdOrCtrl+Shift+S"),
+            )?,
+            &MenuItem::with_id(
+                app,
+                "file:close",
+                "Close Project",
+                true,
+                Some("CmdOrCtrl+W"),
+            )?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "file:import", "Import Media…", true, Some("CmdOrCtrl+I"))?,
+            &MenuItem::with_id(
+                app,
+                "file:import",
+                "Import Media…",
+                true,
+                Some("CmdOrCtrl+I"),
+            )?,
             &MenuItem::with_id(app, "file:import_font", "Import Font…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "file:project_settings", "Project Settings…", true, None::<&str>)?,
-            &MenuItem::with_id(app, "file:consolidate", "Consolidate Media…", true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "file:project_settings",
+                "Project Settings…",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                app,
+                "file:consolidate",
+                "Consolidate Media…",
+                true,
+                None::<&str>,
+            )?,
         ],
     )?;
 
@@ -95,9 +133,21 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &PredefinedMenuItem::paste(app, None)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "edit:delete", "Delete", true, None::<&str>)?,
-            &MenuItem::with_id(app, "edit:ripple_delete", "Ripple Delete", true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "edit:ripple_delete",
+                "Ripple Delete",
+                true,
+                None::<&str>,
+            )?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "edit:select_all", "Select All", true, Some("CmdOrCtrl+A"))?,
+            &MenuItem::with_id(
+                app,
+                "edit:select_all",
+                "Select All",
+                true,
+                Some("CmdOrCtrl+A"),
+            )?,
         ],
     )?;
 
@@ -107,7 +157,14 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         "View",
         true,
         &[
-            &CheckMenuItem::with_id(app, "view:safe_zones", "Safe Zones", true, false, None::<&str>)?,
+            &CheckMenuItem::with_id(
+                app,
+                "view:safe_zones",
+                "Safe Zones",
+                true,
+                false,
+                None::<&str>,
+            )?,
             &CheckMenuItem::with_id(app, "view:snap", "Snapping", true, true, None::<&str>)?,
             &CheckMenuItem::with_id(
                 app,
@@ -118,12 +175,34 @@ pub fn build_and_set<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 None::<&str>,
             )?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "view:zoom_in", "Zoom In Timeline", true, Some("CmdOrCtrl+="))?,
-            &MenuItem::with_id(app, "view:zoom_out", "Zoom Out Timeline", true, Some("CmdOrCtrl+-"))?,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "view:pip_demo", "Load PiP Demo (dev)", true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "view:zoom_in",
+                "Zoom In Timeline",
+                true,
+                Some("CmdOrCtrl+="),
+            )?,
+            &MenuItem::with_id(
+                app,
+                "view:zoom_out",
+                "Zoom Out Timeline",
+                true,
+                Some("CmdOrCtrl+-"),
+            )?,
         ],
     )?;
+    // Debug builds get the dev demo loader; the release menu ends at zoom.
+    #[cfg(debug_assertions)]
+    {
+        view.append(&PredefinedMenuItem::separator(app)?)?;
+        view.append(&MenuItem::with_id(
+            app,
+            "view:pip_demo",
+            "Load PiP Demo (dev)",
+            true,
+            None::<&str>,
+        )?)?;
+    }
 
     let menu = Menu::with_items(app, &[&app_menu, &file, &edit, &view])?;
     app.set_menu(menu)?;
@@ -135,9 +214,15 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         if path == "none" {
             return;
         }
-        MenuEvent { action: "file:open_recent".into(), path: Some(path.to_string()) }
+        MenuEvent {
+            action: "file:open_recent".into(),
+            path: Some(path.to_string()),
+        }
     } else {
-        MenuEvent { action: id.to_string(), path: None }
+        MenuEvent {
+            action: id.to_string(),
+            path: None,
+        }
     };
     log::debug!("menu event: {}", payload.action);
     if let Err(e) = app.emit("menu", payload) {

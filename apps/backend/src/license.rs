@@ -83,7 +83,9 @@ mod store {
 }
 
 pub fn is_activated() -> bool {
-    store::get().map(|k| validator().validate(&k).is_ok()).unwrap_or(false)
+    store::get()
+        .map(|k| validator().validate(&k).is_ok())
+        .unwrap_or(false)
 }
 
 pub fn activate(key: &str) -> Result<(), String> {
@@ -114,7 +116,9 @@ mod tests {
     #[test]
     fn test_key_round_trip() {
         assert!(TestValidator.validate(TEST_KEY).is_ok());
-        assert!(TestValidator.validate(" motionaire-test-0000-0000 ").is_ok());
+        assert!(TestValidator
+            .validate(" motionaire-test-0000-0000 ")
+            .is_ok());
         assert!(TestValidator.validate("MOTIONAIRE-REAL-1111-2222").is_err());
         assert!(TestValidator.validate("").is_err());
     }

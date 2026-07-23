@@ -30,9 +30,7 @@ export function maybeRequestProxy(asset: MediaAsset): void {
   if (!useStore.getState().prefs.autoProxy) return // preference (Phase 7)
   if (!proxyEligible(asset) || asset.proxyPath || requested.has(asset.path)) return
   requested.add(asset.path)
-  useStore
-    .getState()
-    .pushToast('progress', `Creating proxy — ${asset.name}`, `proxy-${asset.path}`)
+  useStore.getState().pushToast('progress', `Creating proxy — ${asset.name}`, `proxy-${asset.path}`)
   void invoke('request_proxy', { path: asset.path }).catch(() => {
     useStore.getState().dismissToast(`proxy-${asset.path}`)
     requested.delete(asset.path)

@@ -246,7 +246,13 @@ impl GenBackend for Veo {
     fn start(&self, req: &GenRequest) -> Result<String, String> {
         let key = super::keys::get("gemini").ok_or("No API key saved for Google")?;
         // Veo accepts 4/6/8s; clamp to the nearest allowed.
-        let dur = if req.duration_secs <= 4 { 4 } else if req.duration_secs <= 6 { 6 } else { 8 };
+        let dur = if req.duration_secs <= 4 {
+            4
+        } else if req.duration_secs <= 6 {
+            6
+        } else {
+            8
+        };
         let resp = http()
             .post("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning")
             .header("x-goog-api-key", key)
@@ -272,7 +278,9 @@ impl GenBackend for Veo {
     fn poll(&self, handle: &str) -> Result<PollState, String> {
         let key = super::keys::get("gemini").ok_or("key vanished mid-job")?;
         let resp = http()
-            .get(format!("https://generativelanguage.googleapis.com/v1beta/{handle}"))
+            .get(format!(
+                "https://generativelanguage.googleapis.com/v1beta/{handle}"
+            ))
             .header("x-goog-api-key", key)
             .send()
             .map_err(|e| format!("No network: {e}"))?;
@@ -285,7 +293,10 @@ impl GenBackend for Veo {
         }
         if let Some(err) = v.get("error") {
             return Ok(PollState::Failed(
-                err["message"].as_str().unwrap_or("Veo operation failed").to_string(),
+                err["message"]
+                    .as_str()
+                    .unwrap_or("Veo operation failed")
+                    .to_string(),
             ));
         }
         v.pointer("/response/generateVideoResponse/generatedSamples/0/video/uri")
@@ -341,9 +352,18 @@ impl GenBackend for MockGen {
         let filter = format!("testsrc2=size={w}x{h}:rate=30");
         let status = std::process::Command::new(crate::compositor::decoder::ffmpeg_bin())
             .args([
-                "-v", "error", "-y", "-f", "lavfi", "-i", &filter,
-                "-t", &req.duration_secs.to_string(),
-                "-pix_fmt", "yuv420p", "-an",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                &filter,
+                "-t",
+                &req.duration_secs.to_string(),
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
                 out.to_str().ok_or("bad path")?,
             ])
             .status()

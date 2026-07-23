@@ -180,13 +180,27 @@ function Guides() {
   return (
     <div className="preview__guides">
       {[1 / 3, 2 / 3].map((f) => (
-        <div key={`v${f}`} className="preview__guide preview__guide--v" style={{ left: `${f * 100}%` }} />
+        <div
+          key={`v${f}`}
+          className="preview__guide preview__guide--v"
+          style={{ left: `${f * 100}%` }}
+        />
       ))}
       {[1 / 3, 2 / 3].map((f) => (
-        <div key={`h${f}`} className="preview__guide preview__guide--h" style={{ top: `${f * 100}%` }} />
+        <div
+          key={`h${f}`}
+          className="preview__guide preview__guide--h"
+          style={{ top: `${f * 100}%` }}
+        />
       ))}
-      <div className="preview__guide preview__guide--v preview__guide--center" style={{ left: '50%' }} />
-      <div className="preview__guide preview__guide--h preview__guide--center" style={{ top: '50%' }} />
+      <div
+        className="preview__guide preview__guide--v preview__guide--center"
+        style={{ left: '50%' }}
+      />
+      <div
+        className="preview__guide preview__guide--h preview__guide--center"
+        style={{ top: '50%' }}
+      />
     </div>
   )
 }

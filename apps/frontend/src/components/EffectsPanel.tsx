@@ -17,12 +17,10 @@ export default function EffectsPanel() {
     void invoke<string | null>('get_setting', { key: 'fxPresets' })
       .then((raw) => setPresets(raw ? (JSON.parse(raw) as typeof presets) : []))
       .catch(() => {})
-     
   }, [])
 
   const types = Object.keys(EFFECT_LABELS) as EffectType[]
-  const applicable = (t: EffectType) =>
-    !!clip && (clip.kind === 'audio' ? isAudioFx(t) : true)
+  const applicable = (t: EffectType) => !!clip && (clip.kind === 'audio' ? isAudioFx(t) : true)
 
   return (
     <aside className="panel effectspanel">
@@ -75,8 +73,10 @@ export default function EffectsPanel() {
                     if (!clip) return
                     const s = useStore.getState()
                     for (const fx of pr.effects) s.addEffect(clip.id, fx.type)
-                    const added = findClip(useStore.getState().project, clip.id)!
-                      .clip.effects.slice(-pr.effects.length)
+                    const added = findClip(
+                      useStore.getState().project,
+                      clip.id,
+                    )!.clip.effects.slice(-pr.effects.length)
                     added.forEach((fx, j) =>
                       s.updateEffectParams(clip.id, fx.id, { ...pr.effects[j].params }),
                     )

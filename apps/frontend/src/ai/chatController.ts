@@ -36,15 +36,16 @@ export async function sendChat(userText: string): Promise<void> {
     const st2 = useStore.getState()
     st2.updateChatEntry(asstId, {
       streaming: false,
-      text:
-        st2.chatLog.find((e) => e.id === asstId)?.text ||
-        (outcome.error ? '' : 'Done.'),
+      text: st2.chatLog.find((e) => e.id === asstId)?.text || (outcome.error ? '' : 'Done.'),
       diffs: outcome.diffs,
       error: outcome.error ?? undefined,
       edited: outcome.edited,
       undoDepth: outcome.edited ? st2.past.length : undefined,
     })
-    await persistExchange(userText, st2.chatLog.find((e) => e.id === asstId)!)
+    await persistExchange(
+      userText,
+      st2.chatLog.find((e) => e.id === asstId)!,
+    )
   } catch (e) {
     useStore.getState().updateChatEntry(asstId, { streaming: false, error: String(e) })
   } finally {
@@ -72,7 +73,12 @@ export async function loadChatHistory(bundlePath: string): Promise<void> {
   const session: NeutralMsg[] = []
   for (const line of lines) {
     try {
-      const j = JSON.parse(line) as { user?: string; assistant?: string; diffs?: string[]; error?: string | null }
+      const j = JSON.parse(line) as {
+        user?: string
+        assistant?: string
+        diffs?: string[]
+        error?: string | null
+      }
       if (typeof j.user === 'string') {
         log.push({ id: uid('m'), role: 'user', text: j.user })
         session.push({ role: 'user', text: j.user })

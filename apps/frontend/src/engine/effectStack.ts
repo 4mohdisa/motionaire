@@ -17,16 +17,25 @@ const IDENTITY_POINTS: [number, number][] = [
   [1, 1],
 ]
 
-export const EFFECT_DEFAULTS: Record<EffectType, Record<string, import('../types/project').EffectParam>> = {
+export const EFFECT_DEFAULTS: Record<
+  EffectType,
+  Record<string, import('../types/project').EffectParam>
+> = {
   chromaKey: { color: '#00ff00', tolerance: 0.3, softness: 0.1, spill: 0.5 },
   grade: { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0 },
   blur: { amount: 0 },
   mask: { kind: 'rect', x: 0, y: 0, w: 400, h: 300, feather: 20, invert: false },
   vignette: { amount: 0.3 },
   wheels: {
-    liftR: 0, liftG: 0, liftB: 0,
-    gammaR: 0, gammaG: 0, gammaB: 0,
-    gainR: 0, gainG: 0, gainB: 0,
+    liftR: 0,
+    liftG: 0,
+    liftB: 0,
+    gammaR: 0,
+    gammaG: 0,
+    gammaB: 0,
+    gainR: 0,
+    gainG: 0,
+    gainB: 0,
   },
   curves: {
     pointsR: IDENTITY_POINTS,
@@ -36,9 +45,13 @@ export const EFFECT_DEFAULTS: Record<EffectType, Record<string, import('../types
   },
   lut: { path: '' },
   eq: {
-    lowGain: 0, lowFreq: 120,
-    midGain: 0, midFreq: 1000, midQ: 1,
-    highGain: 0, highFreq: 8000,
+    lowGain: 0,
+    lowFreq: 120,
+    midGain: 0,
+    midFreq: 1000,
+    midQ: 1,
+    highGain: 0,
+    highFreq: 8000,
   },
   compressor: { threshold: -24, ratio: 4, attack: 20, release: 250, makeup: 0 },
   gate: { threshold: -45, attack: 10, release: 120 },

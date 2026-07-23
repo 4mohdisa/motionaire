@@ -18,7 +18,10 @@ use crate::compositor::decoder::{ffmpeg_bin, probe};
 static PROXY_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn cache_path(src: &str, cache_dir: &Path) -> PathBuf {
-    let stem = Path::new(src).file_stem().and_then(|s| s.to_str()).unwrap_or("media");
+    let stem = Path::new(src)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("media");
     let size = std::fs::metadata(src).map(|m| m.len()).unwrap_or(0);
     // Keyed by stem+size (the filmstrip/CFR convention): a true content hash
     // of multi-GB footage costs a full read — logged tradeoff.
@@ -40,8 +43,10 @@ pub fn generate(app: tauri::AppHandle, src: String, cache_dir: PathBuf) {
                 }
                 Err(e) => {
                     log::error!("proxy: FAILED for {src}: {e}");
-                    let _ = app
-                        .emit("proxy:failed", serde_json::json!({ "src": src, "error": e }));
+                    let _ = app.emit(
+                        "proxy:failed",
+                        serde_json::json!({ "src": src, "error": e }),
+                    );
                 }
             }
         })
@@ -66,25 +71,41 @@ fn run(app: &tauri::AppHandle, src: &str, cache_dir: &Path) -> Result<String, St
     let tmp = out.with_extension("part.mp4");
     let tmp_str = tmp.to_string_lossy().into_owned();
     let mut args: Vec<String> = vec![
-        "-v".into(), "error".into(),
+        "-v".into(),
+        "error".into(),
         "-nostats".into(),
-        "-progress".into(), "pipe:1".into(),
+        "-progress".into(),
+        "pipe:1".into(),
         "-y".into(),
-        "-i".into(), src.into(),
-        "-vf".into(), "scale=-2:720".into(),
+        "-i".into(),
+        src.into(),
+        "-vf".into(),
+        "scale=-2:720".into(),
     ];
     if vt {
-        args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), "6M".into()]);
+        args.extend([
+            "-c:v".into(),
+            "h264_videotoolbox".into(),
+            "-b:v".into(),
+            "6M".into(),
+        ]);
     } else {
         args.extend([
-            "-c:v".into(), "libx264".into(),
-            "-preset".into(), "veryfast".into(),
-            "-crf".into(), "23".into(),
+            "-c:v".into(),
+            "libx264".into(),
+            "-preset".into(),
+            "veryfast".into(),
+            "-crf".into(),
+            "23".into(),
         ]);
     }
     args.extend([
-        "-c:a".into(), "aac".into(), "-b:a".into(), "160k".into(),
-        "-movflags".into(), "+faststart".into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "160k".into(),
+        "-movflags".into(),
+        "+faststart".into(),
         tmp_str.clone(),
     ]);
 

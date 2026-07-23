@@ -241,14 +241,16 @@ export async function importPathAsAsset(
   extra?: Partial<MediaAsset>,
 ): Promise<MediaAsset | null> {
   try {
-    const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>(
-      'normalize_media',
-      { path: rawPath },
-    ).catch(() => ({ path: rawPath, wasVfr: false }))
+    const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>('normalize_media', {
+      path: rawPath,
+    }).catch(() => ({ path: rawPath, wasVfr: false }))
     if (wasVfr)
       useStore
         .getState()
-        .pushToast('info', `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`)
+        .pushToast(
+          'info',
+          `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`,
+        )
     const info = await invoke<ProbeResult>('probe_media', { path })
     const asset: MediaAsset = {
       id: uid('m'),
@@ -290,14 +292,16 @@ export async function importMediaNative(): Promise<void> {
     try {
       // VFR trap (CONTEXT.md §6): screen recordings get normalized to CFR on
       // import; the project references the normalized copy.
-      const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>(
-        'normalize_media',
-        { path: rawPath },
-      ).catch(() => ({ path: rawPath, wasVfr: false }))
+      const { path, wasVfr } = await invoke<{ path: string; wasVfr: boolean }>('normalize_media', {
+        path: rawPath,
+      }).catch(() => ({ path: rawPath, wasVfr: false }))
       if (wasVfr)
         useStore
           .getState()
-          .pushToast('info', `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`)
+          .pushToast(
+            'info',
+            `${rawPath.split('/').pop()} had variable frame rate — normalized for editing`,
+          )
       const info = await invoke<ProbeResult>('probe_media', { path })
       const asset: MediaAsset = {
         id: uid('m'),

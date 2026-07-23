@@ -68,29 +68,29 @@ export async function startTurn(userText: string, events: TurnEvents): Promise<T
           outcome.text += e.payload.text
           events.onDelta?.(e.payload.text)
         }),
-        listen<{ turnId: string; calls: { callId: string; name: string; args: Record<string, unknown> }[] }>(
-          'ai:tool_calls',
-          (e) => {
-            if (e.payload.turnId !== turnId) return
-            const results = e.payload.calls.map((c) => {
-              const r = runTool(c.name, c.args)
-              outcome.toolCalls.push({ name: c.name, args: c.args, result: r })
-              if (r.ok && r.diff) outcome.diffs.push(r.diff)
-              events.onTool?.(c.name, r)
-              return {
-                call_id: c.callId,
-                content: JSON.stringify({
-                  ok: r.ok,
-                  diff: r.diff,
-                  warnings: r.warnings,
-                  data: r.data,
-                  error: r.error,
-                }),
-              }
-            })
-            void invoke('ai_tool_result', { turnId, results })
-          },
-        ),
+        listen<{
+          turnId: string
+          calls: { callId: string; name: string; args: Record<string, unknown> }[]
+        }>('ai:tool_calls', (e) => {
+          if (e.payload.turnId !== turnId) return
+          const results = e.payload.calls.map((c) => {
+            const r = runTool(c.name, c.args)
+            outcome.toolCalls.push({ name: c.name, args: c.args, result: r })
+            if (r.ok && r.diff) outcome.diffs.push(r.diff)
+            events.onTool?.(c.name, r)
+            return {
+              call_id: c.callId,
+              content: JSON.stringify({
+                ok: r.ok,
+                diff: r.diff,
+                warnings: r.warnings,
+                data: r.data,
+                error: r.error,
+              }),
+            }
+          })
+          void invoke('ai_tool_result', { turnId, results })
+        }),
         listen<{ turnId: string }>('ai:done', (e) => {
           if (e.payload.turnId === turnId) settle()
         }),

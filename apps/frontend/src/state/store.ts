@@ -126,7 +126,13 @@ export interface StoreState {
 
   // Toasts (foundation session, Phase 0): the app-wide non-blocking notice
   // channel — errors, completions, and background-job progress.
-  toasts: { id: string; kind: 'info' | 'success' | 'error' | 'progress'; text: string; progress?: number; action?: { label: string; onClick: () => void } }[]
+  toasts: {
+    id: string
+    kind: 'info' | 'success' | 'error' | 'progress'
+    text: string
+    progress?: number
+    action?: { label: string; onClick: () => void }
+  }[]
   pushToast: (
     kind: 'info' | 'success' | 'error' | 'progress',
     text: string,
@@ -219,7 +225,12 @@ export interface StoreState {
   // tracks (no gap); roll = move the cut between two adjacent clips (total
   // duration unchanged); slip = shift a clip's source window without moving
   // it on the timeline; slide = move a clip while adjacent neighbors absorb.
-  rippleTrim: (clipId: string, edge: 'in' | 'out', timelineTime: number, transient?: boolean) => void
+  rippleTrim: (
+    clipId: string,
+    edge: 'in' | 'out',
+    timelineTime: number,
+    transient?: boolean,
+  ) => void
   rollEdit: (leftClipId: string, timelineTime: number, transient?: boolean) => void
   slipClip: (clipId: string, deltaSrc: number, transient?: boolean) => void
   slideClip: (clipId: string, deltaT: number, transient?: boolean) => void
@@ -770,9 +781,7 @@ export const useStore = create<StoreState>()(
           const start = snapToFrame(Math.max(0, at), p.canvas.fps)
           // Insert/overwrite semantics (foundation, Phase 2): the clip lands
           // exactly where dropped; prepareSpan makes the room.
-          prepareSpan(track, start, dur, useStore.getState().editMode, p.canvas.fps, () =>
-            uid('c'),
-          )
+          prepareSpan(track, start, dur, useStore.getState().editMode, p.canvas.fps, () => uid('c'))
           track.clips.push({
             id: uid('c'),
             kind: asset.kind,
@@ -802,9 +811,7 @@ export const useStore = create<StoreState>()(
       addStillClip: (asset, at) =>
         mutateProject((p) => {
           p.media.push(asset)
-          const track = p.tracks
-            .filter((t) => t.kind === 'video')
-            .sort((a, b) => b.z - a.z)[0]
+          const track = p.tracks.filter((t) => t.kind === 'video').sort((a, b) => b.z - a.z)[0]
           if (!track) return
           const dur = 3
           const siblings = track.clips.map((c) => ({ start: c.start, end: clipEnd(c) }))
@@ -973,9 +980,7 @@ export const useStore = create<StoreState>()(
               let newEnd = Math.max(oldStart + minDur, t)
               if (clip.mediaId) {
                 const asset = p.media.find((m) => m.id === clip.mediaId)
-                const maxEnd = asset
-                  ? oldStart + (asset.duration - clip.in) / clip.speed
-                  : newEnd
+                const maxEnd = asset ? oldStart + (asset.duration - clip.in) / clip.speed : newEnd
                 newEnd = Math.min(newEnd, maxEnd)
               }
               delta = snapToFrame(newEnd, fps) - oldEnd
@@ -1137,8 +1142,7 @@ export const useStore = create<StoreState>()(
             if (d > 0) {
               if (leftAdj && leftN.mediaId) {
                 const asset = p.media.find((m) => m.id === leftN.mediaId)
-                if (asset)
-                  d = Math.min(d, (asset.duration - leftN.out) / leftN.speed)
+                if (asset) d = Math.min(d, (asset.duration - leftN.out) / leftN.speed)
               }
               if (rightAdj) d = Math.min(d, clipDuration(rightN) - minDur)
               else if (rightN) d = Math.min(d, rightN.start - end)
@@ -1320,54 +1324,54 @@ export const useStore = create<StoreState>()(
       setClipProperty: (clipId, prop, value, transient) =>
         mutateProject(
           (p) => {
-          const found = findClip(p, clipId)
-          if (!found || found.track.locked) return
-          const { track, clip } = found
-          const fps = p.canvas.fps
+            const found = findClip(p, clipId)
+            if (!found || found.track.locked) return
+            const { track, clip } = found
+            const fps = p.canvas.fps
 
-          const speedRamped = clip.keyframes.some((k) => k.prop === 'speed')
-          if (prop === 'speed' && typeof value === 'number' && !speedRamped) {
-            // Flat speed: duration-preserving trim below. Once 'speed' is
-            // ARMED (keyframes exist) the generic stopwatch path below writes
-            // ramp keyframes instead — the clip window stays fixed (ramps
-            // remap time within it; session 9, Phase 7 decision).
-            const speed = Math.min(16, Math.max(0.0625, value))
-            clip.speed = speed
-            // Speed changes duration; shrink `out` if we'd overlap the next clip.
-            const nextStart = track.clips
-              .filter((c) => c.id !== clipId && c.start >= clip.start + 1e-6)
-              .reduce((m, c) => Math.min(m, c.start), Infinity)
-            if (clipEnd(clip) > nextStart)
-              clip.out = clip.in + (nextStart - clip.start) * clip.speed
-            return
-          }
+            const speedRamped = clip.keyframes.some((k) => k.prop === 'speed')
+            if (prop === 'speed' && typeof value === 'number' && !speedRamped) {
+              // Flat speed: duration-preserving trim below. Once 'speed' is
+              // ARMED (keyframes exist) the generic stopwatch path below writes
+              // ramp keyframes instead — the clip window stays fixed (ramps
+              // remap time within it; session 9, Phase 7 decision).
+              const speed = Math.min(16, Math.max(0.0625, value))
+              clip.speed = speed
+              // Speed changes duration; shrink `out` if we'd overlap the next clip.
+              const nextStart = track.clips
+                .filter((c) => c.id !== clipId && c.start >= clip.start + 1e-6)
+                .reduce((m, c) => Math.min(m, c.start), Infinity)
+              if (clipEnd(clip) > nextStart)
+                clip.out = clip.in + (nextStart - clip.start) * clip.speed
+              return
+            }
 
-          const playheadRel = useStore.getState().playhead - clip.start
-          const isNumeric = typeof value === 'number'
-          const hasKfs = clip.keyframes.some((k) => k.prop === prop)
+            const playheadRel = useStore.getState().playhead - clip.start
+            const isNumeric = typeof value === 'number'
+            const hasKfs = clip.keyframes.some((k) => k.prop === prop)
 
-          if (isNumeric && hasKfs) {
-            // Armed: writing the value creates/updates a keyframe at the playhead.
-            const t = snapToFrame(Math.min(Math.max(0, playheadRel), clipDuration(clip)), fps)
-            const existing = clip.keyframes.find(
-              (k) => k.prop === prop && Math.abs(k.t - t) < 1 / fps / 2,
-            )
-            if (existing) existing.v = value
-            else clip.keyframes.push({ prop, t, v: value, ease: 'easeInOut' })
-            return
-          }
+            if (isNumeric && hasKfs) {
+              // Armed: writing the value creates/updates a keyframe at the playhead.
+              const t = snapToFrame(Math.min(Math.max(0, playheadRel), clipDuration(clip)), fps)
+              const existing = clip.keyframes.find(
+                (k) => k.prop === prop && Math.abs(k.t - t) < 1 / fps / 2,
+              )
+              if (existing) existing.v = value
+              else clip.keyframes.push({ prop, t, v: value, ease: 'easeInOut' })
+              return
+            }
 
-          if (prop === 'volume' && isNumeric) clip.volume = value
-          else if (prop === 'pan' && isNumeric) clip.pan = Math.min(1, Math.max(-1, value))
-          else if (prop.startsWith('fx.') && isNumeric) {
-            // Effect-stack param (Phase 2): fx.<effectId>.<param>.
-            const [, id, param] = prop.split('.')
-            const fx = clip.effects.find((e) => e.id === id)
-            if (fx) fx.params[param] = value
-          } else if (prop.startsWith('transform.')) {
-            const key = prop.slice('transform.'.length)
-            ;(clip.transform as unknown as Record<string, unknown>)[key] = value
-          }
+            if (prop === 'volume' && isNumeric) clip.volume = value
+            else if (prop === 'pan' && isNumeric) clip.pan = Math.min(1, Math.max(-1, value))
+            else if (prop.startsWith('fx.') && isNumeric) {
+              // Effect-stack param (Phase 2): fx.<effectId>.<param>.
+              const [, id, param] = prop.split('.')
+              const fx = clip.effects.find((e) => e.id === id)
+              if (fx) fx.params[param] = value
+            } else if (prop.startsWith('transform.')) {
+              const key = prop.slice('transform.'.length)
+              ;(clip.transform as unknown as Record<string, unknown>)[key] = value
+            }
           },
           { history: transient ? false : true }, // label scrubs coalesce via beginGesture
         ),
@@ -1463,10 +1467,7 @@ export const useStore = create<StoreState>()(
             const movingSet = new Set(moving.map((m) => m.kf))
             for (const m of moving) {
               clip.keyframes = clip.keyframes.filter(
-                (k) =>
-                  movingSet.has(k) ||
-                  k.prop !== m.kf.prop ||
-                  Math.abs(k.t - m.toT) >= half,
+                (k) => movingSet.has(k) || k.prop !== m.kf.prop || Math.abs(k.t - m.toT) >= half,
               )
               m.kf.t = m.toT
               m.kf.v = m.toV
@@ -1481,8 +1482,7 @@ export const useStore = create<StoreState>()(
           if (!found || found.track.locked) return
           const fps = p.canvas.fps
           found.clip.keyframes = found.clip.keyframes.filter(
-            (k) =>
-              !keys.some((d) => d.prop === k.prop && Math.abs(d.t - k.t) < 1 / fps / 2),
+            (k) => !keys.some((d) => d.prop === k.prop && Math.abs(d.t - k.t) < 1 / fps / 2),
           )
         }),
 
@@ -1505,9 +1505,7 @@ export const useStore = create<StoreState>()(
         mutateProject((p) => {
           const found = findClip(p, clipId)
           if (!found || found.track.locked) return
-          const kfs = found.clip.keyframes
-            .filter((k) => k.prop === prop)
-            .sort((a, b) => a.t - b.t)
+          const kfs = found.clip.keyframes.filter((k) => k.prop === prop).sort((a, b) => a.t - b.t)
           const i = kfs.findIndex((k) => Math.abs(k.t - t) < 1 / p.canvas.fps / 2)
           if (i < 0 || i >= kfs.length - 1) return // needs an outgoing segment
           const k1 = kfs[i]
@@ -1579,9 +1577,7 @@ export const useStore = create<StoreState>()(
           const start = snapToFrame(useStore.getState().playhead, p.canvas.fps)
           const duration = 4
           let track = vids[0]
-          const fits = !track.clips.some(
-            (c) => start < clipEnd(c) && start + duration > c.start,
-          )
+          const fits = !track.clips.some((c) => start < clipEnd(c) && start + duration > c.start)
           if (!fits) {
             track = {
               id: uid('t'),
@@ -1906,8 +1902,7 @@ export const useStore = create<StoreState>()(
       setClipLabel: (ids, label) =>
         mutateProject((p) => {
           for (const tr of p.tracks)
-            for (const c of tr.clips)
-              if (ids.includes(c.id)) c.label = label ?? undefined
+            for (const c of tr.clips) if (ids.includes(c.id)) c.label = label ?? undefined
         }),
 
       selectByLabel: (label) =>
@@ -1937,8 +1932,7 @@ export const useStore = create<StoreState>()(
           // compound clip spanning their extent where they were.
           const members: { clip: Clip; track: Track }[] = []
           for (const tr of p.tracks)
-            for (const c of tr.clips)
-              if (ids.includes(c.id)) members.push({ clip: c, track: tr })
+            for (const c of tr.clips) if (ids.includes(c.id)) members.push({ clip: c, track: tr })
           if (members.length < 2) return
           if (members.some(({ track }) => track.locked)) return
           const start = Math.min(...members.map((m) => m.clip.start))

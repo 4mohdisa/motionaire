@@ -1,11 +1,11 @@
-pub mod capture;
 pub mod ai;
+pub mod capture;
 pub mod compositor;
 pub mod export;
 pub mod license;
-pub mod proxy;
 pub mod menu;
 pub mod persistence;
+pub mod proxy;
 
 use std::path::PathBuf;
 
@@ -59,9 +59,13 @@ fn set_text_rasters(
             .decode(&m.png_base64)
             .map_err(|e| format!("raster base64: {e}"))?;
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
-        let mut reader = decoder.read_info().map_err(|e| format!("raster png: {e}"))?;
+        let mut reader = decoder
+            .read_info()
+            .map_err(|e| format!("raster png: {e}"))?;
         let mut buf = vec![0u8; reader.output_buffer_size().ok_or("raster too large")?];
-        let info = reader.next_frame(&mut buf).map_err(|e| format!("raster png frame: {e}"))?;
+        let info = reader
+            .next_frame(&mut buf)
+            .map_err(|e| format!("raster png frame: {e}"))?;
         if info.width != m.width || info.height != m.height {
             return Err("raster dims mismatch".into());
         }
@@ -80,13 +84,19 @@ fn set_text_rasters(
         };
         upserts.push((
             m.clip_id,
-            compositor::types::TextRaster { hash: m.hash, w: m.width, h: m.height, rgba },
+            compositor::types::TextRaster {
+                hash: m.hash,
+                w: m.width,
+                h: m.height,
+                rgba,
+            },
         ));
     }
     state.set_text_rasters(upserts, live);
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::SpikeMedia), String> {
     compositor::demo::spike_media_info()
@@ -94,24 +104,37 @@ fn spike_setup() -> Result<(compositor::demo::SpikeMedia, compositor::demo::Spik
 
 // Verification helper: a deterministic 440Hz tone in the spike dir, so export
 // tests have real audio to mix (the demo videos are silent by design).
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn spike_audio(pattern: Option<String>) -> Result<String, String> {
     let dir = compositor::demo::spike_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let gapped = pattern.as_deref() == Some("gapped");
-    let out = dir.join(if gapped { "tone-gapped.wav" } else { "tone.wav" });
+    let out = dir.join(if gapped {
+        "tone-gapped.wav"
+    } else {
+        "tone.wav"
+    });
     if !out.exists() {
         let mut args: Vec<String> = vec![
-            "-v".into(), "error".into(), "-y".into(),
-            "-f".into(), "lavfi".into(),
-            "-i".into(), "sine=frequency=440:duration=10".into(),
+            "-v".into(),
+            "error".into(),
+            "-y".into(),
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "sine=frequency=440:duration=10".into(),
         ];
         if gapped {
             // 1s on / 1s off — deterministic "speech" for the ducking test.
             args.push("-af".into());
             args.push("volume='if(lt(mod(t\\,2)\\,1)\\,1\\,0)':eval=frame".into());
         }
-        args.extend(["-ar".into(), "48000".into(), out.to_str().ok_or("bad path")?.into()]);
+        args.extend([
+            "-ar".into(),
+            "48000".into(),
+            out.to_str().ok_or("bad path")?.into(),
+        ]);
         let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
             .args(&args)
             .status()
@@ -123,6 +146,7 @@ fn spike_audio(pattern: Option<String>) -> Result<String, String> {
     Ok(out.to_string_lossy().into_owned())
 }
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn autorun_demo() -> bool {
     std::env::var("SPIKE_DEMO").is_ok_and(|v| v == "1")
@@ -130,6 +154,7 @@ fn autorun_demo() -> bool {
 
 // Dev harness: lets env-gated webview self-tests check flags and report results
 // into the Rust log (the only channel visible from outside the webview).
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn env_flag(name: String) -> bool {
     if !name.starts_with("SPIKE_") {
@@ -138,6 +163,7 @@ fn env_flag(name: String) -> bool {
     std::env::var(name).is_ok_and(|v| v == "1")
 }
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn report_test(name: String, pass: bool, detail: String) {
     if pass {
@@ -181,6 +207,7 @@ struct ParitySample {
 // source_time — the exact code preview and export render with) over a
 // fixture so the webview can assert its display-only mirror agrees.
 // Any drift fails the f1-parity self-test loudly.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn resolve_parity_probe(project: SyncProject, times: Vec<f64>) -> Vec<ParitySample> {
     let mut out = Vec::new();
@@ -199,7 +226,11 @@ fn resolve_parity_probe(project: SyncProject, times: Vec<f64>) -> Vec<ParitySamp
                 grade: r.grade,
                 // First chain op's first two params (Phase 2): enough to pin
                 // per-instance fx.<id>.<param> resolution against the mirror.
-                fx0: r.chain.first().map(|c| [c.p[0], c.p[1]]).unwrap_or([0.0, 0.0]),
+                fx0: r
+                    .chain
+                    .first()
+                    .map(|c| [c.p[0], c.p[1]])
+                    .unwrap_or([0.0, 0.0]),
                 src_t: layer.source_time(t),
             });
         }
@@ -218,7 +249,11 @@ struct NormalizedMedia {
 // import; the project references the normalized copy in the app cache.
 #[tauri::command]
 fn normalize_media(app: tauri::AppHandle, path: String) -> Result<NormalizedMedia, String> {
-    let cache = app.path().app_data_dir().map_err(|e| e.to_string())?.join("normalized");
+    let cache = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("normalized");
     let (p, was_vfr) = compositor::decoder::normalize_to_cfr(&path, &cache)?;
     Ok(NormalizedMedia { path: p, was_vfr })
 }
@@ -229,7 +264,11 @@ fn normalize_media(app: tauri::AppHandle, path: String) -> Result<NormalizedMedi
 fn import_font(path: String) -> Result<persistence::BundleFont, String> {
     use base64::Engine as _;
     let p = std::path::Path::new(&path);
-    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     if ext != "ttf" && ext != "otf" {
         return Err("only .ttf/.otf fonts are supported".into());
     }
@@ -238,7 +277,11 @@ fn import_font(path: String) -> Result<persistence::BundleFont, String> {
         return Err("font file too large (>10MB)".into());
     }
     Ok(persistence::BundleFont {
-        file_name: p.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        file_name: p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
         data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
     })
 }
@@ -269,7 +312,11 @@ fn extract_filmstrip(app: tauri::AppHandle, path: String) -> Result<Filmstrip, S
     if info.width == 0 || info.duration <= 0.0 {
         return Err("no video stream / zero duration".into());
     }
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("filmstrips");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("filmstrips");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stem = std::path::Path::new(&path)
         .file_stem()
@@ -282,7 +329,18 @@ fn extract_filmstrip(app: tauri::AppHandle, path: String) -> Result<Filmstrip, S
     if !out.exists() {
         let vf = format!("fps={N}/{:.6},scale=-2:{H},tile={N}x1", info.duration);
         let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
-            .args(["-v", "error", "-y", "-i", &path, "-vf", &vf, "-frames:v", "1", &out_str])
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                &path,
+                "-vf",
+                &vf,
+                "-frames:v",
+                "1",
+                &out_str,
+            ])
             .status()
             .map_err(|e| format!("ffmpeg spawn: {e}"))?;
         if !status.success() || !out.exists() {
@@ -312,7 +370,11 @@ struct FrozenFrame {
 // source natively (duration 0 → frame 0 forever), no special image pipeline.
 #[tauri::command]
 fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<FrozenFrame, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("freeze");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("freeze");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stem = std::path::Path::new(&path)
         .file_stem()
@@ -321,14 +383,29 @@ fn extract_frame(app: tauri::AppHandle, path: String, time: f64) -> Result<Froze
     let out = dir.join(format!("{stem}-{}ms.png", (time * 1000.0).round() as i64));
     let out_str = out.to_str().ok_or("bad output path")?.to_string();
     let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
-        .args(["-v", "error", "-y", "-ss", &format!("{time:.6}"), "-i", &path, "-frames:v", "1", &out_str])
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-ss",
+            &format!("{time:.6}"),
+            "-i",
+            &path,
+            "-frames:v",
+            "1",
+            &out_str,
+        ])
         .status()
         .map_err(|e| format!("ffmpeg spawn: {e}"))?;
     if !status.success() || !out.exists() {
         return Err(format!("frame extraction failed for {path} at {time:.3}s"));
     }
     let info = compositor::decoder::probe(&out_str)?;
-    Ok(FrozenFrame { path: out_str, width: info.width, height: info.height })
+    Ok(FrozenFrame {
+        path: out_str,
+        width: info.width,
+        height: info.height,
+    })
 }
 
 #[tauri::command]
@@ -342,7 +419,12 @@ fn start_export(
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     let texts = comp.clone_text_rasters();
-    let job = export::ExportJob { project, texts, audio, settings };
+    let job = export::ExportJob {
+        project,
+        texts,
+        audio,
+        settings,
+    };
     if exporter.running.swap(true, Ordering::SeqCst) {
         // Background queue (foundation, Phase 6): keep working, we'll run it.
         exporter.queue.lock().unwrap().push_back(job);
@@ -365,7 +447,9 @@ fn start_export(
 
 #[tauri::command]
 fn cancel_export(exporter: State<export::Exporter>) {
-    exporter.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    exporter
+        .cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 // Activity centroids (pro-editor session, Phase 7 auto-reframe): sample the
@@ -388,10 +472,9 @@ fn analyze_activity(path: String, duration: f64) -> Result<Vec<(f64, f64, f64)>,
         for y in 0..sh {
             for x in 0..sw {
                 let i = ((y * 8) * w + x * 8) * 4;
-                luma[y * sw + x] = ((frame[i] as u32 * 30
-                    + frame[i + 1] as u32 * 59
-                    + frame[i + 2] as u32 * 11)
-                    / 100) as u8;
+                luma[y * sw + x] =
+                    ((frame[i] as u32 * 30 + frame[i + 1] as u32 * 59 + frame[i + 2] as u32 * 11)
+                        / 100) as u8;
             }
         }
         if let Some(p) = &prev {
@@ -468,7 +551,11 @@ fn analyze_audio(path: String) -> Result<serde_json::Value, String> {
 #[tauri::command]
 fn ai_generate_video(app: tauri::AppHandle, req: ai::videogen::GenRequest) -> Result<(), String> {
     use tauri::Manager as _;
-    let out = app.path().app_data_dir().map_err(|e| e.to_string())?.join("generated");
+    let out = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("generated");
     ai::videogen::run_generation(app, out, req);
     Ok(())
 }
@@ -485,8 +572,18 @@ fn spike_long_fixtures() -> Result<(String, String), String> {
         if !p.exists() {
             let out = std::process::Command::new(compositor::decoder::ffmpeg_bin())
                 .args([
-                    "-v", "error", "-y", "-f", "lavfi", "-i", filter,
-                    "-t", "60", "-pix_fmt", "yuv420p", "-an",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    filter,
+                    "-t",
+                    "60",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
                     p.to_str().ok_or("bad path")?,
                 ])
                 .output()
@@ -510,7 +607,8 @@ fn spike_long_fixtures() -> Result<(String, String), String> {
 #[tauri::command]
 fn ai_history_append(bundle_path: String, line: String) -> Result<(), String> {
     // Validate it's one JSON object per line — the file must stay parseable.
-    serde_json::from_str::<serde_json::Value>(&line).map_err(|e| format!("bad history line: {e}"))?;
+    serde_json::from_str::<serde_json::Value>(&line)
+        .map_err(|e| format!("bad history line: {e}"))?;
     let dir = std::path::Path::new(&bundle_path);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     use std::io::Write as _;
@@ -569,7 +667,6 @@ fn ai_cancel_turn(hub: State<std::sync::Arc<ai::turn::TurnHub>>, turn_id: String
     hub.cancel(&turn_id);
 }
 
-
 #[tauri::command]
 fn ai_set_key(provider: String, key: String) -> Result<(), String> {
     ai::keys::set(&provider, &key)
@@ -610,7 +707,11 @@ fn save_recovery(bundle_path: String, project_json: String) -> Result<(), String
 // crash-recovery home in app_data/untitled/. Unlike bundle recovery there is
 // no project.json to compare against — existence IS the signal.
 fn untitled_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("untitled"))
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("untitled"))
 }
 
 #[tauri::command]
@@ -653,13 +754,18 @@ fn set_edited(window: tauri::WebviewWindow, edited: bool) {
 
 #[tauri::command]
 fn request_proxy(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    let cache = app.path().app_data_dir().map_err(|e| e.to_string())?.join("proxies");
+    let cache = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("proxies");
     proxy::generate(app.clone(), path, cache);
     Ok(())
 }
 
 // 4K verification fixture (foundation, Phase 5): the plan demands proxy
 // proof with genuinely large footage — synthesize a 3840x2160 test file.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn spike_4k() -> Result<String, String> {
     let dir = compositor::demo::spike_dir();
@@ -672,17 +778,38 @@ fn spike_4k() -> Result<String, String> {
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("h264_videotoolbox"))
             .unwrap_or(false);
         let mut args: Vec<String> = vec![
-            "-v".into(), "error".into(), "-y".into(),
-            "-f".into(), "lavfi".into(),
-            "-i".into(), "testsrc2=size=3840x2160:rate=30".into(),
-            "-t".into(), "20".into(),
+            "-v".into(),
+            "error".into(),
+            "-y".into(),
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "testsrc2=size=3840x2160:rate=30".into(),
+            "-t".into(),
+            "20".into(),
         ];
         if vt {
-            args.extend(["-c:v".into(), "h264_videotoolbox".into(), "-b:v".into(), "30M".into()]);
+            args.extend([
+                "-c:v".into(),
+                "h264_videotoolbox".into(),
+                "-b:v".into(),
+                "30M".into(),
+            ]);
         } else {
-            args.extend(["-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(), "-crf".into(), "20".into()]);
+            args.extend([
+                "-c:v".into(),
+                "libx264".into(),
+                "-preset".into(),
+                "veryfast".into(),
+                "-crf".into(),
+                "20".into(),
+            ]);
         }
-        args.extend(["-pix_fmt".into(), "yuv420p".into(), out.to_str().ok_or("bad path")?.into()]);
+        args.extend([
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+            out.to_str().ok_or("bad path")?.into(),
+        ]);
         let status = std::process::Command::new(compositor::decoder::ffmpeg_bin())
             .args(&args)
             .status()
@@ -749,7 +876,11 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
         .args(["-R", &path])
         .status()
         .map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err("open -R failed".into()) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err("open -R failed".into())
+    }
 }
 
 #[tauri::command]
@@ -796,7 +927,7 @@ fn save_project(
     let bundle = std::path::Path::new(&bundle_path);
     persistence::save_bundle(bundle, &project_json)?;
     persistence::clear_recovery(bundle); // explicit save supersedes autosave
-    // Launcher thumbnail: regenerable cache, plain write is fine.
+                                         // Launcher thumbnail: regenerable cache, plain write is fine.
     let mut thumb_path: Option<String> = None;
     if let Some(b64) = thumb_jpeg_base64 {
         if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
@@ -827,6 +958,7 @@ fn load_project(
 // Native self-verification: snapshot the webview's real rendered pixels
 // (GPU canvas layers included) to a PNG. No Screen Recording permission
 // needed — an app may capture its own content.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn capture_preview(window: tauri::WebviewWindow, path: Option<String>) -> Result<String, String> {
     let out = path.map(std::path::PathBuf::from).unwrap_or_else(|| {
@@ -839,6 +971,7 @@ fn capture_preview(window: tauri::WebviewWindow, path: Option<String>) -> Result
 
 // Dev harness: synthesize a menu event through the real handler so the
 // menu→emit→webview plumbing is testable without clicking the native bar.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn emit_menu_action(app: tauri::AppHandle, action: String) {
     menu::handle_event(&app, &action);
@@ -873,26 +1006,28 @@ fn dev_remote_loop(app: tauri::AppHandle) {
     let done = std::env::temp_dir().join("motionaire-dev-done");
     loop {
         std::thread::sleep(std::time::Duration::from_millis(300));
-        let Ok(cmd) = std::fs::read_to_string(&trigger) else { continue };
+        let Ok(cmd) = std::fs::read_to_string(&trigger) else {
+            continue;
+        };
         let _ = std::fs::remove_file(&trigger);
         let cmd = cmd.trim();
         log::info!("dev-remote: {cmd}");
         let result: Result<String, String> = (|| {
-            let win = app
-                .get_webview_window("main")
-                .ok_or("no main window")?;
-            match cmd.split_once(':').map(|(a, b)| (a, b)).unwrap_or((cmd, "")) {
+            let win = app.get_webview_window("main").ok_or("no main window")?;
+            match cmd
+                .split_once(':')
+                .map(|(a, b)| (a, b))
+                .unwrap_or((cmd, ""))
+            {
                 ("capture", rest) => {
                     let path = if rest.is_empty() {
-                        std::env::temp_dir()
-                            .join("motionaire-spike")
-                            .join(format!(
-                                "native-{}.png",
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_millis())
-                                    .unwrap_or(0)
-                            ))
+                        std::env::temp_dir().join("motionaire-spike").join(format!(
+                            "native-{}.png",
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0)
+                        ))
                     } else {
                         std::path::PathBuf::from(rest)
                     };
@@ -927,7 +1062,7 @@ fn dev_remote_loop(app: tauri::AppHandle) {
 pub fn run() {
     // Lifecycle logging: session 3 ended one dev run with a silent, clean
     // termination and no trace. Every exit path now says why it happened.
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -977,62 +1112,114 @@ pub fn run() {
             }
             tauri::WindowEvent::Focused(f) => log::debug!("lifecycle: focused={f}"),
             _ => {}
-        })
-        .invoke_handler(tauri::generate_handler![
-            sync_project,
-            set_playhead,
-            set_preview_quality,
-            set_text_rasters,
-            spike_setup,
-            spike_audio,
-            autorun_demo,
-            env_flag,
-            report_test,
-            extract_frame,
-            extract_filmstrip,
-            probe_media,
-            resolve_parity_probe,
-            normalize_media,
-            license_status,
-            activate_license,
-            deactivate_license,
-            get_setting,
-            set_setting,
-            remove_recent_project,
-            reveal_in_finder,
-            consolidate_media,
-            request_proxy,
-            spike_4k,
-            analyze_audio,
-            measure_loudness,
-            analyze_activity,
-            ai_generate_video,
-            spike_long_fixtures,
-            ai_history_append,
-            ai_history_read,
-            ai_chat_send,
-            ai_tool_result,
-            ai_cancel_turn,
-            ai_set_key,
-            ai_has_key,
-            ai_clear_key,
-            ai_test_connection,
-            save_recovery,
-            save_untitled_recovery,
-            check_untitled_recovery,
-            clear_untitled_recovery,
-            set_edited,
-            start_export,
-            cancel_export,
-            import_font,
-            save_fonts,
-            save_project,
-            load_project,
-            list_recent_projects,
-            sync_view_menu,
-            emit_menu_action,
-            capture_preview
-        ])
+        });
+    // Dev/test commands exist only in debug builds; the release surface is
+    // the product API and nothing else. generate_handler needs its call-site
+    // for type inference, so the builder chain forks here.
+    #[cfg(debug_assertions)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        sync_project,
+        set_playhead,
+        set_preview_quality,
+        set_text_rasters,
+        spike_setup,
+        spike_audio,
+        autorun_demo,
+        env_flag,
+        report_test,
+        extract_frame,
+        extract_filmstrip,
+        probe_media,
+        resolve_parity_probe,
+        normalize_media,
+        license_status,
+        activate_license,
+        deactivate_license,
+        get_setting,
+        set_setting,
+        remove_recent_project,
+        reveal_in_finder,
+        consolidate_media,
+        request_proxy,
+        spike_4k,
+        analyze_audio,
+        measure_loudness,
+        analyze_activity,
+        ai_generate_video,
+        spike_long_fixtures,
+        ai_history_append,
+        ai_history_read,
+        ai_chat_send,
+        ai_tool_result,
+        ai_cancel_turn,
+        ai_set_key,
+        ai_has_key,
+        ai_clear_key,
+        ai_test_connection,
+        save_recovery,
+        save_untitled_recovery,
+        check_untitled_recovery,
+        clear_untitled_recovery,
+        set_edited,
+        start_export,
+        cancel_export,
+        import_font,
+        save_fonts,
+        save_project,
+        load_project,
+        list_recent_projects,
+        sync_view_menu,
+        emit_menu_action,
+        capture_preview
+    ]);
+    #[cfg(not(debug_assertions))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        sync_project,
+        set_playhead,
+        set_preview_quality,
+        set_text_rasters,
+        extract_frame,
+        extract_filmstrip,
+        probe_media,
+        normalize_media,
+        license_status,
+        activate_license,
+        deactivate_license,
+        get_setting,
+        set_setting,
+        remove_recent_project,
+        reveal_in_finder,
+        consolidate_media,
+        request_proxy,
+        analyze_audio,
+        measure_loudness,
+        analyze_activity,
+        ai_generate_video,
+        spike_long_fixtures,
+        ai_history_append,
+        ai_history_read,
+        ai_chat_send,
+        ai_tool_result,
+        ai_cancel_turn,
+        ai_set_key,
+        ai_has_key,
+        ai_clear_key,
+        ai_test_connection,
+        save_recovery,
+        save_untitled_recovery,
+        check_untitled_recovery,
+        clear_untitled_recovery,
+        set_edited,
+        start_export,
+        cancel_export,
+        import_font,
+        save_fonts,
+        save_project,
+        load_project,
+        list_recent_projects,
+        sync_view_menu
+    ]);
+    builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| match event {

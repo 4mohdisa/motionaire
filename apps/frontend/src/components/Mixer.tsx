@@ -81,7 +81,9 @@ export default function Mixer({ docked = false }: { docked?: boolean }) {
     <div
       ref={panelRef}
       className={docked ? 'mixer mixer--docked panel' : 'mixer'}
-      style={!docked && pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined}
+      style={
+        !docked && pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined
+      }
     >
       <div
         className="mixer__head"

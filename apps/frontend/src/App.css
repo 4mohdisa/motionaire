@@ -34,7 +34,6 @@
   color: var(--text-secondary);
 }
 
-
 .topbar__actions {
   display: flex;
   align-items: center;
@@ -343,7 +342,6 @@
   z-index: 3;
 }
 
-
 .preview__overlay {
   position: absolute;
   left: 0;
@@ -420,9 +418,6 @@
   display: flex;
   gap: 4px;
 }
-
-
-
 
 /* ---------- Timeline ---------- */
 
@@ -722,7 +717,13 @@
 }
 
 .clip--adjust {
-  background: repeating-linear-gradient(-45deg, var(--clip-adjust), var(--clip-adjust) 10px, var(--clip-adjust-alt) 10px, var(--clip-adjust-alt) 20px);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--clip-adjust),
+    var(--clip-adjust) 10px,
+    var(--clip-adjust-alt) 10px,
+    var(--clip-adjust-alt) 20px
+  );
 }
 
 .clip--selected {
@@ -731,7 +732,13 @@
 }
 
 .clip--missing {
-  background: repeating-linear-gradient(-45deg, var(--clip-missing), var(--clip-missing) 8px, var(--clip-missing-alt) 8px, var(--clip-missing-alt) 16px);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--clip-missing),
+    var(--clip-missing) 8px,
+    var(--clip-missing-alt) 8px,
+    var(--clip-missing-alt) 16px
+  );
 }
 
 .clip__label {
@@ -1500,7 +1507,6 @@
   color: var(--text-secondary);
 }
 
-
 /* Track header controls (session 9, Phase 3) */
 
 .th__name {
@@ -1965,7 +1971,6 @@
   color: var(--text-secondary);
 }
 
-
 /* ---- Audio mixer (pro-editor session, Phase 1) ---- */
 
 .mixer {
@@ -2392,7 +2397,15 @@
   border: 1px solid var(--border-seam);
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.09), transparent 70%),
-    conic-gradient(#b66 0deg, #bb6 60deg, #6b6 120deg, #6bb 180deg, #66b 240deg, #b6b 300deg, #b66 360deg);
+    conic-gradient(
+      #b66 0deg,
+      #bb6 60deg,
+      #6b6 120deg,
+      #6bb 180deg,
+      #66b 240deg,
+      #b6b 300deg,
+      #b66 360deg
+    );
   background-blend-mode: overlay;
   opacity: 0.9;
   cursor: crosshair;
@@ -2527,7 +2540,6 @@
   gap: 4px;
 }
 
-
 /* ---- Tabbed properties + property-row grid (Run 1, Phase 1a/1b) ---- */
 
 .props__tabs {
@@ -2610,7 +2622,6 @@
   display: inline-flex;
   gap: 2px;
 }
-
 
 /* ---- Left icon rail + panel host (Run 1, Phase 1f/1h) ---- */
 
@@ -2814,7 +2825,6 @@
   letter-spacing: 0.5px;
 }
 
-
 /* ---- Timeline clip restyle (Run 1, Phase 1c) ---- */
 
 .clip {
@@ -2904,7 +2914,6 @@
   justify-self: end;
 }
 
-
 /* Density pass (Run 1, Phase 1i): visible keyboard focus everywhere. */
 :focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -2916,7 +2925,6 @@
   min-width: 16px;
   flex: none;
 }
-
 
 /* ---- Chat messages (Run 1, Phase 4) ---- */
 
@@ -3042,7 +3050,6 @@
   font: inherit;
   text-align: left;
 }
-
 
 /* AI-generated bin badge + toast action (Run 1, Phase 6) */
 .bin__aibadge {

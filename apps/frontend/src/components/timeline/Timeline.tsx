@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Ellipsis,
+import {
+  Ellipsis,
   Eye,
   EyeOff,
   Headphones,
@@ -15,7 +16,13 @@ import { Ellipsis,
   Spline,
   Crosshair,
   Link2,
-  Link2Off, Undo2, Redo2, ArrowDownToLine, ArrowUpToLine, Type } from 'lucide-react'
+  Link2Off,
+  Undo2,
+  Redo2,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Type,
+} from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../../state/store'
 import type { Track } from '../../types/project'
@@ -233,15 +240,12 @@ function Timeline() {
         />
         <span className="tl__divider" />
         <Dropdown icon={Plus} label="Add">
+          <DropdownItem label="Video track" onClick={() => useStore.getState().addTrack('video')} />
+          <DropdownItem label="Audio track" onClick={() => useStore.getState().addTrack('audio')} />
           <DropdownItem
-            label="Video track"
-            onClick={() => useStore.getState().addTrack('video')}
+            label="Text at playhead"
+            onClick={() => useStore.getState().addTextClip()}
           />
-          <DropdownItem
-            label="Audio track"
-            onClick={() => useStore.getState().addTrack('audio')}
-          />
-          <DropdownItem label="Text at playhead" onClick={() => useStore.getState().addTextClip()} />
           <DropdownItem
             label="Image…"
             onClick={() => {
@@ -252,17 +256,20 @@ function Timeline() {
             label="Adjustment layer at playhead"
             onClick={() => useStore.getState().addAdjustmentLayer()}
           />
-          <DropdownItem label="Rectangle" onClick={() => useStore.getState().addShapeClip('rect')} />
-          <DropdownItem label="Ellipse" onClick={() => useStore.getState().addShapeClip('ellipse')} />
+          <DropdownItem
+            label="Rectangle"
+            onClick={() => useStore.getState().addShapeClip('rect')}
+          />
+          <DropdownItem
+            label="Ellipse"
+            onClick={() => useStore.getState().addShapeClip('ellipse')}
+          />
           <DropdownItem label="Line" onClick={() => useStore.getState().addShapeClip('line')} />
           <DropdownItem
             label="Generate with AI…"
             onClick={() => useStore.getState().setDialog('generate')}
           />
-          <DropdownItem
-            label="Solid color"
-            onClick={() => useStore.getState().addSolidClip()}
-          />
+          <DropdownItem label="Solid color" onClick={() => useStore.getState().addSolidClip()} />
           <DropdownItem
             label="Title: lower third"
             onClick={() => useStore.getState().addTitleTemplate('lowerThird')}
@@ -288,7 +295,11 @@ function Timeline() {
           label="Mark out (O)"
           onClick={() => useStore.getState().setMarkOut(useStore.getState().playhead)}
         />
-        <IconBtn icon={Type} label="Add text (T)" onClick={() => useStore.getState().addTextClip()} />
+        <IconBtn
+          icon={Type}
+          label="Add text (T)"
+          onClick={() => useStore.getState().addTextClip()}
+        />
         <IconBtn
           icon={Spline}
           label="Keyframe graph editor"
@@ -362,11 +373,7 @@ function Timeline() {
             />
             <div className="dropdown__zoom-row">
               {[50, 100, 200, 400].map((p) => (
-                <button
-                  key={p}
-                  className="chip"
-                  onClick={() => setPxPerSec((p / 100) * 60)}
-                >
+                <button key={p} className="chip" onClick={() => setPxPerSec((p / 100) * 60)}>
                   {p}%
                 </button>
               ))}
@@ -495,7 +502,9 @@ function TrackHeader({ track, height }: { track: Track; height: number }) {
   }
 
   const flag = (f: 'muted' | 'solo' | 'locked' | 'hidden' | 'targeted' | 'syncLocked') =>
-    useStore.getState().setTrackFlag(track.id, f, !(track[f] ?? (f === 'syncLocked' ? true : false)))
+    useStore
+      .getState()
+      .setTrackFlag(track.id, f, !(track[f] ?? (f === 'syncLocked' ? true : false)))
 
   return (
     <div
@@ -562,7 +571,11 @@ function TrackHeader({ track, height }: { track: Track; height: number }) {
             started on other tracks move this one too — default ON). */}
         <button
           className={`th__btn${track.targeted ? ' th__btn--target' : ''}`}
-          title={track.targeted ? 'Untarget (inserts stop landing here)' : 'Target track for insert/paste'}
+          title={
+            track.targeted
+              ? 'Untarget (inserts stop landing here)'
+              : 'Target track for insert/paste'
+          }
           onClick={() => flag('targeted')}
         >
           <Crosshair size={12} />
@@ -646,7 +659,11 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
     { label: 'Split at playhead', onClick: () => s.splitAtPlayhead() },
     { label: 'Cut', onClick: () => s.cutClips(ids) },
     { label: 'Copy', onClick: () => s.copyClips(ids) },
-    { label: 'Paste at playhead', onClick: () => s.pasteAtPlayhead(), disabled: !s.clipboard.length },
+    {
+      label: 'Paste at playhead',
+      onClick: () => s.pasteAtPlayhead(),
+      disabled: !s.clipboard.length,
+    },
     { label: 'Duplicate', onClick: () => ids.forEach((id) => s.duplicateClip(id)) },
     // Copy/paste attributes (pro-editor, Phase 2): transform + effect stack +
     // blend, one source onto the whole selection.
@@ -681,10 +698,13 @@ function buildMenuItems(clipId: string | null): MenuItem[] {
       label: clip?.disabled ? 'Enable' : 'Disable',
       onClick: () => s.setClipDisabled(ids, !clip?.disabled),
     },
-    { label: 'Freeze frame at playhead', onClick: () => void freezeFrame(clipId), disabled: !freezable },
+    {
+      label: 'Freeze frame at playhead',
+      onClick: () => void freezeFrame(clipId),
+      disabled: !freezable,
+    },
     { label: 'Detach audio', onClick: () => s.detachAudio(clipId), disabled: !detachable },
-    ...(clip?.kind === 'audio' ||
-    (clip?.kind === 'video' && !!asset?.hasAudio)
+    ...(clip?.kind === 'audio' || (clip?.kind === 'video' && !!asset?.hasAudio)
       ? [
           { label: 'Fade in (0.5s)', onClick: () => s.addFade(clipId, 'in') },
           { label: 'Fade out (0.5s)', onClick: () => s.addFade(clipId, 'out') },

@@ -23,9 +23,7 @@ export function isActiveAt(c: Clip, t: number): boolean {
 // to the source range. No keyframes → plain linear mapping.
 export function sourceTime(c: Clip, t: number): number {
   const rel = t - c.start
-  const kfs = c.keyframes
-    .filter((k) => k.prop === 'speed')
-    .sort((a, b) => a.t - b.t)
+  const kfs = c.keyframes.filter((k) => k.prop === 'speed').sort((a, b) => a.t - b.t)
   if (!kfs.length) return c.in + rel * c.speed
   const src = c.in + integrateRate(kfs, rel)
   return Math.min(Math.max(src, Math.min(c.in, c.out)), Math.max(c.in, c.out))

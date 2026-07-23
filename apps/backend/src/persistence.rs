@@ -18,7 +18,10 @@ pub fn atomic_write(target: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     let tmp = dir.join(format!(
         ".{}.tmp-{}",
-        target.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+        target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file"),
         std::process::id()
     ));
     {
@@ -79,7 +82,9 @@ pub fn save_fonts(bundle_dir: &Path, fonts: &[BundleFont]) -> Result<(), String>
 pub fn load_fonts(bundle_dir: &Path) -> Vec<BundleFont> {
     use base64::Engine as _;
     let mut out = Vec::new();
-    let Ok(rd) = fs::read_dir(bundle_dir.join("fonts")) else { return out };
+    let Ok(rd) = fs::read_dir(bundle_dir.join("fonts")) else {
+        return out;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -108,8 +113,8 @@ pub struct LoadedBundle {
 
 pub fn load_bundle(bundle_dir: &Path) -> Result<LoadedBundle, String> {
     let path = bundle_dir.join("project.json");
-    let project_json = fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let project_json =
+        fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let v: serde_json::Value = serde_json::from_str(&project_json)
         .map_err(|e| format!("project.json is not valid JSON: {e}"))?;
     if v["version"].as_u64() != Some(1) {
@@ -182,24 +187,33 @@ pub fn clear_recovery(bundle_dir: &Path) {
 
 pub fn check_recovery(bundle_dir: &Path) -> Option<String> {
     let rec = bundle_dir.join("recovery.json");
-    let newer = match (fs::metadata(&rec), fs::metadata(bundle_dir.join("project.json"))) {
+    let newer = match (
+        fs::metadata(&rec),
+        fs::metadata(bundle_dir.join("project.json")),
+    ) {
         (Ok(r), Ok(p)) => match (r.modified(), p.modified()) {
             (Ok(rm), Ok(pm)) => rm > pm,
             _ => false,
         },
         _ => false,
     };
-    if newer { fs::read_to_string(&rec).ok() } else { None }
+    if newer {
+        fs::read_to_string(&rec).ok()
+    } else {
+        None
+    }
 }
 
 pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> {
     let conn = db_open(db_path)?;
-    conn.query_row("SELECT value FROM settings WHERE key = ?1", (key,), |r| r.get(0))
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            e => Err(e.to_string()),
-        })
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", (key,), |r| {
+        r.get(0)
+    })
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        e => Err(e.to_string()),
+    })
 }
 
 pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String> {
@@ -262,7 +276,10 @@ mod tests {
     use super::*;
 
     fn tmp_dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("motionaire-persist-test-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!(
+            "motionaire-persist-test-{name}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -298,7 +315,11 @@ mod tests {
         assert!(!bundle.join("project.json").exists());
         // Loading a truncated/corrupt file must error, not panic.
         fs::create_dir_all(&bundle).unwrap();
-        fs::write(bundle.join("project.json"), &br#"{"version":1,"canvas":{"wi"#[..]).unwrap();
+        fs::write(
+            bundle.join("project.json"),
+            &br#"{"version":1,"canvas":{"wi"#[..],
+        )
+        .unwrap();
         assert!(load_bundle(&bundle).is_err());
         // Wrong version is refused with a clear message.
         fs::write(bundle.join("project.json"), br#"{"version":99}"#).unwrap();
@@ -320,7 +341,10 @@ mod tests {
         );
         save_bundle(&bundle, &json).unwrap();
         let loaded = load_bundle(&bundle).unwrap();
-        assert_eq!(loaded.missing_media, vec!["/nonexistent/gone.mp4".to_string()]);
+        assert_eq!(
+            loaded.missing_media,
+            vec!["/nonexistent/gone.mp4".to_string()]
+        );
     }
 
     #[test]
@@ -389,7 +413,10 @@ pub fn list_recents(db_path: &Path) -> Result<Vec<RecentProject>, String> {
 
 pub fn remove_recent(db_path: &Path, project_path: &str) -> Result<(), String> {
     let conn = db_open(db_path)?;
-    conn.execute("DELETE FROM recent_projects WHERE path = ?1", (project_path,))
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM recent_projects WHERE path = ?1",
+        (project_path,),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
