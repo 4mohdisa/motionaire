@@ -2324,3 +2324,69 @@ above).
   visual.** Six r1 e2e tests joined the permanent suite this session
   (keys, tool loop, chat UI, FLAGSHIP, generation lifecycle, sample
   project).
+
+# Release session (session 14) — verify, clean, ship
+
+Work order: PLAN_RELEASE.md. Entry state: suite GREEN at 95+33+38+2,
+committed through Run 1 Phase 7.
+
+## Phase 0 — exhaustive functional audit (AUDIT.md is the deliverable)
+
+- **Method**: full cold suite as tonight's baseline (every registered test
+  re-run, not trusted from memory), then THREE new permanent e2e tests for
+  every surface the suite never covered: rel_export_test (ProRes, PNG
+  sequence, background queue), rel_ui_test (J/K/L, space, frame-step,
+  timecode entry, menu view toggles, guides, live transition, prop-row
+  scrub = one undo step), rel_project_test (Open Recent via the real menu
+  path, font import round trip through reload, project settings, relink
+  re-probe, source monitor). Registered in e2e.sh — audit coverage that
+  can't rot.
+- **The one failure found was test infrastructure, not the app**: both
+  visual screens failed `ssim n/a` — WKWebView snapshots follow the
+  display's backing scale, and an unattended overnight run (display
+  asleep) captures at 1x against 2x Retina baselines; ffmpeg SSIM emits
+  nothing on mismatched dimensions. Content verified identical
+  (0.991/0.989 normalized). visual.sh now scale2ref-normalizes before
+  SSIM: the layer compares pixel content, not tonight's DPI.
+- **Zero feature failures.** Honest gaps labeled in AUDIT.md: real-provider
+  network calls unverified here (no API key on this machine; mock carries
+  the paths), track-fx mixer UI absent (store/AI front door), native-dialog
+  endpoints inspect-only (house rule 5).
+- synthetic-pointer note for the scrub probe: setPointerCapture throws on
+  inactive pointer ids, so rel_ui_test no-ops capture around its synthetic
+  gesture — the gesture logic itself runs unmodified.
+
+## Phase 1 — fixes
+
+The audit produced exactly one fix (visual.sh scale normalization, above)
+and zero feature fixes. Regression coverage grew by the three rel_* tests.
+Gate: full cold suite after the changes.
+
+## Phase 4 — security & secrets audit (done early, read-only, while the
+## Phase-0/1 gate suite ran)
+
+**Verdict: CLEAN. Nothing to scrub; full history is safe to publish.**
+
+- All 72 commits scanned (`git log -p --all`): zero key-shaped strings
+  (Anthropic/OpenAI/AWS/GitHub/Slack/Google patterns, private-key blocks),
+  zero credential assignments, zero .env/.db/.pem/keystore files ever
+  committed (full added-file inventory by extension reviewed).
+- Personal data: the author email appears only in commit METADATA (public
+  by design on any GitHub repo); zero occurrences of the email or
+  /Users/<name> paths in tracked file content, any commit.
+- Key handling re-verified in code: ai/keys.rs never logs key material;
+  the ONLY outbound hosts in the entire codebase are the four provider
+  APIs (api.anthropic.com, api.openai.com, ark.ap-southeast.bytepluses.com,
+  generativelanguage.googleapis.com) — each called only with the user's own
+  configured key — plus the localhost compositor WebSocket. No telemetry,
+  no update checks, no other network surface. Frontend's single fetch()
+  reads local media for waveform decode.
+- Bundle format: project.json carries media paths (the referencing design;
+  Consolidate Media exists for portability) and no key material — the
+  r1p2 e2e asserts nothing key-shaped ever reaches persisted state.
+- The hardcoded MOTIONAIRE-TEST key is the PUBLIC test validator key,
+  public by design; Phase 6 unlocks the open-source build anyway.
+- **Authorship (not a secret, but a publish blocker): 44 of 72 commit
+  messages carry AI co-author trailers.** Phase 8 strips them with a
+  message-only history rewrite (trees/dates/sequence preserved) and
+  normalizes the author name to "Mohammed Isa" in the same pass.

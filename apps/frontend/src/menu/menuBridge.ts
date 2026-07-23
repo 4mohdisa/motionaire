@@ -2738,6 +2738,332 @@ async function dispatch(action: string, path?: string) {
       }
       break
     }
+    case 'dev:rel_export_test': {
+      // Release audit: the export surfaces f6 never covered — ProRes, PNG
+      // sequence, and the background queue (a second export submitted while
+      // one runs must queue, then complete).
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-export', pass, detail }).catch(() => {})
+      try {
+        await loadPipDemo()
+        await new Promise((r) => setTimeout(r, 300))
+        const st = () => useStore.getState()
+        st().pause()
+        st().setMarkIn(0)
+        st().setMarkOut(3)
+        const { runExport } = await import('../compositor/exportRunner')
+        const { listen } = await import('@tauri-apps/api/event')
+        const doneOnce = () =>
+          new Promise<boolean>((resolve) => {
+            void listen<{ ok: boolean }>('export:done', (e) => resolve(e.payload.ok)).then((un) =>
+              setTimeout(un, 120000),
+            )
+          })
+        // 1) ProRes 422 .mov
+        st().setExportSettings({ format: 'prores', height: 720, fps: 30, quality: 70 })
+        let p = doneOnce()
+        await runExport('/tmp/rel-prores.mov')
+        const proresOk = await p
+        const probe1 = await invoke<{ duration: number; width: number }>('probe_media', {
+          path: '/tmp/rel-prores.mov',
+        })
+        // 2) PNG sequence: frames land as rel-seq-%05d.png
+        st().setExportSettings({ format: 'png' })
+        p = doneOnce()
+        await runExport('/tmp/rel-seq.png')
+        const pngOk = await p
+        const frame1 = await invoke<{ width: number }>('probe_media', {
+          path: '/tmp/rel-seq-00001.png',
+        }).catch(() => null)
+        const frame60 = await invoke<{ width: number }>('probe_media', {
+          path: '/tmp/rel-seq-00060.png',
+        }).catch(() => null)
+        // 3) queue: full-length mp4, second submission queues behind it
+        st().setMarkIn(null)
+        st().setMarkOut(null)
+        st().setExportSettings({ format: 'mp4' })
+        let queued = false
+        let dones = 0
+        let allOk = true
+        const unq = await listen('export:queued', () => (queued = true))
+        const und = await listen<{ ok: boolean }>('export:done', (e) => {
+          dones += 1
+          allOk = allOk && e.payload.ok
+        })
+        await runExport('/tmp/rel-q1.mp4')
+        await runExport('/tmp/rel-q2.mp4')
+        const t0 = Date.now()
+        while (dones < 2 && Date.now() - t0 < 120000)
+          await new Promise((r) => setTimeout(r, 300))
+        unq()
+        und()
+        const probeQ2 = await invoke<{ duration: number }>('probe_media', {
+          path: '/tmp/rel-q2.mp4',
+        }).catch(() => null)
+        const pass =
+          proresOk &&
+          Math.abs(probe1.duration - 3) < 0.2 &&
+          probe1.width > 0 &&
+          pngOk &&
+          !!frame1 &&
+          !!frame60 &&
+          dones === 2 &&
+          allOk &&
+          queued &&
+          !!probeQ2 &&
+          Math.abs(probeQ2.duration - 10) < 0.3
+        void report(
+          pass,
+          `prores=${proresOk}/${probe1.duration.toFixed(2)}s png=${pngOk} f1=${!!frame1} f60=${!!frame60} queued=${queued} dones=${dones} ok=${allOk} q2dur=${probeQ2?.duration?.toFixed(2)}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:rel_ui_test': {
+      // Release audit: playback keys (space / J-K-L / arrow frame-step),
+      // timecode entry, menu view toggles, guides, a transition applied via
+      // the store rendering live, and the property-row scrub/reset gestures.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-ui', pass, detail }).catch(() => {})
+      const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+      const poll = async (fn: () => boolean, ms = 5000) => {
+        const t0 = Date.now()
+        while (Date.now() - t0 < ms) {
+          if (fn()) return true
+          await settle(100)
+        }
+        return fn()
+      }
+      const key = (k: string) =>
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }))
+      try {
+        await loadPipDemo()
+        await settle(400)
+        const st = () => useStore.getState()
+        st().pause()
+        st().setPlayhead(2)
+        await settle()
+        // -- L plays forward
+        key('l')
+        const lOk = await poll(() => st().playing && st().playhead > 2.05)
+        // -- K pauses
+        key('k')
+        const kOk = await poll(() => !st().playing)
+        const atK = st().playhead
+        // -- J shuttles backward
+        key('j')
+        const jOk = await poll(() => st().playhead < atK - 0.05)
+        key('k')
+        await settle()
+        // -- space toggles
+        const preSpace = st().playing
+        key(' ')
+        const spaceOk = await poll(() => st().playing !== preSpace)
+        st().pause()
+        // -- arrow = one frame
+        st().setPlayhead(2)
+        await settle()
+        const fps = st().project.canvas.fps
+        key('ArrowRight')
+        const stepOk = await poll(() => Math.abs(st().playhead - (2 + 1 / fps)) < 1e-3)
+        // -- timecode entry through the real transport counter
+        const tc = document.querySelector<HTMLElement>('.transport__time--click')
+        tc?.click()
+        await settle()
+        const tcInput = document.querySelector<HTMLInputElement>('.transport__tcinput')
+        let tcOk = false
+        if (tcInput) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+          setter.call(tcInput, '0:04:00')
+          tcInput.dispatchEvent(new Event('input', { bubbles: true }))
+          tcInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+          tcOk = await poll(() => Math.abs(st().playhead - 4) < 1e-3)
+        }
+        // -- menu view toggles through the real dispatch path
+        const px0 = st().pxPerSec
+        await dispatch('view:zoom_in')
+        const zoomOk = st().pxPerSec > px0
+        const snap0 = st().snap
+        await dispatch('view:snap')
+        const snapOk = st().snap !== snap0
+        await dispatch('view:snap')
+        await dispatch('view:full_preview')
+        const fullOk = st().previewFull
+        await dispatch('view:full_preview')
+        // -- guides overlay
+        st().setGuides(true)
+        await settle()
+        const guidesOk = !!document.querySelector('.guides, [class*="guide"]')
+        st().setGuides(false)
+        // -- a library transition (zoom) rendering live across the cut
+        const vids = st()
+          .project.tracks.filter((t) => t.kind === 'video')
+          .sort((a, b) => a.z - b.z)[0].clips
+        let transOk = true
+        if (vids.length >= 2) {
+          const second = [...vids].sort((a, b) => a.start - b.start)[1]
+          st().setTransition(second.id, 'in', { type: 'zoom', duration: 0.6 })
+          st().setPlayhead(Math.max(0, second.start - 0.2))
+          st().play()
+          transOk = await poll(() => {
+            const c = st()
+            return c.compositorActive && c.compositorFps > 5 && c.playhead > second.start
+          }, 6000)
+          st().pause()
+        }
+        // -- property-row scrub drag = value change + ONE undo step
+        const clip0 = vids[0]
+        st().select([clip0.id])
+        await settle()
+        clickPropsTab('Video')
+        await settle()
+        const rows = [...document.querySelectorAll<HTMLElement>('.prow')]
+        const scaleRow = rows.find((r) => r.querySelector('.prow__label')?.textContent === 'Scale')
+        const label = scaleRow?.querySelector<HTMLElement>('.prow__label--scrub')
+        let scrubOk = false
+        let scrubUndoOk = false
+        if (label) {
+          const past0 = st().past.length
+          const r = label.getBoundingClientRect()
+          const pe = (type: string, x: number) =>
+            new PointerEvent(type, { bubbles: true, clientX: x, clientY: r.top + 4, pointerId: 7 })
+          const scale0 = (clip0.transform.scale as number) ?? 1
+          // Synthetic pointers aren't "active", so setPointerCapture throws
+          // NotFoundError — neutralize capture for the synthetic gesture.
+          const origCap = Element.prototype.setPointerCapture
+          const origRel = Element.prototype.releasePointerCapture
+          Element.prototype.setPointerCapture = () => {}
+          Element.prototype.releasePointerCapture = () => {}
+          label.dispatchEvent(pe('pointerdown', r.left + 5))
+          label.dispatchEvent(pe('pointermove', r.left + 45))
+          label.dispatchEvent(pe('pointerup', r.left + 45))
+          Element.prototype.setPointerCapture = origCap
+          Element.prototype.releasePointerCapture = origRel
+          await settle()
+          const after = st()
+            .project.tracks.flatMap((t) => t.clips)
+            .find((c) => c.id === clip0.id)!
+          scrubOk = Math.abs((after.transform.scale as number) - scale0) > 1e-3
+          scrubUndoOk = st().past.length === past0 + 1
+        }
+        // -- reset button restores the default
+        const resetBtn = scaleRow?.querySelector<HTMLButtonElement>('.prow__reset')
+        resetBtn?.click()
+        await settle()
+        const afterReset = st()
+          .project.tracks.flatMap((t) => t.clips)
+          .find((c) => c.id === clip0.id)!
+        const resetOk = Math.abs((afterReset.transform.scale as number) - 1) < 1e-6
+        const pass =
+          lOk && kOk && jOk && spaceOk && stepOk && tcOk && zoomOk && snapOk && fullOk &&
+          guidesOk && transOk && scrubOk && scrubUndoOk && resetOk
+        void report(
+          pass,
+          `L=${lOk} K=${kOk} J=${jOk} space=${spaceOk} step=${stepOk} tc=${tcOk} zoom=${zoomOk} snap=${snapOk} full=${fullOk} guides=${guidesOk} trans=${transOk} scrub=${scrubOk}/${scrubUndoOk} reset=${resetOk}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
+    case 'dev:rel_project_test': {
+      // Release audit: save → close → Open Recent through the real menu
+      // path, font import round-trip (bundle-embedded, back after reload),
+      // relink re-probe, project settings after creation, source monitor.
+      const report = (pass: boolean, detail: string) =>
+        invoke('report_test', { name: 'rel-project', pass, detail }).catch(() => {})
+      const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms))
+      try {
+        await loadPipDemo()
+        await settle()
+        const st = () => useStore.getState()
+        st().pause()
+        const spike = st().project.media[0].path
+        const dir = spike.slice(0, spike.lastIndexOf('/'))
+        const bundle = `${dir}/rel-audit.motionaire`
+        st().setProjectPath(bundle)
+        // -- font import (no native dialog: same command the picker calls)
+        const fontPath = '/System/Library/Fonts/Supplemental/Arial.ttf'
+        const font = await invoke<{ fileName: string; dataBase64: string }>('import_font', {
+          path: fontPath,
+        })
+        // family = file stem, mirroring fontManager's familyFromFileName
+        const family = font.fileName.replace(/\.(ttf|otf)$/i, '')
+        st().addProjectFont({ id: 'f_rel', family, fileName: font.fileName })
+        const { saveProject } = await import('../persistence/projectIO')
+        const saved = await saveProject()
+        const clipCount = st().project.tracks.flatMap((t) => t.clips).length
+        // -- close to launcher, reopen via the Open Recent menu path
+        await dispatch('file:close')
+        await settle()
+        const atLauncher = st().appView === 'launcher'
+        await dispatch('file:open_recent', bundle)
+        await settle(800)
+        const backInEditor = st().appView === 'editor'
+        const clipsBack = st().project.tracks.flatMap((t) => t.clips).length === clipCount
+        const { customFamilies } = await import('../persistence/fontManager')
+        const fontBack = customFamilies().includes(family) &&
+          (st().project.fonts ?? []).some((f) => f.family === family)
+        // -- project settings dialog opens via the menu; fps editable after creation
+        await dispatch('file:project_settings')
+        await settle()
+        const dlgOpen = st().dialog === 'projectSettings'
+        const fps0 = st().project.canvas.fps
+        st().setCanvasFps(fps0 === 30 ? 24 : 30)
+        const fpsChanged = st().project.canvas.fps !== fps0
+        st().setCanvasFps(fps0)
+        st().setDialog(null)
+        // -- relink: missing asset re-probed onto a real file (the picker is
+        // native; this drives everything after the pick)
+        const { uid: mkid } = await import('../types/project')
+        const mid = mkid('m')
+        st().addMedia({
+          id: mid,
+          path: '/tmp/definitely-missing-rel.mp4',
+          name: 'missing.mp4',
+          kind: 'video',
+          duration: 5,
+          hasAudio: false,
+          missing: true,
+        })
+        const wasMissing = st().project.media.find((m) => m.id === mid)?.missing === true
+        const probe = await invoke<{ duration: number; width: number; height: number }>(
+          'probe_media',
+          { path: spike },
+        )
+        const { convertFileSrc } = await import('@tauri-apps/api/core')
+        st().updateMedia(mid, {
+          path: spike,
+          playbackUrl: convertFileSrc(spike),
+          missing: false,
+          duration: probe.duration,
+          width: probe.width,
+          height: probe.height,
+        })
+        const relinked = st().project.media.find((m) => m.id === mid)?.missing === false
+        // -- source monitor
+        st().openSource(st().project.media[0].id)
+        await settle()
+        const srcOpen = !!document.querySelector('.srcmon')
+        st().setSourceRange('in', 1)
+        st().setSourceRange('out', 3)
+        const range = st().sourcePreview
+        const rangeOk = range?.in === 1 && range?.out === 3
+        st().openSource(null)
+        const pass =
+          saved && atLauncher && backInEditor && clipsBack && fontBack && dlgOpen &&
+          fpsChanged && wasMissing && relinked && srcOpen && !!rangeOk
+        void report(
+          pass,
+          `saved=${saved} launcher=${atLauncher} reopen=${backInEditor}/${clipsBack} font=${fontBack} dlg=${dlgOpen} fps=${fpsChanged} relink=${wasMissing}->${relinked} srcmon=${srcOpen} range=${rangeOk}`,
+        )
+      } catch (e) {
+        void report(false, `threw: ${e}`)
+      }
+      break
+    }
     case 'dev:vr_scene': {
       // Visual-regression scene (Phase 0): fixed window size, deterministic
       // fixture content, fixed playhead, no transient chrome. Reports

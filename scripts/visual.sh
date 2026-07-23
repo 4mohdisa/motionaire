@@ -42,7 +42,11 @@ capture() { # $1 = output png
 }
 
 ssim_of() { # $1 candidate, $2 baseline
-  ffmpeg -i "$1" -i "$2" -filter_complex ssim -f null - 2>&1 |
+  # WKWebView snapshots follow the display's backing scale (2x on Retina,
+  # 1x when the display is asleep/virtual — the state of every unattended
+  # overnight run). Scale the baseline onto the candidate's grid before
+  # comparing so the layer tests PIXEL CONTENT, not tonight's DPI.
+  ffmpeg -i "$1" -i "$2" -filter_complex "[1:v][0:v]scale2ref[b][a];[a][b]ssim" -f null - 2>&1 |
     grep -o "All:[0-9.]*" | tail -1 | cut -d: -f2
 }
 

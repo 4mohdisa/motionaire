@@ -28,6 +28,7 @@ DEFAULT_TESTS=(
   f5_proxy_test f6_export_test f7_test f8_test
   r1p2_keys_test r1p3_tools_test r1p4_chat_test r1p5_flagship_test r1p6_gen_test r1p7_ready_test
   p1_mixer_test p2_fx_test p2_migration_test p3_graph_test p4_trim_test p5_color_test p6_audio_test p7_motion_test p8_org_test
+  rel_export_test rel_ui_test rel_project_test
 )
 if [ $# -gt 0 ]; then TESTS=("$@"); else TESTS=("${DEFAULT_TESTS[@]}"); fi
 
