@@ -235,11 +235,13 @@ p { text-wrap: pretty; }
 
 .composer__box {
   flex: 1;
+  position: relative;
   min-height: 58px;
-  padding: 12px 16px;
+  /* Right padding reserves the lane for the in-field Send button. */
+  padding: 12px 88px 12px 16px;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 15px;
   line-height: 1.55;
   color: var(--text-primary);
@@ -257,12 +259,15 @@ p { text-wrap: pretty; }
 
 @keyframes caret { 50% { opacity: 0; } }
 
+/* Sits inside the field, bottom-right — the ChatGPT convention. */
 .composer__send {
-  align-self: flex-end;
-  padding: 11px 18px;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 9px 15px;
   background: var(--accent);
   color: var(--text-on-accent);
-  font: 600 14px/1 var(--sans);
+  font: 600 13.5px/1 var(--sans);
   border-radius: 7px;
   user-select: none;
 }
@@ -655,7 +660,6 @@ html.js .feature.reveal { opacity: 1; transform: none; transition: none; } /* ch
   .feature--flip .shot { order: 2; }
   .feature p { max-width: none; }
 
-  .composer__send { display: none; }
 }
 
 @media (max-width: 480px) {

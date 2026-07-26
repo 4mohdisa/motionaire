@@ -2570,3 +2570,9 @@ files + copied assets, no framework, no build step, no dependencies.
 - Honesty held: macOS-only, not notarized + the xattr line, FFmpeg
   requirement, no feature claims beyond the README. Deploy note in
   landing/README.md. .claude/ (local harness config) gitignored.
+
+- Composer refinement (user request): the Send button moved INSIDE the
+  field, bottom-right — the ChatGPT convention — instead of sitting
+  beside it; the box reserves an 88px right lane so text never runs
+  under the button, and the button no longer hides on mobile (it fits
+  now). Verified headless at 1440 and 500 wide.
