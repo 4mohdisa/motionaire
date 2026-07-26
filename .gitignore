@@ -29,3 +29,4 @@ yarn-error.log*
 # Test artifacts / captures (generated, never tracked)
 *.motionaire/
 tests/visual/*.candidate.png
+.claude/

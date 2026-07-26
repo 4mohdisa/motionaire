@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Motionaire — the video editor you talk to</title>
+  <meta name="description" content="An AI-native video editor for macOS. Type what you want in plain English and it lands as real, undoable keyframes on a real timeline. Free and open source." />
+  <link rel="icon" type="image/png" href="assets/icon.png" />
+  <meta property="og:title" content="Motionaire — the video editor you talk to" />
+  <meta property="og:description" content="Type the edit. It lands as real keyframes on a real timeline — one undo step, identical in the export. Free, open source, macOS." />
+  <meta property="og:image" content="https://raw.githubusercontent.com/4mohdisa/motionaire/main/docs/screenshots/hero-ai-chat.png" />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="nav" id="top">
+  <div class="nav__inner">
+    <a class="nav__brand" href="#top">
+      <img src="assets/icon.png" alt="" width="20" height="20" />
+      Motionaire
+    </a>
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#idea">The idea</a>
+      <a href="#editor">The editor</a>
+      <a href="#tech">Under the hood</a>
+      <a href="#download">Download</a>
+    </nav>
+    <div class="nav__side">
+      <span class="nav__tc" id="tc" aria-hidden="true">00:00:00:00</span>
+      <a class="btn btn--ghost btn--sm" href="https://github.com/4mohdisa/motionaire">GitHub</a>
+    </div>
+  </div>
+  <div class="nav__scrub" aria-hidden="true"><span class="nav__playhead" id="playhead"></span></div>
+</header>
+
+<main>
+
+  <!-- ============================================================ HERO -->
+  <section class="hero">
+    <div class="hero__inner">
+      <h1 class="hero__title load-rise">The video editor<br />you talk to.</h1>
+      <p class="hero__sub load-rise">
+        Type what you want. Motionaire turns it into real keyframes on a real
+        timeline — instant to see, one keystroke to undo, identical in the
+        export. Free and open source, for macOS.
+      </p>
+
+      <div class="composer load-rise" role="img"
+           aria-label="The Motionaire chat composer, where you type an edit like: From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom right, screen share fills the rest, then back to fullscreen. Result: pip layout applied as 20 keyframes on 2 clips, one undo step.">
+        <div class="composer__box">
+          <span class="composer__text" id="typed">From 0:10 to 0:45 shrink my face to 10%, rounded corners, bottom right, screen share fills the rest, then back to fullscreen.</span><span class="composer__caret" id="caret"></span>
+        </div>
+        <span class="composer__send">Send</span>
+      </div>
+      <p class="composer__result load-rise" id="diff">
+        <span class="ok" aria-hidden="true">✓</span> pip layout at 10.00s over 1.00s — 20 keyframes on 2 clips
+      </p>
+
+      <div class="hero__actions load-rise">
+        <a class="btn btn--primary" href="https://github.com/4mohdisa/motionaire/releases">Download for macOS</a>
+        <a class="btn btn--ghost" href="https://github.com/4mohdisa/motionaire">Read the source</a>
+      </div>
+    </div>
+
+    <figure class="shot shot--hero load-rise" data-parallax>
+      <img src="assets/hero-ai-chat.png" width="1440" height="900"
+           fetchpriority="high"
+           alt="Motionaire mid-edit: the AI chat holds the typed prompt and its diff cards, the picture-in-picture sits bottom-right in the preview, and keyframe diamonds mark the move on the timeline." />
+      <figcaption>One typed sentence did this — the pip is live in the preview, and every keyframe is on the timeline, editable by hand.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================ IDEA -->
+  <section class="idea" id="idea">
+    <div class="idea__inner reveal">
+      <h2>It edits the timeline,<br />not the pixels.</h2>
+      <div class="idea__body">
+        <p>
+          Most “AI video” tools generate footage and hope you like it.
+          Motionaire does something plainer and, honestly, more useful: when
+          you ask for an edit, the AI makes the same moves you would — it
+          trims clips, writes keyframes, adds titles — through the exact same
+          controls the rest of the app uses. It never draws a single frame.
+        </p>
+        <p>
+          That one decision buys you everything. Edits are <strong>instant</strong>,
+          because nothing has to render before you see it. Every prompt is
+          <strong>one undo step</strong> — if you don’t like it, ⌘Z and it’s
+          gone, completely. And what the AI made is just… clips and keyframes.
+          Drag them. Retime them. Finish the job yourself.
+        </p>
+        <p class="idea__flow">
+          your words <span class="arr" aria-hidden="true">→</span> tool calls <span class="arr" aria-hidden="true">→</span> the project file <span class="arr" aria-hidden="true">→</span> the compositor <span class="arr" aria-hidden="true">→</span> pixels
+        </p>
+        <p class="idea__note">
+          The AI only ever touches the middle. A deterministic Rust renderer
+          turns the project into frames — the same renderer for the preview
+          and the export, so what you see is what encodes.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ WALK -->
+  <section class="walk" id="editor">
+    <h2 class="visually-hidden">The editor</h2>
+
+    <div class="feature reveal">
+      <div class="feature__copy">
+        <h3>A real editor underneath</h3>
+        <p>
+          The AI would be a gimmick if the editor under it were one. It isn’t:
+          multi-track timeline with filmstrips, ripple / roll / slip / slide
+          trimming, markers, insert and overwrite, compound clips, proxies
+          that keep 4K screen recordings smooth, and a media bin with a
+          source monitor. Everything the AI can do, your hands can do too —
+          and vice versa.
+        </p>
+      </div>
+      <figure class="shot" data-parallax>
+        <img src="assets/editor.png" width="1440" height="900" loading="lazy"
+             alt="The full Motionaire editor: media bin, program monitor, tabbed properties panel, and a timeline with filmstrip clips." />
+      </figure>
+    </div>
+
+    <div class="feature feature--flip reveal">
+      <div class="feature__copy">
+        <h3>Color you can measure</h3>
+        <p>
+          Lift / gamma / gain wheels, per-channel RGB curves, 3D LUTs, chroma
+          key, masks — stacked in the order you choose, keyframeable, and read
+          back by scopes that measure the compositor’s <em>actual output</em>,
+          not an approximation of it.
+        </p>
+      </div>
+      <figure class="shot" data-parallax>
+        <img src="assets/color-scopes.png" width="1440" height="900" loading="lazy"
+             alt="Color wheels, RGB curves and a luma waveform scope reading the live preview output." />
+      </figure>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feature__copy">
+        <h3>Curves, when you want them</h3>
+        <p>
+          Every property animates. When the AI writes a move you can open it
+          in the graph editor — bezier handles and all — and reshape it like
+          any keyframe you set yourself. There’s no separate AI layer to fight — its
+          keyframes are yours.
+        </p>
+      </div>
+      <figure class="shot" data-parallax>
+        <img src="assets/graph-editor.png" width="1440" height="900" loading="lazy"
+             alt="The keyframe graph editor showing bezier curves for scale, position, opacity and corner radius — a move the AI wrote." />
+      </figure>
+    </div>
+
+    <!-- The rest of the feature set, laid out like the app's own tracks. -->
+    <div class="tracks reveal" role="list" aria-label="More of what's inside">
+      <div class="track" role="listitem">
+        <span class="track__label">V3</span>
+        <div class="track__body">
+          <strong>Transitions &amp; motion</strong>
+          <span>sixteen of them, dissolves to iris to spin — plus track mattes, motion blur, and auto-reframe for vertical crops.</span>
+        </div>
+      </div>
+      <div class="track" role="listitem">
+        <span class="track__label">V2</span>
+        <div class="track__body">
+          <strong>Titles inside the render</strong>
+          <span>text and shapes composite in the engine itself — no baked-in overlays. Import a font and it travels with the project.</span>
+        </div>
+      </div>
+      <div class="track" role="listitem">
+        <span class="track__label">A1</span>
+        <div class="track__body">
+          <strong>Audio that holds up</strong>
+          <span>mixer, dBFS meters, EQ, compressor, gate, de-esser, ducking, LUFS normalize — each one verified in the exported file, not just the preview.</span>
+        </div>
+      </div>
+      <div class="track" role="listitem">
+        <span class="track__label">EX</span>
+        <div class="track__body">
+          <strong>Export, no asterisks</strong>
+          <span>H.264, HEVC, ProRes 422, GIF, PNG sequence, M4A — hardware-encoded where available, with ranges, presets, chapters, and a background queue.</span>
+        </div>
+      </div>
+      <div class="track" role="listitem">
+        <span class="track__label">AI</span>
+        <div class="track__body">
+          <strong>Generated clips, priced up front</strong>
+          <span>hook up Seedance or Google Veo and generated footage lands in your media bin — you see the cost before a credit is spent.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ TECH -->
+  <section class="tech" id="tech">
+    <div class="tech__inner reveal">
+      <h2>Under the hood</h2>
+      <p class="tech__lede">
+        Nothing exotic for its own sake — each piece is there because the
+        editor needed it.
+      </p>
+      <dl class="tech__grid">
+        <div class="tech__item">
+          <dt>Rust + wgpu</dt>
+          <dd>A multi-pass GPU compositor renders the preview in real time and the export frame-by-frame. Same code, two callers — the reason exports match the preview.</dd>
+        </div>
+        <div class="tech__item">
+          <dt>Tauri&nbsp;2</dt>
+          <dd>A native macOS shell around a webview UI. The app is a ~19&nbsp;MB binary, not a bundled browser.</dd>
+        </div>
+        <div class="tech__item">
+          <dt>React + TypeScript</dt>
+          <dd>The UI and the timeline. One store owns the project; the AI and your mouse mutate it through the same actions.</dd>
+        </div>
+        <div class="tech__item">
+          <dt>FFmpeg</dt>
+          <dd>Decode, proxies, and encode — using the copy already on your machine. Nothing bundled, nothing phoning home.</dd>
+        </div>
+      </dl>
+      <p class="tech__keys">
+        API keys live in the macOS Keychain and are read only by the Rust
+        core — they never enter the UI layer and never leave your machine
+        except to the provider you chose. There’s no telemetry to opt out
+        of — none was ever put in.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ GET -->
+  <section class="get" id="download">
+    <div class="get__inner reveal">
+      <h2>Try it</h2>
+      <p class="get__req">macOS 13+ on Apple Silicon · FFmpeg on your PATH (<code>brew install ffmpeg</code>)</p>
+      <div class="get__actions">
+        <a class="btn btn--primary btn--lg" href="https://github.com/4mohdisa/motionaire/releases">Download the DMG</a>
+        <a class="btn btn--ghost btn--lg" href="https://github.com/4mohdisa/motionaire#build-from-source">Build from source</a>
+      </div>
+      <div class="get__honest">
+        <p>
+          <strong>One honest note:</strong> the app isn’t notarized yet — that
+          takes an Apple Developer membership this project doesn’t have — so
+          macOS will warn you on first launch, the way it does for every
+          unsigned open-source app. Right-click&nbsp;→&nbsp;Open, or clear the
+          quarantine flag:
+        </p>
+        <pre><code>xattr -cr /Applications/Motionaire.app</code></pre>
+        <p class="get__source">Every line of the app is public — you can read exactly what you’re running.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer__inner">
+    <span>Built by <a href="https://github.com/4mohdisa">4mohdisa</a></span>
+    <span class="footer__sep" aria-hidden="true">·</span>
+    <span><a href="https://github.com/4mohdisa/motionaire/blob/main/LICENSE">AGPL-3.0</a></span>
+    <span class="footer__sep" aria-hidden="true">·</span>
+    <span><a href="https://github.com/4mohdisa/motionaire">github.com/4mohdisa/motionaire</a></span>
+  </div>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

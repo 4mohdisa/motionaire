@@ -2518,3 +2518,55 @@ Gate: full cold suite after the changes.
   doesn't), so the GitHub Release OBJECT + DMG attachment need one
   authenticated `gh release create` — the exact command and the staged
   DMG path are in the session report. Code + v0.1.0 tag pushed over SSH.
+
+# Landing page session (session 15)
+
+**Built `landing/` — a single static page, deployable to Vercel with root
+directory `landing`, framework preset Other.** Plain HTML/CSS/JS: three
+files + copied assets, no framework, no build step, no dependencies.
+
+- **It uses the app's literal design system**: tokens copied from
+  apps/frontend/src/index.css (surfaces #0a0a0a→#262626, seams darker
+  than panels, white accent, --text-on-accent), the app's own font
+  stacks (system sans + ui-monospace), and its color philosophy — the
+  ONLY color on the page is the playhead red, spent on one meaningful
+  thing: a scrub playhead in the nav that tracks scroll progress with a
+  mono timecode (the page is a 60-second timeline; scrolling scrubs it).
+  One logged deviation: --text-tertiary is #8a8a8a here (app: #737373)
+  because the page sets readable prose in tertiary and #737373 fails
+  WCAG AA at those sizes; #8a8a8a passes on every surface used.
+- **Signature hero**: the flagship prompt types itself into a replica of
+  the app's chat composer, then the real diff line appears. The full
+  sentence ships as static HTML — no-JS and reduced-motion users see it
+  complete; JS clears it only when it will actually type.
+- Feature walk uses the four real screenshots (copied into
+  landing/assets/ so a `landing`-rooted deploy is self-contained); the
+  remaining features render as timeline TRACKS (V3/V2/A1/EX/AI rows with
+  header cells) — the app's own anatomy instead of a card grid.
+- Motion: IntersectionObserver reveals (content visible by default; the
+  `js` class opts in, and the blanket fallback fires ONLY if the
+  observer never delivers — a review catch: the original unconditional
+  1.6s timer would have pre-spent every below-fold reveal), rAF-throttled
+  scroll scrub + gentle screenshot parallax, all disabled under
+  prefers-reduced-motion (including the scrub, with a live matchMedia
+  listener).
+- **Verified for real**: headless Chrome full-page renders at 1440 and
+  small width, forced prefers-reduced-motion render, and DOM probes in
+  the live pane (the overnight locked-console environment paints black
+  on scrolled captures and never ticks rAF — the same WebKit occlusion
+  behavior sessions 2/11 documented, so DOM assertions carried the
+  verification where pixels couldn't). One real bug found and fixed: a
+  grid-item min-width:auto blowout (the nowrap mono flow strip forced
+  642px page width at 375 viewport) — min-width: 0 on the grid child.
+- **A 5-lens review workflow (tokens / honesty / a11y / code / copy)
+  returned 23 findings; all applied or already fixed**, notably: the
+  reveal-fallback bug above, tertiary contrast, "hardware-encoded"
+  requalified "where available" to match the README, invalid aria-label
+  on a <p> removed, a visually-hidden h2 for the walk section, unhashed
+  assets no longer marked immutable, track rows reordered V3/V2/A1 (no
+  editor interleaves audio between video tracks), and copy de-slopped
+  ("Export, no asterisks", "priced up front", the phantom slogan quote
+  cut).
+- Honesty held: macOS-only, not notarized + the xattr line, FFmpeg
+  requirement, no feature claims beyond the README. Deploy note in
+  landing/README.md. .claude/ (local harness config) gitignored.
