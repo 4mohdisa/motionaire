@@ -2585,3 +2585,14 @@ files + copied assets, no framework, no build step, no dependencies.
   Canonical + sitemap deliberately deferred until the production domain
   exists (guessing a domain would hurt, not help) — noted in
   landing/README.md.
+
+- Docs pass (user request): main README rewritten in a plain human voice
+  — leads with the product, then download, the idea, what's inside, AI
+  setup, build, how it works, honest limitations, license/author. Deep
+  technical sections moved OUT of the root into new apps/frontend/
+  README.md and apps/backend/README.md (each: what it is, where things
+  live, how to work on it, the load-bearing rules). Author/license
+  headers added to the three entry points (main.tsx, main.rs,
+  landing/index.html) — © Mohammed Isa, AGPL-3.0-only, isaxcode.com.
+  LICENSE already existed (root, full AGPL text); manifests already
+  carry author+license.
