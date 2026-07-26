@@ -2576,3 +2576,12 @@ files + copied assets, no framework, no build step, no dependencies.
   beside it; the box reserves an 88px right lane so text never runs
   under the button, and the button no longer hides on mobile (it fits
   now). Verified headless at 1440 and 500 wide.
+
+- SEO pass (user request): schema.org SoftwareApplication JSON-LD
+  (validated; author Person → isaxcode.com + github sameAs), full Open
+  Graph (site_name, image dims/alt) + Twitter summary_large_image,
+  robots meta + robots.txt, theme-color, keyworded title. Visible
+  footer backlink: "Built by 4mohdisa — more at isaxcode.com".
+  Canonical + sitemap deliberately deferred until the production domain
+  exists (guessing a domain would hurt, not help) — noted in
+  landing/README.md.

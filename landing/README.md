@@ -14,3 +14,11 @@ so the deployed site is self-contained).
 
 Local preview: any static server, e.g. `python3 -m http.server` in this
 directory.
+
+## SEO notes
+
+The page ships with structured data (schema.org SoftwareApplication),
+Open Graph + Twitter cards, `robots.txt`, and descriptive meta. Two
+things need the final domain once it exists, and are deliberately not
+guessed here: a `<link rel="canonical">` tag in `index.html` and a
+`sitemap.xml`.
